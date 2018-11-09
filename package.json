@@ -1,0 +1,20 @@
+{
+  "name": "ilu",
+  "version": "1.0.0",
+  "description": "Cli tools for productivity, notes, todo-lists, etc...",
+  "author": "Masquerade <christian@masquerade-circus.net>",
+  "repository": "git@github.com:Masquerade-Circus/ilu.git",
+  "license": "Apache-2.0",
+  "bin": {
+    "ilu": "./bin/cli.js"
+  },
+  "dependencies": {
+    "caporal": "^0.10.0",
+    "colors": "^1.3.2",
+    "inquirer": "^6.2.0",
+    "lodash": "^4.17.11",
+    "opus-db": "^1.0.3",
+    "shelljs": "^0.8.2"
+  },
+  "devDependencies": {}
+}
