@@ -466,6 +466,13 @@ iconv-lite@^0.4.24:
   dependencies:
     safer-buffer ">= 2.1.2 < 3"
 
+iludb@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/iludb/-/iludb-1.0.0.tgz#709d2a3586bb20ce33c526872de6e4814ce2bf7d"
+  integrity sha512-9X48e2kwaBTlBTZZ3y8+NqsX29wNQFE9Q8PreZfAECdTqcX+5iXShOOvIfub7IfO+mwckIYOnhiJ6jj0VVgQRw==
+  dependencies:
+    fs-extra "^7.0.1"
+
 import-lazy@^2.1.0:
   version "2.1.0"
   resolved "https://registry.yarnpkg.com/import-lazy/-/import-lazy-2.1.0.tgz#05698e3d45c88e8d7e9d92cb0584e77f096f3e43"
@@ -796,13 +803,6 @@ onetime@^2.0.0:
   integrity sha1-BnQoIw/WdEOyeUsiu6UotoZ5YtQ=
   dependencies:
     mimic-fn "^1.0.0"
-
-opus-db@^1.0.3:
-  version "1.0.4"
-  resolved "https://registry.yarnpkg.com/opus-db/-/opus-db-1.0.4.tgz#2cafcf6c3682f6b185e4678004c48b8b979f91f7"
-  integrity sha512-FGXeq1HOAckpmVixA94xaJ4k2k/0SC5/6QoZeC8ItaZ3/gS7K0ZDsoMqxnvStmax+2K+IHfaMomHj3DGj2RGrg==
-  dependencies:
-    fs-extra "^7.0.1"
 
 os-shim@^0.1.2:
   version "0.1.3"

@@ -1,6 +1,6 @@
 let os = require('os');
-let OpusDb = require('opus-db');
-let OpusDbNodeJsonPlugin = require('opus-db/plugins/opus-db-node-json-plugin');
-OpusDb.use(OpusDbNodeJsonPlugin);
+let IluDb = require('iludb');
+let IluDbNodeJsonPlugin = require('iludb/plugins/iludb-node-json-plugin');
+IluDb.use(IluDbNodeJsonPlugin);
 
-module.exports = (dbname) => OpusDb(`${os.homedir()}/.opus-notes/${dbname}.json`);
+module.exports = (dbname) => IluDb(`${os.homedir()}/.ilu/${dbname}.json`);
