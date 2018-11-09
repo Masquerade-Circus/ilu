@@ -1,6 +1,6 @@
 # ilu
 
-ilu 1.0.0 - Ilu - Cli tools for productivity
+ilu 1.0.0 - Cli tools for productivity
 
 ---
 ## Roadmap
@@ -10,9 +10,12 @@ ilu 1.0.0 - Ilu - Cli tools for productivity
 - [ ] World clock
 - [ ] Kanban boards
 - [ ] Callendar and remainders
-
-
-## COMMAND `ilu`
+---
+## Install
+     $ npm -g install ilu
+     $ yarn global add ilu
+---
+## Command `ilu`
 
 USAGE
 
@@ -33,7 +36,7 @@ GLOBAL OPTIONS
      --no-color         Disable colors
      --quiet            Quiet mode - only displays warn and error messages
      -v, --verbose      Verbose mode - will also output debug messages
-
+---
 ## COMMAND `ilu todo`
 
 USAGE
@@ -49,7 +52,7 @@ OPTIONS
      -s, --show                    Show all tasks
      -c, --check                   Check/uncheck finished tasks
      -r, --remove [position]       Remove the task at [position], if no position, remove all tasks
-
+---
 ## COMMAND `ilu todo-list`
 
  USAGE
@@ -69,7 +72,7 @@ OPTIONS
      -A, --add-label                    Add new label to the current list                                        
      -E, --edit-label <position>        Edit the label at <position>                                             
      -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels   
-
+---
 ## COMMAND `ilu note`
 
 USAGE
@@ -84,7 +87,7 @@ USAGE
      -e, --edit <position>         Edit the note at <position>                                              
      -s, --show                    Show all notes                                                           
      -r, --remove [position]       Remove the note at [position], if no position, remove all the notes   
-
+---
 ## COMMAND `ilu note-list`
 
 USAGE

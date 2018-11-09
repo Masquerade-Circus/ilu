@@ -1,8 +1,9 @@
 #!/usr/bin/node --harmony
 require('colors');
+let updateNotifier = require('update-notifier');
 let program = require('caporal');
-let packageJson = require('../package.json');
-// TODO use https://github.com/yeoman/update-notifier to show a update notification
+let pkg = require('../package.json');
+updateNotifier({pkg}).notify();
 // TODO use https://github.com/sindresorhus/terminal-link to parse content and convert links
 // TODO use https://github.com/Automattic/cli-table to kanban
 
@@ -10,7 +11,7 @@ let Todos = require('../todos');
 let Notes = require('../notes');
 let optionalInt = (opt) => typeof opt === 'boolean' ? opt : parseInt(opt);
 
-program.version(packageJson.version).description('Ilu - Cli tools for productivity');
+program.version(pkg.version).description('Cli tools for productivity');
 
 program
     .command('todo')

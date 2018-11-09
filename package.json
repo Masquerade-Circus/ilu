@@ -1,6 +1,6 @@
 {
   "name": "ilu",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cli tools for productivity, notes, todo-lists, etc...",
   "author": "Masquerade <christian@masquerade-circus.net>",
   "repository": "git@github.com:Masquerade-Circus/ilu.git",
@@ -14,7 +14,8 @@
     "inquirer": "^6.2.0",
     "lodash": "^4.17.11",
     "opus-db": "^1.0.3",
-    "shelljs": "^0.8.2"
+    "shelljs": "^0.8.2",
+    "update-notifier": "^2.5.0"
   },
   "devDependencies": {}
 }
