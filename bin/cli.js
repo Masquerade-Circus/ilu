@@ -9,6 +9,7 @@ updateNotifier({pkg}).notify();
 
 let Todos = require('../todos');
 let Notes = require('../notes');
+let Translate = require('../translate');
 let optionalInt = (opt) => typeof opt === 'boolean' ? opt : parseInt(opt);
 
 program.version(pkg.version).description('Cli tools for productivity');
@@ -71,5 +72,15 @@ program
     .option('-E, --edit-label <position>', 'Edit the label at <position>', program.INT)
     .option('-R, --remove-label [position]', 'Remove the label at [position], if no position, remove all labels', optionalInt)
     .action(Notes.Lists.actions);
+
+program
+    .command('babel')
+    .alias('b')
+    .help('ilu'.italic + ' b ' + '<text...>'.blue)
+    .description('Translate text')
+    .option('-s, --source [source]', 'Source language', null, 'auto')
+    .option('-t, --target [target]', 'Target language', null, Translate.osLang)
+    .argument('<text...>', 'Text to translate', Translate.validate)
+    .action(Translate.action);
 
 program.parse(process.argv);

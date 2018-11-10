@@ -1,20 +1,27 @@
 # ilu
 
-ilu 1.0.0 - Cli tools for productivity
+ilu 1.0.4 - Cli tools for productivity
 
 ---
+
 ## Roadmap
-- [X] Todos
-- [X] Simple notes
-- [ ] Translator
+
+- [x] Todos
+- [x] Simple notes
+- [X] Translator
 - [ ] World clock
 - [ ] Kanban boards
 - [ ] Callendar and remainders
+
 ---
+
 ## Install
+
      $ npm -g install ilu
      $ yarn global add ilu
+
 ---
+
 ## Command `ilu`
 
 USAGE
@@ -36,7 +43,9 @@ GLOBAL OPTIONS
      --no-color         Disable colors
      --quiet            Quiet mode - only displays warn and error messages
      -v, --verbose      Verbose mode - will also output debug messages
+
 ---
+
 ## COMMAND `ilu todo`
 
 USAGE
@@ -52,58 +61,82 @@ OPTIONS
      -s, --show                    Show all tasks
      -c, --check                   Check/uncheck finished tasks
      -r, --remove [position]       Remove the task at [position], if no position, remove all tasks
+
 ---
+
 ## COMMAND `ilu todo-list`
 
- USAGE
+USAGE
 
-     ilu todo-list 
+     ilu todo-list
      ilu tl
 
-   OPTIONS
+OPTIONS
 
-     -a, --add                          Add new list                                                             
-     -d, --details <position>           Show details of the list at <position>                                   
-     -e, --edit <position>              Edit the list at <position>                                              
-     -s, --show                         Show all lists                                                           
-     -u, --use <position>               Use the list at <position>                                               
-     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists      
-     -c, --current                      Show the details of the current list                                     
-     -A, --add-label                    Add new label to the current list                                        
-     -E, --edit-label <position>        Edit the label at <position>                                             
-     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels   
+     -a, --add                          Add new list
+     -d, --details <position>           Show details of the list at <position>
+     -e, --edit <position>              Edit the list at <position>
+     -s, --show                         Show all lists
+     -u, --use <position>               Use the list at <position>
+     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists
+     -c, --current                      Show the details of the current list
+     -A, --add-label                    Add new label to the current list
+     -E, --edit-label <position>        Edit the label at <position>
+     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels
+
 ---
+
 ## COMMAND `ilu note`
 
 USAGE
 
-     ilu note 
+     ilu note
      ilu n
 
-   OPTIONS
+OPTIONS
 
-     -a, --add                     Add a new note                                                           
-     -d, --details <position>      Show details of the note at <postion>                                    
-     -e, --edit <position>         Edit the note at <position>                                              
-     -s, --show                    Show all notes                                                           
-     -r, --remove [position]       Remove the note at [position], if no position, remove all the notes   
+     -a, --add                     Add a new note
+     -d, --details <position>      Show details of the note at <postion>
+     -e, --edit <position>         Edit the note at <position>
+     -s, --show                    Show all notes
+     -r, --remove [position]       Remove the note at [position], if no position, remove all the notes
+
 ---
+
 ## COMMAND `ilu note-list`
 
 USAGE
 
-     ilu note-list 
+     ilu note-list
      ilu nl
 
-   OPTIONS
+OPTIONS
 
-     -a, --add                          Add new list                                                             
-     -d, --details <position>           Show details of the list at <position>                                   
-     -e, --edit <position>              Edit the list at <position>                                              
-     -s, --show                         Show all lists                                                           
-     -u, --use <position>               Use the list at <position>                                               
-     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists      
-     -c, --current                      Show the details of the current list                                     
-     -A, --add-label                    Add new label to the current list                                        
-     -E, --edit-label <position>        Edit the label at <position>                                             
-     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels   
+     -a, --add                          Add new list
+     -d, --details <position>           Show details of the list at <position>
+     -e, --edit <position>              Edit the list at <position>
+     -s, --show                         Show all lists
+     -u, --use <position>               Use the list at <position>
+     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists
+     -c, --current                      Show the details of the current list
+     -A, --add-label                    Add new label to the current list
+     -E, --edit-label <position>        Edit the label at <position>
+     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels
+
+---
+
+## COMMAND `ilu babel`
+
+USAGE
+
+     ilu babel <text...>
+     ilu b <text...>
+
+ARGUMENTS
+
+     <text...>      Text to translate      required
+
+OPTIONS
+
+     -s, --source [source]      Source language      optional      default: "auto"
+     -t, --target [target]      Target language      optional      default: "es"
