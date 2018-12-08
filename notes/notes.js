@@ -3,8 +3,32 @@ let {required, log, getLabel} = require('../utils');
 let Model = require('./model');
 let isUndefined = require('lodash/isUndefined');
 let find = require('lodash/find');
+let os = require('os');
+let opn = require('opn');
+let shelljs = require('shelljs');
+let editors = [
+    'notepad',
+    'gedit',
+    'textedit',
+    'code',
+    'atom',
+    'emacs',
+    'sublime',
+    'webstorm',
+    'phpstorm',
+    'visualstudio'
+];
+
+let editor = null;
+for (let cmd of editors) {
+    if (shelljs.which(cmd)) {
+        editor = cmd;
+        break;
+    }
+}
 
 let Notes = {
+    dir: `${os.homedir()}/.ilu/`,
     getCurrent() {
         let list = Model.getCurrent();
         if (!list) {
@@ -28,10 +52,8 @@ let Notes = {
     },
     async add() {
         let list = Notes.getCurrent();
-
         let questions = [
-            { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title')},
-            { type: 'input', name: 'content', message: 'Content of the note'}
+            { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title')}
         ];
 
         if (list.labels.length > 0) {
@@ -44,7 +66,21 @@ let Notes = {
             questions.push({type: 'checkbox', name: 'labels', message: 'Add labels to the note.', choices: choices });
         }
 
+        if (!editor) {
+            questions.push({ type: 'input', name: 'content', message: 'Content of the note'});
+        }
+
         let answers = await inquirer.prompt(questions);
+
+        if (editor) {
+            let file = `${Notes.dir}note.txt`;
+            shelljs.touch(file);
+            shelljs.chmod(755, file);
+            await opn(file, {wait: true, app: editor});
+            answers.content = shelljs.cat(file).stdout;
+            shelljs.rm(file);
+        }
+
         Model.notes.add(answers);
         Notes.show();
     },
@@ -98,8 +134,7 @@ let Notes = {
         let list = Notes.getCurrent();
 
         let questions = [
-            { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title'), default: item.title},
-            { type: 'input', name: 'content', message: 'Content of the note', default: item.content}
+            { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title'), default: item.title}
         ];
 
         if (list.labels.length > 0) {
@@ -114,25 +149,34 @@ let Notes = {
             questions.push({type: 'checkbox', name: 'labels', message: 'Add labels to the note.', choices: choices });
         }
 
+        if (!editor) {
+            questions.push({ type: 'input', name: 'content', message: 'Content of the note', default: item.content});
+        }
+
         let answers = await inquirer.prompt(questions);
+
+        if (editor) {
+            let file = `${Notes.dir}note.txt`;
+            shelljs.touch(file);
+            shelljs.chmod(755, file);
+            shelljs.ShellString(item.content).to(file);
+            await opn(file, {wait: true, app: editor});
+            answers.content = shelljs.cat(file).stdout;
+            shelljs.rm(file);
+        }
+
         Model.notes.edit(index, answers);
         Notes.show();
     },
     async actions(args, opts) {
-        try {
-            switch (true) {
-                case !isUndefined(opts.add): await Notes.add(); break;
-                case !isUndefined(opts.details): Notes.details(opts.details); break;
-                case !isUndefined(opts.show): Notes.show(); break;
-                case !isUndefined(opts.remove): Notes.remove(opts.remove); break;
-                case !isUndefined(opts.check): await Notes.check(); break;
-                case !isUndefined(opts.edit): await Notes.edit(opts.edit); break;
-                default: Notes.show(); break;
-            }
-        } catch (error) {
-            console.log(error);
+        switch (true) {
+            case !isUndefined(opts.add): await Notes.add(); break;
+            case !isUndefined(opts.details): Notes.details(opts.details); break;
+            case !isUndefined(opts.show): Notes.show(); break;
+            case !isUndefined(opts.remove): Notes.remove(opts.remove); break;
+            case !isUndefined(opts.edit): await Notes.edit(opts.edit); break;
+            default: Notes.show(); break;
         }
-
     }
 };
 

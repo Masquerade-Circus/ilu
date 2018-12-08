@@ -1,4 +1,5 @@
 let fetch = require('node-fetch');
+let clipboardy = require('clipboardy');
 let {log} = require('../utils');
 
 // let exampleResponseSingleWord = {
@@ -107,9 +108,11 @@ let Translator = {
             return;
         }
 
+        await clipboardy.write(translation.trans);
+
         log(
             `${response.src.toUpperCase()} > ${opts.target.toUpperCase()}: `.gray
-            + translation.trans
+            + translation.trans + ' (Copied to clipboard)'.gray
         );
 
         if (interjection) {
