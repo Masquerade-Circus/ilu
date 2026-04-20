@@ -89,18 +89,20 @@ test('configureProgram registra los comandos principales del CLI', () => {
     updateNotifier: () => ({ notify() {} }),
     Todos: { Tasks: { actions: action }, Lists: { actions: action } },
     Notes: { Notes: { actions: action }, Lists: { actions: action } },
-    Translate: { osLang: 'es', validate: translateValidate, action }
+    Translate: { osLang: 'es', validate: translateValidate, action },
+    Clocks: { actions: action }
   });
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'todo-list', 'note', 'note-list', 'babel']
+    ['todo', 'todo-list', 'note', 'note-list', 'babel', 'clock']
   );
   assert.equal(commands[0].alias, 't');
   assert.equal(commands[1].alias, 'tl');
   assert.equal(commands[2].alias, 'n');
   assert.equal(commands[3].alias, 'nl');
   assert.equal(commands[4].alias, 'b');
+  assert.equal(commands[5].alias, 'c');
   assert.equal(commands[4].arguments[0].signature, '<text...>');
 });
 
@@ -116,13 +118,14 @@ test('configureProgram no requiere update-notifier para registrar comandos', () 
       pkg: { version: '0.0.0' },
       Todos: { Tasks: { actions: action }, Lists: { actions: action } },
       Notes: { Notes: { actions: action }, Lists: { actions: action } },
-      Translate: { osLang: 'es', validate: () => true, action }
+      Translate: { osLang: 'es', validate: () => true, action },
+      Clocks: { actions: action }
     });
   });
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'todo-list', 'note', 'note-list', 'babel']
+    ['todo', 'todo-list', 'note', 'note-list', 'babel', 'clock']
   );
 });
 
@@ -142,7 +145,8 @@ test('configureProgram deja los comandos principales parseables con commander y 
     pkg: {version: '0.0.0'},
     Todos: {Tasks: {actions: action}, Lists: {actions: action}},
     Notes: {Notes: {actions: action}, Lists: {actions: action}},
-    Translate: {osLang: 'es', validate: value => value.join(' '), action}
+    Translate: {osLang: 'es', validate: value => value.join(' '), action},
+    Clocks: {actions: action}
   });
 
   await program.parseAsync(['node', 'ilu', 't', '--remove', '2']);
@@ -170,7 +174,8 @@ test('configureProgram preserva argumentos y defaults de babel al parsear con co
     pkg: {version: '0.0.0'},
     Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
     Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
-    Translate: {osLang: 'es', validate: value => value.join(' '), action}
+    Translate: {osLang: 'es', validate: value => value.join(' '), action},
+    Clocks: {actions: async () => {}}
   });
 
   await program.parseAsync(['node', 'ilu', 'b', 'hola', 'mundo']);
@@ -198,10 +203,40 @@ test('configureProgram preserva opciones opcionales sin valor explícito para re
     pkg: {version: '0.0.0'},
     Todos: {Tasks: {actions: async () => {}}, Lists: {actions: action}},
     Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
-    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}}
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
   });
 
   await program.parseAsync(['node', 'ilu', 'tl', '--remove']);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    args: [],
+    opts: {remove: true}
+  });
+});
+
+test('configureProgram registra y parsea clock con alias y remove opcional', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const calls = [];
+  const action = async (args, opts) => {
+    calls.push({args, opts});
+  };
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: action}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'c', '--remove']);
 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {

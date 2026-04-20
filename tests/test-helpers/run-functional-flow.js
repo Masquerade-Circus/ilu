@@ -14,6 +14,15 @@ const promptAnswersByFlow = {
   note: [
     {title: 'Ideas', description: 'Notas base'},
     {title: 'Idea rápida', content: 'Texto funcional'}
+  ],
+  clock: [
+    {search: 'mexico'},
+    {timezone: 'America/Mexico_City'},
+    {name: 'CDMX'},
+    {search: 'madrid'},
+    {timezone: 'Europe/Madrid'},
+    {name: 'Madrid'},
+    {indexes: [1]}
   ]
 };
 
@@ -85,6 +94,28 @@ async function main() {
         dbFile: localPaths.dbFilePath('notes'),
         dbFileExists: fs.existsSync(localPaths.dbFilePath('notes')),
         currentList: NotesModel.getCurrent(),
+        output: output.join('\n')
+      };
+    }
+
+    if (flowName === 'clock') {
+      const Clocks = require(path.join(repoRoot, 'clocks'));
+      const ClocksModel = require(path.join(repoRoot, 'clocks', 'model.js'));
+
+      await Clocks.actions([], {add: true});
+      await Clocks.actions([], {add: true});
+      await Clocks.actions([], {show: true});
+      await Clocks.actions([], {remove: 2});
+      const afterRemoveOne = ClocksModel.find();
+      await Clocks.actions([], {remove: true});
+
+      result = {
+        storageDir: localPaths.storageDirPath(),
+        dbFile: localPaths.dbFilePath('clocks'),
+        dbFileExists: fs.existsSync(localPaths.dbFilePath('clocks')),
+        savedClocksBeforeRemoveAll: afterRemoveOne,
+        savedClocksAfterRemoveAll: ClocksModel.find(),
+        removeSelection: [1],
         output: output.join('\n')
       };
     }

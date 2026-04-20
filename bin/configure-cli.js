@@ -8,7 +8,8 @@ function configureProgram(program, deps) {
     updateNotifier,
     Todos,
     Notes,
-    Translate
+    Translate,
+    Clocks
   } = deps;
 
   if (typeof updateNotifier === 'function') {
@@ -100,6 +101,15 @@ function configureProgram(program, deps) {
       Translate.action,
       ([text]) => ({text: Translate.validate(text)})
     ));
+
+  program
+    .command('clock')
+    .alias('c')
+    .description('Manage saved clocks')
+    .option('-a, --add', 'Add a new clock')
+    .option('-s, --show', 'Show all saved clocks')
+    .option('-r, --remove [position]', 'Remove the clock at [position], if no position, remove all clocks', optionalInt)
+    .action(createActionAdapter(Clocks.actions));
 
   return program;
 }

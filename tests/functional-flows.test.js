@@ -49,3 +49,20 @@ test('flujo funcional base de note agrega lista y nota en HOME temporal', () => 
   assert.equal(result.currentList.notes[0].content, 'Texto funcional');
   assert.match(result.output, /1 Idea rápida/);
 });
+
+test('flujo funcional base de clock agrega, muestra y elimina relojes en HOME temporal', () => {
+  const {tempHome, payload: result} = runFlow('clock');
+
+  assert.equal(result.storageDir, path.join(tempHome, '.ilu'));
+  assert.equal(result.dbFile, path.join(tempHome, '.ilu', 'clocks.json'));
+  assert.equal(result.dbFileExists, true);
+  assert.deepEqual(
+    result.savedClocksBeforeRemoveAll.map(clock => ({name: clock.name, timezone: clock.timezone})),
+    [{name: 'CDMX', timezone: 'America/Mexico_City'}]
+  );
+  assert.deepEqual(result.savedClocksAfterRemoveAll, []);
+  assert.deepEqual(result.removeSelection, [1]);
+  assert.match(result.output, /CDMX/);
+  assert.match(result.output, /America\/Mexico_City/);
+  assert.match(result.output, /1 clock has been removed/i);
+});

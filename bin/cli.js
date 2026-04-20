@@ -7,6 +7,7 @@ let pkg = require('../package.json');
 let Todos = require('../todos');
 let Notes = require('../notes');
 let Translate = require('../translate');
+let Clocks = require('../clocks');
 let configureProgram = require('./configure-cli');
 
 let program = new Command();
@@ -15,7 +16,8 @@ configureProgram(program, {
     pkg,
     Todos,
     Notes,
-    Translate
+    Translate,
+    Clocks
 });
 
 program.parse(process.argv);

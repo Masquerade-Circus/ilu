@@ -143,7 +143,7 @@ let Lists = {
         let answers = await inquirer
             .prompt([
                 { type: 'input', name: 'title', message: 'Title of the label', suffix: ' (required)', validate: required('title')},
-                { type: 'list', name: 'color', message: 'Background color of the label', choices, choices}
+                { type: 'select', name: 'color', message: 'Background color of the label', choices, choices}
             ]);
 
         Model.labels.add(answers);
@@ -164,7 +164,7 @@ let Lists = {
         let answers = await inquirer
             .prompt([
                 { type: 'input', name: 'title', message: 'Title of the label', suffix: ' (required)', validate: required('title'), default: label.title},
-                { type: 'list', name: 'color', message: 'Background color of the label', choices, choices}
+                { type: 'select', name: 'color', message: 'Background color of the label', choices, choices}
             ]);
 
         Model.labels.edit(index, answers);

@@ -40,3 +40,12 @@ test('node bin/cli.js todo --help muestra ayuda del subcomando', () => {
   assert.match(`${result.stdout}${result.stderr}`, /Manage Todo tasks for the current active list/);
   assert.match(`${result.stdout}${result.stderr}`, /-a, --add/);
 });
+
+test('node bin/cli.js clock --help muestra ayuda del subcomando', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'clock', '--help');
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(`${result.stdout}${result.stderr}`, /Manage saved clocks/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-a, --add/);
+  assert.match(`${result.stdout}${result.stderr}`, /-r, --remove/);
+});

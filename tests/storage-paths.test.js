@@ -20,6 +20,7 @@ test('utils/local-paths resuelve .ilu, bases de datos y temporales bajo HOME', (
   try {
     assert.equal(localPaths.storageDirPath(), path.join(tempHome, '.ilu'));
     assert.equal(localPaths.dbFilePath('notes'), path.join(tempHome, '.ilu', 'notes.json'));
+    assert.equal(localPaths.dbFilePath('clocks'), path.join(tempHome, '.ilu', 'clocks.json'));
     assert.equal(localPaths.noteTempFilePath(), path.join(tempHome, '.ilu', 'note.txt'));
   } finally {
     process.env.HOME = originalHome;

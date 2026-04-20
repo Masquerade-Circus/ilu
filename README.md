@@ -1,142 +1,216 @@
 # ilu
 
-ilu 1.0.4 - Cli tools for productivity
+Small Node.js CLI utilities for personal productivity.
 
----
+`ilu` currently includes:
+
+- todo items and todo lists
+- notes and note lists
+- quick text translation
+- saved world clocks
 
 ## Roadmap
 
 - [x] Todos
 - [x] Simple notes
-- [X] Translator
-- [ ] World clock
+- [x] Translator
+- [x] World clock
 - [ ] Kanban boards
 - [ ] Callendar and remainders
 
----
-
 ## Install
 
-     $ npm -g install ilu
-     $ yarn global add ilu
+### Run from this repository
 
----
+```bash
+npm install
+node bin/cli.js --help
+```
 
-## Command `ilu`
+The real CLI entry point in this repo is `bin/cli.js`.
 
-USAGE
+You can also use:
 
-     ilu <command> [options]
+```bash
+node index.js --help
+```
 
-COMMANDS
+### Installed CLI name
 
-     todo                Manage Todo tasks for the current active list
-     todo-list           Manage Todo lists
-     note                Manage Notes for the current active list
-     note-list           Manage Note Lists
-     help <command>      Display help for a specific command
+The published executable name is:
 
-GLOBAL OPTIONS
+```bash
+ilu
+```
 
-     -h, --help         Display help
-     -V, --version      Display version
-     --no-color         Disable colors
-     --quiet            Quiet mode - only displays warn and error messages
-     -v, --verbose      Verbose mode - will also output debug messages
+If the package is installed globally, you can run commands like:
 
----
+```bash
+ilu --help
+ilu todo --show
+```
 
-## COMMAND `ilu todo`
+## Usage
 
-USAGE
+```bash
+ilu <command> [options]
+```
 
-     ilu todo
-     ilu t
+Available commands:
 
-OPTIONS
+| Command     | Alias | Purpose                               |
+| ----------- | ----- | ------------------------------------- |
+| `todo`      | `t`   | Manage tasks in the current todo list |
+| `todo-list` | `tl`  | Manage todo lists                     |
+| `note`      | `n`   | Manage notes in the current note list |
+| `note-list` | `nl`  | Manage note lists                     |
+| `babel`     | `b`   | Translate text                        |
+| `clock`     | `c`   | Manage saved clocks                   |
 
-     -a, --add                     Add a new task
-     -d, --details <position>      Show details  of the task at <position>
-     -e, --edit <position>         Edit the task at <position>
-     -s, --show                    Show all tasks
-     -c, --check                   Check/uncheck finished tasks
-     -r, --remove [position]       Remove the task at [position], if no position, remove all tasks
+Most resource commands default to `--show` behavior when you run them without flags.
 
----
+## Interactive behavior
 
-## COMMAND `ilu todo-list`
+Commands that create or edit data are designed for a human using an interactive terminal.
 
-USAGE
+If an interactive command is run without a TTY, `ilu` exits with a clean error message instead of a prompt stack trace.
 
-     ilu todo-list
-     ilu tl
+## Commands overview
 
-OPTIONS
+### `todo` / `t`
 
-     -a, --add                          Add new list
-     -d, --details <position>           Show details of the list at <position>
-     -e, --edit <position>              Edit the list at <position>
-     -s, --show                         Show all lists
-     -u, --use <position>               Use the list at <position>
-     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists
-     -c, --current                      Show the details of the current list
-     -A, --add-label                    Add new label to the current list
-     -E, --edit-label <position>        Edit the label at <position>
-     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels
+Manage tasks for the current active todo list.
 
----
+Common options:
 
-## COMMAND `ilu note`
+- `--add`
+- `--details <position>`
+- `--edit <position>`
+- `--show`
+- `--check`
+- `--remove [position]`
 
-USAGE
+### `todo-list` / `tl`
 
-     ilu note
-     ilu n
+Manage todo lists.
 
-OPTIONS
+Common options:
 
-     -a, --add                     Add a new note
-     -d, --details <position>      Show details of the note at <postion>
-     -e, --edit <position>         Edit the note at <position>
-     -s, --show                    Show all notes
-     -r, --remove [position]       Remove the note at [position], if no position, remove all the notes
+- `--add`
+- `--details <position>`
+- `--edit <position>`
+- `--show`
+- `--use <position>`
+- `--current`
+- `--remove [position]`
+- `--add-label`
+- `--edit-label <position>`
+- `--remove-label [position]`
 
----
+### `note` / `n`
 
-## COMMAND `ilu note-list`
+Manage notes for the current active note list.
 
-USAGE
+Common options:
 
-     ilu note-list
-     ilu nl
+- `--add`
+- `--details <position>`
+- `--edit <position>`
+- `--show`
+- `--remove [position]`
 
-OPTIONS
+### `note-list` / `nl`
 
-     -a, --add                          Add new list
-     -d, --details <position>           Show details of the list at <position>
-     -e, --edit <position>              Edit the list at <position>
-     -s, --show                         Show all lists
-     -u, --use <position>               Use the list at <position>
-     -r, --remove [position]            Remove the list at [position], if no position, remove all the lists
-     -c, --current                      Show the details of the current list
-     -A, --add-label                    Add new label to the current list
-     -E, --edit-label <position>        Edit the label at <position>
-     -R, --remove-label [position]      Remove the label at [position], if no position, remove all labels
+Manage note lists.
 
----
+Common options:
 
-## COMMAND `ilu babel`
+- `--add`
+- `--details <position>`
+- `--edit <position>`
+- `--show`
+- `--use <position>`
+- `--current`
+- `--remove [position]`
+- `--add-label`
+- `--edit-label <position>`
+- `--remove-label [position]`
 
-USAGE
+### `babel` / `b`
 
-     ilu babel <text...>
-     ilu b <text...>
+Translate text.
 
-ARGUMENTS
+```bash
+ilu babel <text...>
+ilu b <text...>
+```
 
-     <text...>      Text to translate      required
+Options:
 
-OPTIONS
+- `--source [source]` — defaults to `auto`
+- `--target [target]` — defaults to the current system language at runtime
 
-     -s, --source [source]      Source language      optional      default: "auto"
-     -t, --target [target]      Target language      optional      default: "es"
+Notes:
+
+- translation uses the native `fetch` available in the current Node.js runtime
+- the translated text is copied to the clipboard
+
+### `clock` / `c`
+
+Manage saved clocks.
+
+```bash
+ilu clock
+ilu c
+```
+
+Options:
+
+- `--add` — add a new saved clock
+- `--show` — show all saved clocks
+- `--remove [position]` — remove one clock by position, or remove all when no position is given
+
+Behavior:
+
+- running `ilu clock` with no flags shows saved clocks by default
+- clocks are stored in `~/.ilu/clocks.json`
+- each clock requires an IANA timezone and a display name
+- output is shown as: time, then name, then timezone
+- the output uses color styling for those segments
+
+Example display shape:
+
+```text
+1 10:15:20 - CDMX (America/Mexico_City)
+```
+
+## Local data
+
+`ilu` stores its local files under:
+
+```text
+~/.ilu/
+```
+
+Examples used by the current codebase:
+
+- `~/.ilu/todos.json`
+- `~/.ilu/notes.json`
+- `~/.ilu/clocks.json`
+- `~/.ilu/note.txt`
+
+## Testing
+
+Run the test suite with:
+
+```bash
+npm test
+```
+
+Current `npm test` runs:
+
+```bash
+node --test
+```
+
+The repository includes CLI and functional tests under `tests/`.
