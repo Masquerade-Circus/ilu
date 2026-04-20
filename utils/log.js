@@ -1,4 +1,48 @@
-let symbol = require('node-symbols');
+let fallbackSymbols = {
+    tick: '✔',
+    cross: '✖',
+    star: '★',
+    square: '▇',
+    squareSmall: '◻',
+    squareSmallFilled: '◼',
+    play: '▶',
+    circle: '◯',
+    circleFilled: '◉',
+    circleDotted: '◌',
+    circleDouble: '◎',
+    circleCircle: 'ⓞ',
+    circleCross: 'ⓧ',
+    circlePipe: 'Ⓘ',
+    circleQuestionMark: '?',
+    bullet: '●',
+    dot: '․',
+    line: '─',
+    ellipsis: '…',
+    pointer: '❯',
+    pointerSmall: '›',
+    info: 'ℹ',
+    warning: '⚠',
+    hamburger: '☰',
+    smiley: '㋡',
+    mustache: '෴',
+    heart: '♥',
+    arrowUp: '↑',
+    arrowDown: '↓',
+    arrowLeft: '←',
+    arrowRight: '→',
+    radioOn: '◉',
+    radioOff: '◯',
+    checkboxOn: '☒',
+    checkboxOff: '☐',
+    checkboxCircleOn: 'ⓧ',
+    checkboxCircleOff: 'Ⓘ'
+};
+
+function symbol(type, color) {
+    let icon = fallbackSymbols[type] || '';
+    return color && icon[color] ? icon[color] : icon;
+}
+
 let logMethods = [
     'tick',
     'cross',

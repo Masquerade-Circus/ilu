@@ -1,4 +1,4 @@
-let inquirer = require('inquirer');
+let inquirer = require('../utils/inquirer');
 let {required, log, getLabel} = require('../utils');
 let Model = require('./model');
 let isUndefined = require('lodash/isUndefined');

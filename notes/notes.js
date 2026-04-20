@@ -1,11 +1,12 @@
-let inquirer = require('inquirer');
+let inquirer = require('../utils/inquirer');
+let fs = require('node:fs');
+let path = require('node:path');
 let {required, log, getLabel} = require('../utils');
 let Model = require('./model');
 let isUndefined = require('lodash/isUndefined');
 let find = require('lodash/find');
-let os = require('os');
-let opn = require('opn');
-let shelljs = require('shelljs');
+let openWithEditor = require('./open-with-editor');
+let localPaths = require('../utils/local-paths');
 let editors = [
     'notepad',
     'gedit',
@@ -18,17 +19,92 @@ let editors = [
     'phpstorm',
     'visualstudio'
 ];
+let darwinAppEditors = [
+    'textedit',
+    'code',
+    'atom',
+    'emacs',
+    'sublime',
+    'webstorm',
+    'phpstorm',
+    'visualstudio'
+];
 
 let editor = null;
+
+function getPathEntries() {
+    let pathEnv = process.env.PATH || '';
+    return pathEnv.split(path.delimiter).filter(Boolean);
+}
+
+function getCommandCandidates(cmd) {
+    if (process.platform !== 'win32') {
+        return [cmd];
+    }
+
+    let pathExt = process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM';
+    let extensions = pathExt.split(';').filter(Boolean);
+    let normalizedCmd = cmd.toLowerCase();
+
+    if (extensions.some(ext => normalizedCmd.endsWith(ext.toLowerCase()))) {
+        return [cmd];
+    }
+
+    return [cmd, ...extensions.map(ext => `${cmd}${ext}`)];
+}
+
+function commandExists(cmd) {
+    for (let dir of getPathEntries()) {
+        for (let candidate of getCommandCandidates(cmd)) {
+            let fullPath = path.join(dir, candidate);
+
+            try {
+                fs.accessSync(fullPath, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+                return true;
+            } catch (error) {}
+        }
+    }
+
+    return false;
+}
+
+function editorAvailable(cmd) {
+    return commandExists(cmd) || (process.platform === 'darwin' && darwinAppEditors.includes(cmd));
+}
+
+function ensureTempFile(file) {
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    fs.closeSync(fs.openSync(file, 'a'));
+    if (process.platform !== 'win32') {
+        fs.chmodSync(file, 0o600);
+    }
+}
+
+function readTempFile(file) {
+    return fs.readFileSync(file, 'utf8');
+}
+
+function writeTempFile(file, content) {
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    fs.writeFileSync(file, content, 'utf8');
+}
+
+function removeTempFile(file) {
+    fs.rmSync(file, {force: true});
+}
+
 for (let cmd of editors) {
-    if (shelljs.which(cmd)) {
+    if (editorAvailable(cmd)) {
         editor = cmd;
         break;
     }
 }
 
 let Notes = {
-    dir: `${os.homedir()}/.ilu/`,
+    dir: `${localPaths.storageDirPath()}/`,
+    getTempFilePath() {
+        return localPaths.noteTempFilePath();
+    },
     getCurrent() {
         let list = Model.getCurrent();
         if (!list) {
@@ -73,12 +149,11 @@ let Notes = {
         let answers = await inquirer.prompt(questions);
 
         if (editor) {
-            let file = `${Notes.dir}note.txt`;
-            shelljs.touch(file);
-            shelljs.chmod(755, file);
-            await opn(file, {wait: true, app: editor});
-            answers.content = shelljs.cat(file).stdout;
-            shelljs.rm(file);
+            let file = Notes.getTempFilePath();
+            ensureTempFile(file);
+            await openWithEditor(file, {app: editor});
+            answers.content = readTempFile(file);
+            removeTempFile(file);
         }
 
         Model.notes.add(answers);
@@ -156,13 +231,12 @@ let Notes = {
         let answers = await inquirer.prompt(questions);
 
         if (editor) {
-            let file = `${Notes.dir}note.txt`;
-            shelljs.touch(file);
-            shelljs.chmod(755, file);
-            shelljs.ShellString(item.content).to(file);
-            await opn(file, {wait: true, app: editor});
-            answers.content = shelljs.cat(file).stdout;
-            shelljs.rm(file);
+            let file = Notes.getTempFilePath();
+            ensureTempFile(file);
+            writeTempFile(file, item.content);
+            await openWithEditor(file, {app: editor});
+            answers.content = readTempFile(file);
+            removeTempFile(file);
         }
 
         Model.notes.edit(index, answers);

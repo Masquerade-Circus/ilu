@@ -1,6 +1,6 @@
-let os = require('os');
 let IluDb = require('iludb');
 let IluDbNodeJsonPlugin = require('iludb/plugins/iludb-node-json-plugin');
+let {dbFilePath} = require('./local-paths');
 IluDb.use(IluDbNodeJsonPlugin);
 
-module.exports = (dbname) => IluDb(`${os.homedir()}/.ilu/${dbname}.json`);
+module.exports = (dbname) => IluDb(dbFilePath(dbname));

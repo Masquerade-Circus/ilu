@@ -1,5 +1,5 @@
 let isUndefined = require('lodash/isUndefined');
-let inquirer = require('inquirer');
+let inquirer = require('../utils/inquirer');
 let {required, log, colors, getLabel} = require('../utils');
 let Model = require('./model');
 

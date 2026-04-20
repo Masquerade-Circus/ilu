@@ -1,2 +1,2 @@
 #!/usr/bin/node --harmony
-require('./bin/cli2');
+require('./bin/cli');

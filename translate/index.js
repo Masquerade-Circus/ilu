@@ -1,6 +1,8 @@
-let fetch = require('node-fetch');
+require('colors');
+
 let clipboardy = require('clipboardy');
 let {log} = require('../utils');
+let {createGoogleTranslateProvider} = require('./google-translate-provider');
 
 // let exampleResponseSingleWord = {
 //     sentences: [{ trans: 'Hola', orig: 'Hello', backend: 1 }],
@@ -67,61 +69,67 @@ let {log} = require('../utils');
 // };
 
 
-let Translator = {
-    validate(text) {
-        let finalText = (text || []).join(' ');
-        if (finalText.length > 5000) {
-            throw new Error('Maximum number of characters exceeded: 5000');
-        }
-        return finalText;
-    },
-    osLang: (
+function getOsLang() {
+    return (
         process.env.LANG ||
         process.env.LC_NAME ||
         process.env.LANGUAGE ||
         process.env.LC_All ||
         process.env.LC_MESSAGES ||
-        'en').slice(0, 2).toLowerCase(),
-    async action(args, opts) {
-        let url = 'https://translate.google.com/translate_a/single?client=at&dt=t&dt=ld&dt=qca&dt=rm&dt=bd&dj=1&hl=es-ES&ie=UTF-8&oe=UTF-8&inputm=2&otf=2&iid=1dd3b944-fa62-4b55-b330-74909a99969e';
-        url += `&sl=${opts.source}&tl=${opts.target}&q=${encodeURIComponent(args.text)}`;
-        let response = await fetch(url, {
-            method: 'get',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'AndroidTranslate/5.3.0.RC02.130475354-53000263 5.1 phone TRANSLATE_OPM5_TEST_1'
-            }
-        }).then(res => {
-            if (res.status < 200 || res.status > 300) {
-                log.cross(res.statusText.red, 'red');
-                process.exit(1);
-            }
+        'en').slice(0, 2).toLowerCase();
+}
 
-            return res.json();
-        });
-
-        let translation = (response.sentences || [])[0];
-        let interjection = (response.dict || [])[0];
-
-        if (!translation) {
-            log.warning('No translation was found'.yellow, 'yellow');
-            return;
-        }
-
-        await clipboardy.write(translation.trans);
-
-        log(
-            `${response.src.toUpperCase()} > ${opts.target.toUpperCase()}: `.gray
-            + translation.trans + ' (Copied to clipboard)'.gray
-        );
-
-        if (interjection) {
-            let entries = interjection.entry;
-            entries.forEach(entry => {
-                log(entry.word.cyan.italic + ` ${entry.reverse_translation.join(', ')}`.gray);
-            });
-        }
+function validate(text) {
+    let finalText = (text || []).join(' ');
+    if (finalText.length > 5000) {
+        throw new Error('Maximum number of characters exceeded: 5000');
     }
-};
+    return finalText;
+}
 
-module.exports = Translator;
+function createTranslator({
+    provider = createGoogleTranslateProvider(),
+    clipboard = clipboardy,
+    log: logger = log,
+    osLang = getOsLang()
+} = {}) {
+    return {
+        validate,
+        osLang,
+        async action(args, opts) {
+            let response = await provider({
+                text: args.text,
+                source: opts.source,
+                target: opts.target
+            });
+
+            let translation = (response.sentences || [])[0];
+            let interjection = (response.dict || [])[0];
+
+            if (!translation) {
+                logger.warning('No translation was found'.yellow, 'yellow');
+                return;
+            }
+
+            await clipboard.write(translation.trans);
+
+            logger(
+                `${response.src.toUpperCase()} > ${opts.target.toUpperCase()}: `.gray
+                + translation.trans + ' (Copied to clipboard)'.gray
+            );
+
+            if (interjection) {
+                let entries = interjection.entry;
+                entries.forEach(entry => {
+                    logger(entry.word.cyan.italic + ` ${entry.reverse_translation.join(', ')}`.gray);
+                });
+            }
+        }
+    };
+}
+
+let Translator = createTranslator();
+
+module.exports = Object.assign(Translator, {
+    createTranslator
+});
