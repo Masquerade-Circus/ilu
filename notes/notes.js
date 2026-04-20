@@ -7,6 +7,7 @@ let isUndefined = require('lodash/isUndefined');
 let find = require('lodash/find');
 let openWithEditor = require('./open-with-editor');
 let localPaths = require('../utils/local-paths');
+let {selectOne, selectMany} = require('../utils/prompt-index-selection');
 let editors = [
     'notepad',
     'gedit',
@@ -31,6 +32,15 @@ let darwinAppEditors = [
 ];
 
 let editor = null;
+
+function getNoteChoice(item, index) {
+    let labels = '';
+    item.labels.forEach(label => {
+        labels += ` ${getLabel(label.color, label.title)}`;
+    });
+
+    return `${index + 1} ${item.title}${labels}`;
+}
 
 function getPathEntries() {
     let pathEnv = process.env.PATH || '';
@@ -176,19 +186,40 @@ let Notes = {
             log.pointerSmall(str + labels);
         });
     },
-    remove(index) {
-        if (typeof index === 'number') {
-            Notes.get(index);
-            Model.notes.remove(index);
-            log.info(`The note "${index}" has been removed.`.blue, 'blue');
-        } else {
-            Model.notes.remove();
-            log.info(`All the notes have been removed.`.blue, 'blue');
-        }
+    async selectIndex(message) {
+        let list = Notes.getCurrent();
+
+        return selectOne(list.notes, {
+            message,
+            emptyMessage: 'You dont have any notes, try adding one.',
+            getChoiceName: getNoteChoice
+        });
+    },
+    async selectIndexes(message) {
+        let list = Notes.getCurrent();
+
+        return selectMany(list.notes, {
+            message,
+            emptyMessage: 'You dont have any notes, try adding one.',
+            getChoiceName: getNoteChoice
+        });
+    },
+    async remove() {
+        let indexes = await Notes.selectIndexes('Select notes to remove.');
+
+        [...indexes]
+            .sort((left, right) => right - left)
+            .forEach(position => {
+                Notes.get(position);
+                Model.notes.remove(position);
+            });
+        log.info(`${indexes.length} ${indexes.length === 1 ? 'note has' : 'notes have'} been removed.`.blue, 'blue');
+
         Notes.show();
     },
-    details(index) {
-        let item = Notes.get(index);
+    async details() {
+        let selectedIndex = await Notes.selectIndex('Select a note.');
+        let item = Notes.get(selectedIndex);
         log('Title'.gray);
         log(item.title.cyan, 4);
         if (item.content.trim().length > 0) {
@@ -204,8 +235,9 @@ let Notes = {
             log(labels, 4);
         }
     },
-    async edit(index) {
-        let item = Notes.get(index);
+    async edit() {
+        let selectedIndex = await Notes.selectIndex('Select a note.');
+        let item = Notes.get(selectedIndex);
         let list = Notes.getCurrent();
 
         let questions = [
@@ -239,16 +271,16 @@ let Notes = {
             removeTempFile(file);
         }
 
-        Model.notes.edit(index, answers);
+        Model.notes.edit(selectedIndex, answers);
         Notes.show();
     },
     async actions(args, opts) {
         switch (true) {
             case !isUndefined(opts.add): await Notes.add(); break;
-            case !isUndefined(opts.details): Notes.details(opts.details); break;
+            case !isUndefined(opts.details): await Notes.details(); break;
             case !isUndefined(opts.show): Notes.show(); break;
-            case !isUndefined(opts.remove): Notes.remove(opts.remove); break;
-            case !isUndefined(opts.edit): await Notes.edit(opts.edit); break;
+            case !isUndefined(opts.remove): await Notes.remove(); break;
+            case !isUndefined(opts.edit): await Notes.edit(); break;
             default: Notes.show(); break;
         }
     }

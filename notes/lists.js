@@ -2,6 +2,27 @@ let isUndefined = require('lodash/isUndefined');
 let inquirer = require('../utils/inquirer');
 let {required, log, colors, getLabel} = require('../utils');
 let Model = require('./model');
+let {selectOne, selectMany} = require('../utils/prompt-index-selection');
+
+function getListChoiceName(item) {
+    return item.current ? `${item.index} ${item.title} (current)` : `${item.index} ${item.title}`;
+}
+
+async function selectListIndex(message) {
+    return selectOne(Model.find(), {
+        message,
+        emptyMessage: 'You dont have any lists, try adding one.',
+        getChoiceName: getListChoiceName
+    });
+}
+
+async function selectListIndexes(message) {
+    return selectMany(Model.find(), {
+        message,
+        emptyMessage: 'You dont have any lists, try adding one.',
+        getChoiceName: getListChoiceName
+    });
+}
 
 let Lists = {
     get(index) {
@@ -33,6 +54,10 @@ let Lists = {
         Lists.show();
     },
     async edit(index) {
+        if (typeof index !== 'number') {
+            index = await selectListIndex('Select the list to edit');
+        }
+
         let item = Lists.get(index);
         let answers = await inquirer
             .prompt([
@@ -62,31 +87,46 @@ let Lists = {
             log.pointerSmall(str);
         });
     },
-    use(index) {
+    async use(index) {
+        if (typeof index !== 'number') {
+            index = await selectListIndex('Select the list to use');
+        }
+
         let item = Lists.get(index);
         Model.use(item.$id);
         Lists.show();
     },
-    remove(index) {
-        if (typeof index === 'number') {
-            let item = Lists.get(index);
+    async remove(index) {
+        let indexes = typeof index === 'number'
+            ? [index]
+            : await selectListIndexes('Select the lists to remove');
+
+        let items = indexes.map(index => Lists.get(index));
+
+        items.forEach(item => {
             Model.remove(item);
-            log.info(`The lists "${index}" has been removed.`.blue, 'blue');
-            let current = Model.getCurrent();
-            if (!current) {
-                let first = Model.getFirst();
-                if (first) {
-                    Model.use(first.$id);
-                }
+        });
+
+        let current = Model.getCurrent();
+        if (!current) {
+            let first = Model.getFirst();
+            if (first) {
+                Model.use(first.$id);
             }
-        } else {
-            Model.remove();
-            log.info(`All the lists have been removed.`.blue, 'blue');
         }
+
+        let message = indexes.length === 1
+            ? `The list "${indexes[0]}" has been removed.`
+            : `${indexes.length} lists have been removed.`;
+        log.info(message.blue, 'blue');
 
         Lists.show();
     },
-    details(index) {
+    async details(index) {
+        if (typeof index !== 'number') {
+            index = await selectListIndex('Select the list to show');
+        }
+
         let item = Lists.get(index);
         log('Title'.gray);
         log(item.title.cyan, 4);
@@ -114,9 +154,9 @@ let Lists = {
         }
 
     },
-    current() {
+    async current() {
         let item = Lists.getCurrent();
-        Lists.details(item.index);
+        await Lists.details(item.index);
     },
     getLabel(index) {
         let list = Lists.getCurrent();
@@ -185,11 +225,11 @@ let Lists = {
         switch (true) {
             case !isUndefined(opts.add): await Lists.add(); break;
             case !isUndefined(opts.edit): await Lists.edit(opts.edit); break;
-            case !isUndefined(opts.details): Lists.details(opts.details); break;
+            case !isUndefined(opts.details): await Lists.details(opts.details); break;
             case !isUndefined(opts.show): Lists.show(); break;
-            case !isUndefined(opts.use): Lists.use(opts.use); break;
-            case !isUndefined(opts.remove): Lists.remove(opts.remove); break;
-            case !isUndefined(opts.current): Lists.current(); break;
+            case !isUndefined(opts.use): await Lists.use(opts.use); break;
+            case !isUndefined(opts.remove): await Lists.remove(opts.remove); break;
+            case !isUndefined(opts.current): await Lists.current(); break;
             case !isUndefined(opts.addLabel): await Lists.addLabel(); break;
             case !isUndefined(opts.editLabel): await Lists.editLabel(opts.editLabel); break;
             case !isUndefined(opts.removeLabel): Lists.removeLabel(opts.removeLabel); break;

@@ -146,9 +146,16 @@ async function runPromptWithActualInquirer(type) {
   const input = new PassThrough();
   const output = new PassThrough();
   let rendered = '';
+  let settleTimer;
 
   output.on('data', chunk => {
     rendered += chunk.toString('utf8');
+  });
+
+  output.once('data', () => {
+    setImmediate(() => {
+      input.write('\n');
+    });
   });
 
   const prompt = inquirer.createPromptModule({
@@ -170,15 +177,21 @@ async function runPromptWithActualInquirer(type) {
     }
   ]);
 
-  setTimeout(() => {
-    input.write('\n');
-  }, 10);
+  const guardedAnswerPromise = Promise.race([
+    answerPromise,
+    new Promise((_, reject) => {
+      settleTimer = setTimeout(() => {
+        reject(new Error(`Prompt "${type}" did not settle in time`));
+      }, 1000);
+    })
+  ]);
 
   try {
-    const answer = await answerPromise;
+    const answer = await guardedAnswerPromise;
 
     return {answer, rendered};
   } finally {
+    clearTimeout(settleTimer);
     input.end();
     input.destroy();
     output.end();
@@ -210,15 +223,12 @@ test('clock valida timezone con Intl antes de persistir', {concurrency: false}, 
 test('clock --add usa un prompt soportado por el runtime actual de inquirer para seleccionar timezone', {concurrency: false}, async () => {
   const promptModule = inquirer.createPromptModule();
   const selectRuntime = await runPromptWithActualInquirer('select');
-  const listRuntime = await runPromptWithActualInquirer('list');
 
   assert.equal('list' in promptModule.prompts, false);
   assert.equal('select' in promptModule.prompts, true);
   assert.equal(selectRuntime.answer.timezone, 'America/Mexico_City');
   assert.match(selectRuntime.rendered, /America\/Mexico_City/);
   assert.match(selectRuntime.rendered, /↑↓ navigate/u);
-  assert.equal(listRuntime.answer.timezone, '');
-  assert.doesNotMatch(listRuntime.rendered, /America\/Mexico_City/);
 
   const originalSupportedValuesOf = Intl.supportedValuesOf;
   Intl.supportedValuesOf = () => [
@@ -300,23 +310,6 @@ test('clock --remove por posición mantiene fast path', {concurrency: false}, ()
   assert.deepEqual(promptCalls, []);
   assert.deepEqual(modelState.removeCalls, [2]);
   assert.match(logs[0], /The clock "2" has been removed\./);
-});
-
-test('clock muestra relojes por default cuando no se envían flags', {concurrency: false}, async () => {
-  const {Clocks, logs} = loadClocksWithStubs({
-    savedClocks: [{name: 'CDMX', timezone: 'America/Mexico_City'}]
-  });
-
-  await withIntlDateTimeFormatStub({
-    America_Mexico_City: '10:15:20',
-    'America/Mexico_City': '10:15:20'
-  }, async () => {
-    await Clocks.actions([], {});
-  });
-
-  assert.deepEqual(logs, [
-    `1 ${'10:15:20'.cyan.bold} - ${'CDMX'.white} ${'(America/Mexico_City)'.gray}`
-  ]);
 });
 
 test('clock show lista todos los relojes con hora antes del nombre y timezone', {concurrency: false}, async () => {

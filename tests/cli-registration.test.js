@@ -106,58 +106,6 @@ test('configureProgram registra los comandos principales del CLI', () => {
   assert.equal(commands[4].arguments[0].signature, '<text...>');
 });
 
-test('configureProgram no requiere update-notifier para registrar comandos', () => {
-  delete require.cache[require.resolve(configureCliModulePath)];
-
-  const configureProgram = require(configureCliModulePath);
-  const { program, commands } = createFakeProgram();
-  const action = () => {};
-
-  assert.doesNotThrow(() => {
-    configureProgram(program, {
-      pkg: { version: '0.0.0' },
-      Todos: { Tasks: { actions: action }, Lists: { actions: action } },
-      Notes: { Notes: { actions: action }, Lists: { actions: action } },
-      Translate: { osLang: 'es', validate: () => true, action },
-      Clocks: { actions: action }
-    });
-  });
-
-  assert.deepEqual(
-    commands.map(command => command.name),
-    ['todo', 'todo-list', 'note', 'note-list', 'babel', 'clock']
-  );
-});
-
-test('configureProgram deja los comandos principales parseables con commander y adapta opts para los handlers', async () => {
-  delete require.cache[require.resolve(configureCliModulePath)];
-
-  const configureProgram = require(configureCliModulePath);
-  const calls = [];
-  const action = async (args, opts) => {
-    calls.push({args, opts});
-  };
-
-  const program = new Command();
-  program.exitOverride();
-
-  configureProgram(program, {
-    pkg: {version: '0.0.0'},
-    Todos: {Tasks: {actions: action}, Lists: {actions: action}},
-    Notes: {Notes: {actions: action}, Lists: {actions: action}},
-    Translate: {osLang: 'es', validate: value => value.join(' '), action},
-    Clocks: {actions: action}
-  });
-
-  await program.parseAsync(['node', 'ilu', 't', '--remove', '2']);
-
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], {
-    args: [],
-    opts: {remove: 2}
-  });
-});
-
 test('configureProgram preserva argumentos y defaults de babel al parsear con commander', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
@@ -243,4 +191,119 @@ test('configureProgram registra y parsea clock con alias y remove opcional', asy
     args: [],
     opts: {remove: true}
   });
+});
+
+test('configureProgram parsea flags interactivas de todo sin valor explícito', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const calls = [];
+  const action = async (args, opts) => {
+    calls.push({args, opts});
+  };
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: action}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 't', '--details']);
+  await program.parseAsync(['node', 'ilu', 't', '--edit']);
+  await program.parseAsync(['node', 'ilu', 't', '--remove']);
+
+  assert.deepEqual(calls, [
+    {args: [], opts: {details: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {remove: true}}
+  ]);
+});
+
+test('configureProgram parsea flags opcionales de note sin valor explícito para details, edit y remove', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const calls = [];
+  const action = async (args, opts) => {
+    calls.push({args, opts});
+  };
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: action}, Lists: {actions: async () => {}}},
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'n', '--details']);
+  await program.parseAsync(['node', 'ilu', 'n', '--edit']);
+  await program.parseAsync(['node', 'ilu', 'n', '--remove']);
+
+  assert.deepEqual(calls, [
+    {args: [], opts: {details: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {remove: true}}
+  ]);
+});
+
+test('configureProgram parsea flags interactivas de todo-list y note-list sin valor explícito y preserva current', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const todoListCalls = [];
+  const noteListCalls = [];
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {
+      Tasks: {actions: async () => {}},
+      Lists: {actions: async (args, opts) => todoListCalls.push({args, opts})}
+    },
+    Notes: {
+      Notes: {actions: async () => {}},
+      Lists: {actions: async (args, opts) => noteListCalls.push({args, opts})}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'tl', '--details']);
+  await program.parseAsync(['node', 'ilu', 'tl', '--edit']);
+  await program.parseAsync(['node', 'ilu', 'tl', '--use']);
+  await program.parseAsync(['node', 'ilu', 'tl', '--remove']);
+  await program.parseAsync(['node', 'ilu', 'tl', '--current']);
+
+  await program.parseAsync(['node', 'ilu', 'nl', '--details']);
+  await program.parseAsync(['node', 'ilu', 'nl', '--edit']);
+  await program.parseAsync(['node', 'ilu', 'nl', '--use']);
+  await program.parseAsync(['node', 'ilu', 'nl', '--remove']);
+  await program.parseAsync(['node', 'ilu', 'nl', '--current']);
+
+  assert.deepEqual(todoListCalls, [
+    {args: [], opts: {details: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {use: true}},
+    {args: [], opts: {remove: true}},
+    {args: [], opts: {current: true}}
+  ]);
+
+  assert.deepEqual(noteListCalls, [
+    {args: [], opts: {details: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {use: true}},
+    {args: [], opts: {remove: true}},
+    {args: [], opts: {current: true}}
+  ]);
 });

@@ -3,6 +3,16 @@ let {required, log, getLabel} = require('../utils');
 let Model = require('./model');
 let isUndefined = require('lodash/isUndefined');
 let find = require('lodash/find');
+let {selectOne, selectMany} = require('../utils/prompt-index-selection');
+
+function getTaskChoice(item, index) {
+    let labels = '';
+    item.labels.forEach(label => {
+        labels += ` ${getLabel(label.color, label.title)}`;
+    });
+
+    return `${index + 1} ${item.title}${labels}`;
+}
 
 let Tasks = {
     getCurrent() {
@@ -97,19 +107,40 @@ let Tasks = {
         Model.tasks.check(answers.checked);
         Tasks.show();
     },
-    remove(index) {
-        if (typeof index === 'number') {
-            Tasks.get(index);
-            Model.tasks.remove(index);
-            log.info(`The task "${index}" has been removed.`.blue, 'blue');
-        } else {
-            Model.tasks.remove();
-            log.info(`All the tasks have been removed.`.blue, 'blue');
-        }
+    async selectIndex(message) {
+        let list = Tasks.getCurrent();
+
+        return selectOne(list.tasks, {
+            message,
+            emptyMessage: 'You dont have any tasks, try adding one.',
+            getChoiceName: getTaskChoice
+        });
+    },
+    async selectIndexes(message) {
+        let list = Tasks.getCurrent();
+
+        return selectMany(list.tasks, {
+            message,
+            emptyMessage: 'You dont have any tasks, try adding one.',
+            getChoiceName: getTaskChoice
+        });
+    },
+    async remove() {
+        let indexes = await Tasks.selectIndexes('Select tasks to remove.');
+
+        [...indexes]
+            .sort((left, right) => right - left)
+            .forEach(position => {
+                Tasks.get(position);
+                Model.tasks.remove(position);
+            });
+        log.info(`${indexes.length} ${indexes.length === 1 ? 'task has' : 'tasks have'} been removed.`.blue, 'blue');
+
         Tasks.show();
     },
-    details(index) {
-        let item = Tasks.get(index);
+    async details() {
+        let selectedIndex = await Tasks.selectIndex('Select a task.');
+        let item = Tasks.get(selectedIndex);
         log('Title'.gray);
         log(item.title.cyan, 4);
         if (item.description.trim().length > 0) {
@@ -125,8 +156,9 @@ let Tasks = {
             log(labels, 4);
         }
     },
-    async edit(index) {
-        let item = Tasks.get(index);
+    async edit() {
+        let selectedIndex = await Tasks.selectIndex('Select a task.');
+        let item = Tasks.get(selectedIndex);
         let list = Tasks.getCurrent();
 
         let questions = [
@@ -147,17 +179,17 @@ let Tasks = {
         }
 
         let answers = await inquirer.prompt(questions);
-        Model.tasks.edit(index, answers);
+        Model.tasks.edit(selectedIndex, answers);
         Tasks.show();
     },
     async actions(args, opts) {
         switch (true) {
             case !isUndefined(opts.add): await Tasks.add(); break;
-            case !isUndefined(opts.details): Tasks.details(opts.details); break;
+            case !isUndefined(opts.details): await Tasks.details(); break;
             case !isUndefined(opts.show): Tasks.show(); break;
-            case !isUndefined(opts.remove): Tasks.remove(opts.remove); break;
+            case !isUndefined(opts.remove): await Tasks.remove(); break;
             case !isUndefined(opts.check): await Tasks.check(); break;
-            case !isUndefined(opts.edit): await Tasks.edit(opts.edit); break;
+            case !isUndefined(opts.edit): await Tasks.edit(); break;
             default: Tasks.show(); break;
         }
     }

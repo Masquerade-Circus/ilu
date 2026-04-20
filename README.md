@@ -84,11 +84,11 @@ Manage tasks for the current active todo list.
 Common options:
 
 - `--add`
-- `--details <position>`
-- `--edit <position>`
+- `--details` — show task details via interactive selection
+- `--edit` — edit the selected task interactively
 - `--show`
 - `--check`
-- `--remove [position]`
+- `--remove` — remove selected tasks interactively
 
 ### `todo-list` / `tl`
 
@@ -97,12 +97,12 @@ Manage todo lists.
 Common options:
 
 - `--add`
-- `--details <position>`
-- `--edit <position>`
+- `--details` — show list details via interactive selection
+- `--edit` — edit the selected list interactively
 - `--show`
-- `--use <position>`
+- `--use` — switch to the selected list interactively
 - `--current`
-- `--remove [position]`
+- `--remove` — remove selected lists interactively
 - `--add-label`
 - `--edit-label <position>`
 - `--remove-label [position]`
@@ -114,10 +114,10 @@ Manage notes for the current active note list.
 Common options:
 
 - `--add`
-- `--details <position>`
-- `--edit <position>`
+- `--details` — show note details via interactive selection
+- `--edit` — edit the selected note interactively
 - `--show`
-- `--remove [position]`
+- `--remove` — remove selected notes interactively
 
 ### `note-list` / `nl`
 
@@ -126,12 +126,12 @@ Manage note lists.
 Common options:
 
 - `--add`
-- `--details <position>`
-- `--edit <position>`
+- `--details` — show list details via interactive selection
+- `--edit` — edit the selected list interactively
 - `--show`
-- `--use <position>`
+- `--use` — switch to the selected list interactively
 - `--current`
-- `--remove [position]`
+- `--remove` — remove selected lists interactively
 - `--add-label`
 - `--edit-label <position>`
 - `--remove-label [position]`
