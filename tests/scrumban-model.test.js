@@ -346,3 +346,21 @@ test('scrumban model stops the auto-pull chain when an intermediate column is fu
   assert.deepEqual(current.columns[1].cards.map(card => card.title), ['Two']);
   assert.deepEqual(current.columns[2].cards.map(card => card.title), ['One']);
 });
+
+test('scrumban model rejects moving a card into a column that is already at its WIP limit', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.columns.edit(2, {wipLimit: 1});
+  Model.cards.add({title: 'One', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'Two', description: ''}, {columnIndex: 2});
+
+  assert.throws(() => {
+    Model.cards.move({fromColumn: 1, fromPosition: 1, toColumn: 2, toPosition: 2});
+  }, /wip/i);
+
+  const current = Model.getCurrent();
+
+  assert.deepEqual(current.columns[0].cards.map(card => card.title), ['One']);
+  assert.deepEqual(current.columns[1].cards.map(card => card.title), ['Two']);
+});

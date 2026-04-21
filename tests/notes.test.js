@@ -161,7 +161,7 @@ test('note --details usa selección interactiva como única vía', {concurrency:
   assert.ok(logs.some(entry => /Texto 2/.test(entry)));
 });
 
-test('note --show limpia la terminal antes de renderizar las notas', {concurrency: false}, async () => {
+test('note --show no limpia la terminal antes de renderizar las notas', {concurrency: false}, async () => {
   const events = [];
   const {Notes, logs} = loadNotesWithStubs({
     events,
@@ -182,7 +182,7 @@ test('note --show limpia la terminal antes de renderizar las notas', {concurrenc
     console.clear = originalConsoleClear;
   }
 
-  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
+  assert.deepEqual(events, ['log.pointerSmall', 'log.pointerSmall']);
   assert.ok(logs.some(entry => /Uno/.test(entry)));
   assert.ok(logs.some(entry => /Dos/.test(entry)));
 });

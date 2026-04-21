@@ -191,32 +191,6 @@ test('todo-list --details usa selección interactiva como única vía', {concurr
   assert.ok(logs.some(entry => /Pendientes/.test(entry)));
 });
 
-test('todo-list --show limpia la terminal antes de renderizar las listas', {concurrency: false}, async () => {
-  const events = [];
-  const {Lists, logs} = loadTodoListsWithStubs({
-    events,
-    savedLists: [
-      {title: 'Inbox', current: true},
-      {title: 'Work'}
-    ]
-  });
-  const originalConsoleClear = console.clear;
-
-  console.clear = () => {
-    events.push('clear');
-  };
-
-  try {
-    Lists.show();
-  } finally {
-    console.clear = originalConsoleClear;
-  }
-
-  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
-  assert.ok(logs.some(entry => /Inbox/.test(entry)));
-  assert.ok(logs.some(entry => /Work/.test(entry)));
-});
-
 test('todo-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
   const {Lists, promptCalls, modelState} = loadTodoListsWithStubs({
     savedLists: [

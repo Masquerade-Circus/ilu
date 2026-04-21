@@ -144,7 +144,6 @@ let Clocks = {
     },
     show() {
         let clocks = Model.find();
-        console.clear();
 
         if (clocks.length === 0) {
             log.info('You dont have any clocks, try adding one.');

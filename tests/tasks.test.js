@@ -144,7 +144,7 @@ test('todo --details usa selección interactiva como única vía', {concurrency:
   assert.ok(logs.some(entry => /Desc 2/.test(entry)));
 });
 
-test('todo --show limpia la terminal antes de renderizar las tareas', {concurrency: false}, async () => {
+test('todo --show no limpia la terminal antes de renderizar las tareas', {concurrency: false}, async () => {
   const events = [];
   const {Tasks, logs} = loadTasksWithStubs({
     events,
@@ -165,7 +165,7 @@ test('todo --show limpia la terminal antes de renderizar las tareas', {concurren
     console.clear = originalConsoleClear;
   }
 
-  assert.deepEqual(events, ['clear', 'log.radioOff', 'log.radioOn']);
+  assert.deepEqual(events, ['log.radioOff', 'log.radioOn']);
   assert.ok(logs.some(entry => /Uno/.test(entry)));
   assert.ok(logs.some(entry => /Dos/.test(entry)));
 });

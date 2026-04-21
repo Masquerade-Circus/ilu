@@ -1,7 +1,7 @@
 function getHeader(column) {
     return column.wipLimit === null || typeof column.wipLimit === 'undefined'
         ? column.title
-        : `${column.title} (${column.wipLimit})`;
+        : `${column.title} (${column.cards.length}/${column.wipLimit})`;
 }
 
 function pad(value, width) {

@@ -172,6 +172,10 @@ function validateWipLimitInput(value) {
     return 'Please enter a valid integer greater than or equal to 1';
 }
 
+function isWipLimitReachedError(error) {
+    return error && /WIP limit/i.test(error.message || '');
+}
+
 let Board = {
     getCurrent: getCurrentBoard,
     async add() {
@@ -224,12 +228,20 @@ let Board = {
         ]);
 
         let targetColumn = board.columns[answers.columnIndex - 1];
-        Model.cards.move({
-            fromColumn: columnIndex,
-            fromPosition: position,
-            toColumn: answers.columnIndex,
-            toPosition: targetColumn.cards.length + 1
-        });
+        try {
+            Model.cards.move({
+                fromColumn: columnIndex,
+                fromPosition: position,
+                toColumn: answers.columnIndex,
+                toPosition: targetColumn.cards.length + 1
+            });
+        } catch (error) {
+            if (!isWipLimitReachedError(error)) {
+                throw error;
+            }
+
+            log.info('Cannot move this card because the destination column has already reached its WIP limit.'.blue, 'blue');
+        }
         await Board.showWithActions();
     },
     async priority() {
@@ -350,8 +362,7 @@ let Board = {
     },
     async show() {
         let board = getCurrentBoard();
-        console.clear();
-        log(`\n${renderBoard(board)}\n`, 0);
+        log(`\nBoard: ${board.title.cyan}\n${renderBoard(board)}\n`, 0);
     },
     async showWithActions() {
         await Board.show();

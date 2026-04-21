@@ -234,7 +234,7 @@ test('clock valida timezone con Intl antes de persistir', {concurrency: false}, 
   assert.deepEqual(modelState.addCalls, []);
 });
 
-test('clock --show limpia la terminal antes de renderizar los relojes', {concurrency: false}, async () => {
+test('clock --show no limpia la terminal antes de renderizar los relojes', {concurrency: false}, async () => {
   const events = [];
   const {Clocks, logs} = loadClocksWithStubs({
     events,
@@ -258,7 +258,7 @@ test('clock --show limpia la terminal antes de renderizar los relojes', {concurr
     console.clear = originalConsoleClear;
   }
 
-  assert.deepEqual(events, ['clear', 'log.pointerSmall']);
+  assert.deepEqual(events, ['log.pointerSmall']);
   assert.ok(logs.some(entry => /CDMX/.test(entry)));
 });
 

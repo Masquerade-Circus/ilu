@@ -16,9 +16,20 @@ test('ascii board renderer prints headers, wip limits and aligned card rows', ()
   });
 
   assert.match(output, /Backlog/);
-  assert.match(output, /Ready \(2\)/);
+  assert.match(output, /Ready \(1\/2\)/);
   assert.match(output, /Done/);
   assert.match(output, /1 Spec API/);
   assert.match(output, /1 Review copy/);
   assert.ok(output.includes('|'));
+});
+
+test('ascii board renderer shows current card count alongside the WIP limit', () => {
+  const output = renderBoard({
+    title: 'Product',
+    columns: [
+      {title: 'Ready', wipLimit: 3, cards: [{title: 'Review copy', position: 1}]}
+    ]
+  });
+
+  assert.match(output, /Ready \(1\/3\)/);
 });

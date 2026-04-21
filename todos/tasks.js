@@ -60,7 +60,6 @@ let Tasks = {
     },
     show() {
         let list = Tasks.getCurrent();
-        console.clear();
         if (list.tasks.length === 0) {
             log.info(`You dont have any tasks, try adding one.`.blue, 'blue');
             process.exit(1);

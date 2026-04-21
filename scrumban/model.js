@@ -312,6 +312,11 @@ Model.cards = {
         let current = Model.getCurrent();
         let originColumn = getColumn(current, fromColumn);
         let targetColumn = getColumn(current, toColumn);
+
+        if (fromColumn !== toColumn && !hasCapacity(targetColumn)) {
+            throw new Error('Cannot move a card into a column that is already at its WIP limit');
+        }
+
         let [card] = originColumn.cards.splice(fromPosition - 1, 1);
 
         if (!card) {

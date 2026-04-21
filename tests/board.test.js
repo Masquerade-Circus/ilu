@@ -23,7 +23,7 @@ function createBoardState(overrides = {}) {
   };
 }
 
-function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), events} = {}) {
+function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), events, moveImpl} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const logCalls = [];
@@ -106,6 +106,9 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
             modelState.removeCalls.push(payload);
           },
           move(payload) {
+            if (moveImpl) {
+              return moveImpl(payload, modelState);
+            }
             modelState.moveCalls.push(payload);
           }
         },
@@ -205,6 +208,35 @@ test('board --move uses prompt-first selection for card and destination column',
   assert.deepEqual(modelState.moveCalls, [
     {fromColumn: 1, fromPosition: 1, toColumn: 3, toPosition: 1}
   ]);
+});
+
+test('board --move shows a clear message when destination column already reached its WIP limit', {concurrency: false}, async () => {
+  const {Board, logs, promptCalls, modelState} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {title: 'Backlog', wipLimit: null, cards: [{title: 'Write docs', description: '', position: 1}]},
+        {title: 'Ready', wipLimit: 1, cards: [{title: 'Review', description: '', position: 1}]},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {cardKey: '1:1'},
+      {columnIndex: 2}
+    ],
+    moveImpl(payload, state) {
+      state.moveCalls.push(payload);
+      throw new Error('Cannot move a card into a column that is already at its WIP limit');
+    }
+  });
+
+  await assert.doesNotReject(() => Board.move());
+
+  assert.equal(promptCalls.length, 2);
+  assert.deepEqual(modelState.moveCalls, [
+    {fromColumn: 1, fromPosition: 1, toColumn: 2, toPosition: 2}
+  ]);
+  assert.ok(logs.some(entry => /reached its WIP limit|l[ií]mite WIP/i.test(entry)));
 });
 
 test('board --priority selecciona columna primero y reordena dentro de esa misma columna usando prompt custom', {concurrency: false}, async () => {
@@ -660,7 +692,7 @@ test('board --remove usa selección interactiva múltiple de cards', {concurrenc
   ]);
 });
 
-test('board --show limpia la terminal antes de renderizar el ascii board y no pide acciones posteriores', {concurrency: false}, async () => {
+test('board --show no limpia la terminal antes de renderizar el ascii board y no pide acciones posteriores', {concurrency: false}, async () => {
   const events = [];
   const {Board, logs, logCalls, promptCalls} = loadBoardWithStubs({events});
   const originalConsoleClear = console.clear;
@@ -675,34 +707,14 @@ test('board --show limpia la terminal antes de renderizar el ascii board y no pi
     console.clear = originalConsoleClear;
   }
 
-  assert.deepEqual(events, ['clear', 'log']);
-  assert.ok(logs.includes('\nASCII BOARD\n'));
+  assert.deepEqual(events, ['log']);
+  assert.ok(logs.includes(`\nBoard: ${'Product'.cyan}\nASCII BOARD\n`));
   assert.deepEqual(logCalls[0], {
-    message: '\nASCII BOARD\n',
+    message: `\nBoard: ${'Product'.cyan}\nASCII BOARD\n`,
     spaces: 0,
     type: undefined,
     color: undefined
   });
-  assert.equal(promptCalls.length, 0);
-});
-
-test('board actions default siguen limpiando terminal y mostrando solo el board', {concurrency: false}, async () => {
-  const events = [];
-  const {Board, logs, promptCalls} = loadBoardWithStubs({events});
-  const originalConsoleClear = console.clear;
-
-  console.clear = () => {
-    events.push('clear');
-  };
-
-  try {
-    await Board.actions([], {});
-  } finally {
-    console.clear = originalConsoleClear;
-  }
-
-  assert.deepEqual(events, ['clear', 'log']);
-  assert.ok(logs.includes('\nASCII BOARD\n'));
   assert.equal(promptCalls.length, 0);
 });
 

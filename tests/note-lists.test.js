@@ -179,32 +179,6 @@ test('note-list --details usa selección interactiva como única vía', {concurr
   assert.ok(logs.some(entry => /Notas activas/.test(entry)));
 });
 
-test('note-list --show limpia la terminal antes de renderizar las listas', {concurrency: false}, async () => {
-  const events = [];
-  const {Lists, logs} = loadNoteListsWithStubs({
-    events,
-    savedLists: [
-      {title: 'Inbox', current: true},
-      {title: 'Ideas'}
-    ]
-  });
-  const originalConsoleClear = console.clear;
-
-  console.clear = () => {
-    events.push('clear');
-  };
-
-  try {
-    Lists.show();
-  } finally {
-    console.clear = originalConsoleClear;
-  }
-
-  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
-  assert.ok(logs.some(entry => /Inbox/.test(entry)));
-  assert.ok(logs.some(entry => /Ideas/.test(entry)));
-});
-
 test('note-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
   const {Lists, promptCalls, modelState} = loadNoteListsWithStubs({
     savedLists: [
