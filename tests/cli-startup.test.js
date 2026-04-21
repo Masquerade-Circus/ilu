@@ -40,6 +40,12 @@ test('node bin/cli.js todo --help muestra ayuda del subcomando', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(`${result.stdout}${result.stderr}`, /Manage Todo tasks for the current active list/);
   assert.match(`${result.stdout}${result.stderr}`, /-a, --add/);
+  assert.match(`${result.stdout}${result.stderr}`, /--lists\s+Show all todo lists/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--use-list\s+Use the selected todo list interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--add-list\s+Add a new todo list/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--edit-list\s+Edit the selected todo list interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--remove-list\s+Remove selected todo lists interactively/i);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--current\b/i);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--details \[position\]|--edit \[position\]|--remove \[position\]/);
   assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details/i);
   assert.match(`${result.stdout}${result.stderr}`, /--edit\s+Edit the selected task interactively/i);
@@ -50,37 +56,45 @@ test('node bin/cli.js note --help muestra contrato interactivo simplificado', ()
   const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'note', '--help');
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Manage Notes for the current active list/);
+  assert.match(`${result.stdout}${result.stderr}`, /Manage Notes and note lists for the current active list/);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--details \[position\]|--edit \[position\]|--remove \[position\]/);
   assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details/i);
   assert.match(`${result.stdout}${result.stderr}`, /--edit\s+Edit the selected note interactively/i);
   assert.match(`${result.stdout}${result.stderr}`, /--remove\s+Remove selected notes interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--lists\s+Show all note lists/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--use-list\s+Use the selected note list interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--add-list\s+Add a new note list/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--edit-list\s+Edit the selected note list interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /--remove-list\s+Remove selected note lists interactively/i);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--current\b/i);
 });
 
-test('node bin/cli.js todo-list --help muestra contrato interactivo simplificado', () => {
-  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'todo-list', '--help');
+test('node bin/cli.js todo-list --show falla porque el comando ya no existe', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'todo-list', '--show');
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Manage Todo lists/);
-  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--details <position>|--edit <position>|--use <position>|--remove \[position\]/);
-  assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details of the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--edit\s+Edit the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--use\s+Use the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--remove\s+Remove selected lists interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--current\s+Show the details of the current list/i);
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]todo-list['"]/i);
 });
 
-test('node bin/cli.js note-list --help muestra contrato interactivo simplificado', () => {
-  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'note-list', '--help');
+test('node bin/cli.js tl --show falla porque el alias ya no existe', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'tl', '--show');
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Manage Note Lists/);
-  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--details <position>|--edit <position>|--use <position>|--remove \[position\]/);
-  assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details of the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--edit\s+Edit the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--use\s+Use the selected list interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--remove\s+Remove selected lists interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--current\s+Show the details of the current list/i);
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]tl['"]/i);
+});
+
+test('node bin/cli.js note-list --show falla porque el comando ya no existe', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'note-list', '--show');
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]note-list['"]/i);
+});
+
+test('node bin/cli.js nl --show falla porque el alias ya no existe', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'nl', '--show');
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]nl['"]/i);
 });
 
 test('node bin/cli.js board --help muestra ayuda base del recurso scrumban', () => {
@@ -126,6 +140,31 @@ test('README documenta la gestión de boards dentro de board y elimina board-lis
   assert.match(readme, /--remove-board` — remove selected boards interactively/i);
   assert.doesNotMatch(readme, /--create-board`/i);
   assert.doesNotMatch(readme, /`board-list`|`bl`|ilu board-list|--current` — show the details of the current board|--list` — show all boards|--use` — switch to the selected board interactively/i);
+});
+
+test('README documenta la unificación de listas de todo dentro de todo y elimina todo-list', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+
+  assert.match(readme, /`todo`\s+\|\s+`t`\s+\|\s+Manage tasks and todo lists/i);
+  assert.match(readme, /--lists` — show all todo lists/i);
+  assert.match(readme, /--use-list` — switch to the selected todo list interactively/i);
+  assert.match(readme, /--add-list` — add a new todo list/i);
+  assert.match(readme, /--edit-list` — edit the selected todo list interactively/i);
+  assert.match(readme, /--remove-list` — remove selected todo lists interactively/i);
+  assert.doesNotMatch(readme, /`todo-list`|`tl`|ilu todo-list|--current` — show the details of the current list/i);
+});
+
+test('README documenta la unificación de listas de note dentro de note y elimina note-list', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+
+  assert.match(readme, /`note`\s+\|\s+`n`\s+\|\s+Manage notes and note lists/i);
+  assert.match(readme, /--show` — show all notes in the current note list/i);
+  assert.match(readme, /--lists` — show all note lists/i);
+  assert.match(readme, /--use-list` — switch to the selected note list interactively/i);
+  assert.match(readme, /--add-list` — add a new note list/i);
+  assert.match(readme, /--edit-list` — edit the selected note list interactively/i);
+  assert.match(readme, /--remove-list` — remove selected note lists interactively/i);
+  assert.doesNotMatch(readme, /`note-list`|`nl`|ilu note-list|--current` — show the details of the current list/i);
 });
 
 test('node bin/cli.js board-list --show falla porque el comando ya no existe', () => {

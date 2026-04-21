@@ -40,6 +40,64 @@ function configureProgram(program, deps) {
     };
   }
 
+  function createTodoActionAdapter() {
+    return async (...actionArgs) => {
+      const command = actionArgs[actionArgs.length - 1];
+      const opts = command.opts();
+
+      if (opts.lists) {
+        return Todos.Lists.actions([], {show: true});
+      }
+
+      if (opts.useList) {
+        return Todos.Lists.actions([], {use: true});
+      }
+
+      if (opts.addList) {
+        return Todos.Lists.actions([], {add: true});
+      }
+
+      if (opts.editList) {
+        return Todos.Lists.actions([], {edit: true});
+      }
+
+      if (opts.removeList) {
+        return Todos.Lists.actions([], {remove: true});
+      }
+
+      return Todos.Tasks.actions([], opts);
+    };
+  }
+
+  function createNoteActionAdapter() {
+    return async (...actionArgs) => {
+      const command = actionArgs[actionArgs.length - 1];
+      const opts = command.opts();
+
+      if (opts.lists) {
+        return Notes.Lists.actions([], {show: true});
+      }
+
+      if (opts.useList) {
+        return Notes.Lists.actions([], {use: true});
+      }
+
+      if (opts.addList) {
+        return Notes.Lists.actions([], {add: true});
+      }
+
+      if (opts.editList) {
+        return Notes.Lists.actions([], {edit: true});
+      }
+
+      if (opts.removeList) {
+        return Notes.Lists.actions([], {remove: true});
+      }
+
+      return Notes.Notes.actions([], opts);
+    };
+  }
+
   function normalizeArgv(argv) {
     if (!Array.isArray(argv)) {
       return argv;
@@ -88,50 +146,28 @@ function configureProgram(program, deps) {
     .option('-s, --show', 'Show all tasks')
     .option('-c, --check', 'Check/uncheck finished tasks')
     .option('-r, --remove', 'Remove selected tasks interactively')
-    .action(createActionAdapter(Todos.Tasks.actions));
-
-  program
-    .command('todo-list')
-    .alias('tl')
-    .description('Manage Todo lists')
-    .option('-a, --add', 'Add new list')
-    .option('-d, --details', 'Show details of the selected list interactively')
-    .option('-e, --edit', 'Edit the selected list interactively')
-    .option('-s, --show', 'Show all lists')
-    .option('-u, --use', 'Use the selected list interactively')
-    .option('-r, --remove', 'Remove selected lists interactively')
-    .option('-c, --current', 'Show the details of the current list')
-    .option('-A, --add-label', 'Add new label to the current list')
-    .option('-E, --edit-label <position>', 'Edit the label at <position>', value => parseInt(value, 10))
-    .option('-R, --remove-label [position]', 'Remove the label at [position], if no position, remove all labels', optionalInt)
-    .action(createActionAdapter(Todos.Lists.actions));
+    .option('--lists', 'Show all todo lists')
+    .option('--use-list', 'Use the selected todo list interactively')
+    .option('--add-list', 'Add a new todo list')
+    .option('--edit-list', 'Edit the selected todo list interactively')
+    .option('--remove-list', 'Remove selected todo lists interactively')
+    .action(createTodoActionAdapter());
 
   program
     .command('note')
     .alias('n')
-    .description('Manage Notes for the current active list')
+    .description('Manage Notes and note lists for the current active list')
     .option('-a, --add', 'Add a new note')
     .option('-d, --details', 'Show details of a note via interactive selection')
     .option('-e, --edit', 'Edit the selected note interactively')
     .option('-s, --show', 'Show all notes')
     .option('-r, --remove', 'Remove selected notes interactively')
-    .action(createActionAdapter(Notes.Notes.actions));
-
-  program
-    .command('note-list')
-    .alias('nl')
-    .description('Manage Note Lists')
-    .option('-a, --add', 'Add new list')
-    .option('-d, --details', 'Show details of the selected list interactively')
-    .option('-e, --edit', 'Edit the selected list interactively')
-    .option('-s, --show', 'Show all lists')
-    .option('-u, --use', 'Use the selected list interactively')
-    .option('-r, --remove', 'Remove selected lists interactively')
-    .option('-c, --current', 'Show the details of the current list')
-    .option('-A, --add-label', 'Add new label to the current list')
-    .option('-E, --edit-label <position>', 'Edit the label at <position>', value => parseInt(value, 10))
-    .option('-R, --remove-label [position]', 'Remove the label at [position], if no position, remove all labels', optionalInt)
-    .action(createActionAdapter(Notes.Lists.actions));
+    .option('--lists', 'Show all note lists')
+    .option('--use-list', 'Use the selected note list interactively')
+    .option('--add-list', 'Add a new note list')
+    .option('--edit-list', 'Edit the selected note list interactively')
+    .option('--remove-list', 'Remove selected note lists interactively')
+    .action(createNoteActionAdapter());
 
   const boardCommand = program
     .command('board')

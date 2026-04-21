@@ -27,11 +27,11 @@ function writeCollectionDb(tempHome, filename, collectionName, entry) {
   );
 }
 
-test('node index.js tl --add falla limpio cuando recibe stdin por pipe', () => {
+test('node index.js todo --add-list falla limpio cuando recibe stdin por pipe', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-non-tty-'));
 
   try {
-    const result = spawnSync(process.execPath, ['index.js', 'tl', '--add'], {
+    const result = spawnSync(process.execPath, ['index.js', 'todo', '--add-list'], {
       cwd: repoRoot,
       env: {...process.env, HOME: tempHome},
       input: 'Inbox\nPendientes\n',

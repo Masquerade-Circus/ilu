@@ -61,10 +61,8 @@ Available commands:
 
 | Command     | Alias | Purpose                               |
 | ----------- | ----- | ------------------------------------- |
-| `todo`      | `t`   | Manage tasks in the current todo list |
-| `todo-list` | `tl`  | Manage todo lists                     |
-| `note`      | `n`   | Manage notes in the current note list |
-| `note-list` | `nl`  | Manage note lists                     |
+| `todo`      | `t`   | Manage tasks and todo lists           |
+| `note`      | `n`   | Manage notes and note lists           |
 | `board`     | `bd`  | Manage cards and boards               |
 | `babel`     | `b`   | Translate text                        |
 | `clock`     | `c`   | Manage saved clocks                   |
@@ -81,7 +79,7 @@ If an interactive command is run without a TTY, `ilu` exits with a clean error m
 
 ### `todo` / `t`
 
-Manage tasks for the current active todo list.
+Manage tasks for the current active todo list and the todo list collection.
 
 Common options:
 
@@ -91,60 +89,43 @@ Common options:
 - `--show`
 - `--check`
 - `--remove` — remove selected tasks interactively
+- `--lists` — show all todo lists
+- `--use-list` — switch to the selected todo list interactively
+- `--add-list` — add a new todo list
+- `--edit-list` — edit the selected todo list interactively
+- `--remove-list` — remove selected todo lists interactively
 
-### `todo-list` / `tl`
+Notes:
 
-Manage todo lists.
-
-Common options:
-
-- `--add`
-- `--details` — show list details via interactive selection
-- `--edit` — edit the selected list interactively
-- `--show`
-- `--use` — switch to the selected list interactively
-- `--current`
-- `--remove` — remove selected lists interactively
-- `--add-label`
-- `--edit-label <position>`
-- `--remove-label [position]`
+- running `ilu todo` with no flags still defaults to showing tasks from the current todo list
+- all todo list lifecycle management now lives under `ilu todo`
 
 ### `note` / `n`
 
-Manage notes for the current active note list.
+Manage notes for the current active note list and the note list collection.
 
 Common options:
 
 - `--add`
 - `--details` — show note details via interactive selection
 - `--edit` — edit the selected note interactively
-- `--show`
+- `--show` — show all notes in the current note list
 - `--remove` — remove selected notes interactively
+- `--lists` — show all note lists
+- `--use-list` — switch to the selected note list interactively
+- `--add-list` — add a new note list
+- `--edit-list` — edit the selected note list interactively
+- `--remove-list` — remove selected note lists interactively
 
 Notes:
 
+- running `ilu note` with no flags still defaults to showing notes from the current note list
+- all note list lifecycle management now lives under `ilu note`
 - `--add` and `--edit` capture note content with an inline terminal prompt
 - `Enter` confirms the note content
 - `Ctrl+N` inserts a new line in a portable way
 - `Shift+Enter` may insert a new line when the terminal reports it, but it is not required
 - `Esc` cancels the inline note prompt
-
-### `note-list` / `nl`
-
-Manage note lists.
-
-Common options:
-
-- `--add`
-- `--details` — show list details via interactive selection
-- `--edit` — edit the selected list interactively
-- `--show`
-- `--use` — switch to the selected list interactively
-- `--current`
-- `--remove` — remove selected lists interactively
-- `--add-label`
-- `--edit-label <position>`
-- `--remove-label [position]`
 
 ### `babel` / `b`
 

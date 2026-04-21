@@ -96,16 +96,14 @@ test('configureProgram registra los comandos principales del CLI', () => {
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'todo-list', 'note', 'note-list', 'board', 'babel', 'clock']
+    ['todo', 'note', 'board', 'babel', 'clock']
   );
   assert.equal(commands[0].alias, 't');
-  assert.equal(commands[1].alias, 'tl');
-  assert.equal(commands[2].alias, 'n');
-  assert.equal(commands[3].alias, 'nl');
-  assert.equal(commands[4].alias, 'bd');
-  assert.equal(commands[5].alias, 'b');
-  assert.equal(commands[6].alias, 'c');
-  assert.equal(commands[5].arguments[0].signature, '<text...>');
+  assert.equal(commands[1].alias, 'n');
+  assert.equal(commands[2].alias, 'bd');
+  assert.equal(commands[3].alias, 'b');
+  assert.equal(commands[4].alias, 'c');
+  assert.equal(commands[3].arguments[0].signature, '<text...>');
 });
 
 test('configureProgram preserva argumentos y defaults de babel al parsear con commander', async () => {
@@ -137,33 +135,41 @@ test('configureProgram preserva argumentos y defaults de babel al parsear con co
   });
 });
 
-test('configureProgram preserva opciones opcionales sin valor explícito para remove', async () => {
+test('configureProgram parsea opciones de listas de todo desde el comando todo', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
   const configureProgram = require(configureCliModulePath);
-  const calls = [];
-  const action = async (args, opts) => {
-    calls.push({args, opts});
-  };
+  const taskCalls = [];
+  const listCalls = [];
 
   const program = new Command();
   program.exitOverride();
 
   configureProgram(program, {
     pkg: {version: '0.0.0'},
-    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: action}},
+    Todos: {
+      Tasks: {actions: async (args, opts) => taskCalls.push({args, opts})},
+      Lists: {actions: async (args, opts) => listCalls.push({args, opts})}
+    },
     Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
     Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
     Clocks: {actions: async () => {}}
   });
 
-  await program.parseAsync(['node', 'ilu', 'tl', '--remove']);
+  await program.parseAsync(['node', 'ilu', 'todo', '--lists']);
+  await program.parseAsync(['node', 'ilu', 'todo', '--use-list']);
+  await program.parseAsync(['node', 'ilu', 'todo', '--add-list']);
+  await program.parseAsync(['node', 'ilu', 'todo', '--edit-list']);
+  await program.parseAsync(['node', 'ilu', 'todo', '--remove-list']);
 
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], {
-    args: [],
-    opts: {remove: true}
-  });
+  assert.deepEqual(taskCalls, []);
+  assert.deepEqual(listCalls, [
+    {args: [], opts: {show: true}},
+    {args: [], opts: {use: true}},
+    {args: [], opts: {add: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {remove: true}}
+  ]);
 });
 
 test('configureProgram registra y parsea clock con alias y remove opcional', async () => {
@@ -257,11 +263,11 @@ test('configureProgram parsea flags opcionales de note sin valor explícito para
   ]);
 });
 
-test('configureProgram parsea flags interactivas de todo-list y note-list sin valor explícito y preserva current', async () => {
+test('configureProgram parsea gestión de listas de note desde el comando note', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
   const configureProgram = require(configureCliModulePath);
-  const todoListCalls = [];
+  const noteCalls = [];
   const noteListCalls = [];
 
   const program = new Command();
@@ -271,42 +277,33 @@ test('configureProgram parsea flags interactivas de todo-list y note-list sin va
     pkg: {version: '0.0.0'},
     Todos: {
       Tasks: {actions: async () => {}},
-      Lists: {actions: async (args, opts) => todoListCalls.push({args, opts})}
+      Lists: {actions: async () => {}}
     },
     Notes: {
-      Notes: {actions: async () => {}},
+      Notes: {actions: async (args, opts) => noteCalls.push({args, opts})},
       Lists: {actions: async (args, opts) => noteListCalls.push({args, opts})}
     },
     Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
     Clocks: {actions: async () => {}}
   });
 
-  await program.parseAsync(['node', 'ilu', 'tl', '--details']);
-  await program.parseAsync(['node', 'ilu', 'tl', '--edit']);
-  await program.parseAsync(['node', 'ilu', 'tl', '--use']);
-  await program.parseAsync(['node', 'ilu', 'tl', '--remove']);
-  await program.parseAsync(['node', 'ilu', 'tl', '--current']);
+  await program.parseAsync(['node', 'ilu', 'note', '--show']);
+  await program.parseAsync(['node', 'ilu', 'note', '--lists']);
+  await program.parseAsync(['node', 'ilu', 'note', '--use-list']);
+  await program.parseAsync(['node', 'ilu', 'note', '--add-list']);
+  await program.parseAsync(['node', 'ilu', 'note', '--edit-list']);
+  await program.parseAsync(['node', 'ilu', 'note', '--remove-list']);
 
-  await program.parseAsync(['node', 'ilu', 'nl', '--details']);
-  await program.parseAsync(['node', 'ilu', 'nl', '--edit']);
-  await program.parseAsync(['node', 'ilu', 'nl', '--use']);
-  await program.parseAsync(['node', 'ilu', 'nl', '--remove']);
-  await program.parseAsync(['node', 'ilu', 'nl', '--current']);
-
-  assert.deepEqual(todoListCalls, [
-    {args: [], opts: {details: true}},
-    {args: [], opts: {edit: true}},
-    {args: [], opts: {use: true}},
-    {args: [], opts: {remove: true}},
-    {args: [], opts: {current: true}}
+  assert.deepEqual(noteCalls, [
+    {args: [], opts: {show: true}}
   ]);
 
   assert.deepEqual(noteListCalls, [
-    {args: [], opts: {details: true}},
-    {args: [], opts: {edit: true}},
+    {args: [], opts: {show: true}},
     {args: [], opts: {use: true}},
-    {args: [], opts: {remove: true}},
-    {args: [], opts: {current: true}}
+    {args: [], opts: {add: true}},
+    {args: [], opts: {edit: true}},
+    {args: [], opts: {remove: true}}
   ]);
 });
 
