@@ -14,12 +14,14 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} =
   const originalPathEnv = process.env.PATH;
   const logs = [];
   const promptCalls = [];
+  const inlinePromptCalls = [];
   const queuedAnswers = Array.isArray(promptAnswers) ? [...promptAnswers] : [promptAnswers];
   const modelState = {
     list: {
       notes: savedNotes.map(note => ({labels: [], content: '', ...note})),
       labels: labels.map(label => ({...label}))
     },
+    addCalls: [],
     removeCalls: [],
     editCalls: []
   };
@@ -72,7 +74,10 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} =
           return modelState.list;
         },
         notes: {
-          add() {},
+          add(note) {
+            modelState.addCalls.push(note);
+            modelState.list.notes.push(note);
+          },
           edit(index, answers) {
             modelState.editCalls.push({index, answers});
             Object.assign(modelState.list.notes[index - 1], answers);
@@ -89,6 +94,18 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} =
       return async () => {};
     }
 
+    if (request === './inline-note-prompt') {
+      return async (options) => {
+        inlinePromptCalls.push(options);
+
+        if (queuedAnswers.length === 0) {
+          throw new Error('No inline prompt answers left');
+        }
+
+        return queuedAnswers.shift();
+      };
+    }
+
     if (request === 'lodash/isUndefined') {
       return value => typeof value === 'undefined';
     }
@@ -102,7 +119,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} =
 
   try {
     const Notes = require(notesModulePath);
-    return {Notes, logs, promptCalls, modelState};
+    return {Notes, logs, promptCalls, inlinePromptCalls, modelState};
   } finally {
     process.env.PATH = originalPathEnv;
     Module._load = originalLoad;
@@ -131,14 +148,15 @@ test('note --details usa selección interactiva como única vía', {concurrency:
 });
 
 test('note --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Notes, promptCalls, modelState} = loadNotesWithStubs({
+  const {Notes, promptCalls, inlinePromptCalls, modelState} = loadNotesWithStubs({
     savedNotes: [
       {title: 'Uno', content: 'Texto 1'},
       {title: 'Dos', content: 'Texto 2'}
     ],
     promptAnswers: [
       {index: 2},
-      {title: 'Dos editada', content: 'Texto editado'}
+      {title: 'Dos editada'},
+      'Texto editado'
     ]
   });
 
@@ -147,12 +165,33 @@ test('note --edit usa selección interactiva como única vía', {concurrency: fa
   assert.equal(promptCalls.length, 2);
   assert.equal(promptCalls[0][0].type, 'select');
   assert.equal(promptCalls[1][0].name, 'title');
+  assert.equal(promptCalls[1].some(question => question.name === 'content'), false);
+  assert.deepEqual(inlinePromptCalls, [{message: 'Content of the note', initialValue: 'Texto 2'}]);
   assert.deepEqual(modelState.editCalls, [
     {
       index: 2,
       answers: {title: 'Dos editada', content: 'Texto editado'}
     }
   ]);
+});
+
+test('note --add usa prompt inline para contenido como vía principal', {concurrency: false}, async () => {
+  const {Notes, promptCalls, inlinePromptCalls, modelState} = loadNotesWithStubs({
+    savedNotes: [],
+    promptAnswers: [
+      {title: 'Idea rápida', labels: []},
+      'Linea 1\nLinea 2'
+    ]
+  });
+
+  await Notes.add();
+
+  assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].name, 'title');
+  assert.equal(promptCalls[0].some(question => question.name === 'content'), false);
+  assert.deepEqual(inlinePromptCalls, [{message: 'Content of the note', initialValue: ''}]);
+  assert.deepEqual(modelState.addCalls, [{title: 'Idea rápida', labels: [], content: 'Linea 1\nLinea 2'}]);
+  assert.deepEqual(modelState.list.notes, [{title: 'Idea rápida', labels: [], content: 'Linea 1\nLinea 2'}]);
 });
 
 test('note --remove usa selección interactiva como única vía', {concurrency: false}, async () => {

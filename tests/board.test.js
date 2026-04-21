@@ -270,11 +270,36 @@ test('board --priority no abre reorder cuando la columna elegida tiene menos de 
   assert.ok(logs.some(entry => /nothing to reorder|nothing to change|only one card/i.test(entry)));
 });
 
-test('board --columns allows updating a column WIP limit interactively', {concurrency: false}, async () => {
+test('board --columns empieza seleccionando columna y acciones globales especiales', {concurrency: false}, async () => {
+  const {Board, promptCalls} = loadBoardWithStubs({
+    promptAnswers: [
+      {selection: 'cancel'}
+    ]
+  });
+
+  await Board.columns();
+
+  assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].name, 'selection');
+  assert.deepEqual(
+    promptCalls[0][0].choices.map(choice => ({name: choice.name, value: choice.value})),
+    [
+      {name: 'Backlog', value: 'column:1'},
+      {name: 'Ready', value: 'column:2'},
+      {name: 'In Progress', value: 'column:3'},
+      {name: 'Done', value: 'column:4'},
+      {name: '+ Add column', value: 'add-column'},
+      {name: '↺ Reset to simple default', value: 'reset-simple-default'},
+      {name: 'Cancel', value: 'cancel'}
+    ]
+  );
+});
+
+test('board --columns allows updating a column WIP limit after selecting a column first', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
+      {selection: 'column:2'},
       {action: 'set-wip'},
-      {columnIndex: 2},
       {wipLimit: '3'}
     ]
   });
@@ -282,7 +307,8 @@ test('board --columns allows updating a column WIP limit interactively', {concur
   await Board.columns();
 
   assert.equal(promptCalls.length, 3);
-  assert.equal(promptCalls[0][0].name, 'action');
+  assert.equal(promptCalls[0][0].name, 'selection');
+  assert.equal(promptCalls[1][0].name, 'action');
   assert.deepEqual(modelState.columnEditCalls, [
     {index: 2, values: {wipLimit: 3}}
   ]);
@@ -291,8 +317,8 @@ test('board --columns allows updating a column WIP limit interactively', {concur
 test('board --columns valida que set-wip solo acepte vacío o enteros mayores o iguales a 1', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
+      {selection: 'column:2'},
       {action: 'set-wip'},
-      {columnIndex: 2},
       {wipLimit: '5'}
     ]
   });
@@ -318,8 +344,8 @@ test('board --columns valida que set-wip solo acepte vacío o enteros mayores o 
 test('board --columns limpia el WIP cuando set-wip recibe vacío', {concurrency: false}, async () => {
   const {Board, modelState} = loadBoardWithStubs({
     promptAnswers: [
+      {selection: 'column:2'},
       {action: 'set-wip'},
-      {columnIndex: 2},
       {wipLimit: '   '}
     ]
   });
@@ -331,11 +357,32 @@ test('board --columns limpia el WIP cuando set-wip recibe vacío', {concurrency:
   ]);
 });
 
-test('board --columns allows setting the default column interactively', {concurrency: false}, async () => {
+test('board --columns oculta make default para la columna que ya es default', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
-      {action: 'set-default'},
-      {columnIndex: 3}
+      {selection: 'column:1'},
+      {action: 'cancel'}
+    ]
+  });
+
+  await Board.columns();
+
+  assert.equal(promptCalls.length, 2);
+  assert.deepEqual(promptCalls[1][0].choices.map(choice => choice.value), [
+    'rename-column',
+    'set-wip',
+    'move-right',
+    'cancel'
+  ]);
+  assert.deepEqual(modelState.columnSetDefaultCalls, []);
+  assert.deepEqual(modelState.columnReorderCalls, []);
+});
+
+test('board --columns allows setting a non-default column as default from its action menu', {concurrency: false}, async () => {
+  const {Board, promptCalls, modelState} = loadBoardWithStubs({
+    promptAnswers: [
+      {selection: 'column:3'},
+      {action: 'make-default'}
     ]
   });
 
@@ -345,11 +392,11 @@ test('board --columns allows setting the default column interactively', {concurr
   assert.deepEqual(modelState.columnSetDefaultCalls, [3]);
 });
 
-test('board --columns allows renaming a column interactively', {concurrency: false}, async () => {
+test('board --columns allows renaming a column from its action menu', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
+      {selection: 'column:2'},
       {action: 'rename-column'},
-      {columnIndex: 2},
       {title: 'Next Up'}
     ]
   });
@@ -362,10 +409,10 @@ test('board --columns allows renaming a column interactively', {concurrency: fal
   ]);
 });
 
-test('board --columns allows adding a column interactively', {concurrency: false}, async () => {
+test('board --columns adds a column from the initial selector special action', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
-      {action: 'add-column'},
+      {selection: 'add-column'},
       {title: 'Review'}
     ]
   });
@@ -376,22 +423,45 @@ test('board --columns allows adding a column interactively', {concurrency: false
   assert.deepEqual(modelState.columnAddCalls, [{title: 'Review'}]);
 });
 
-test('board --columns allows reordering columns interactively', {concurrency: false}, async () => {
+test('board --columns moves a middle column left from its action menu', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
-      {action: 'reorder-columns'},
-      {fromIndex: 4},
-      {toIndex: 2}
+      {selection: 'column:3'},
+      {action: 'move-left'}
     ]
   });
 
   await Board.columns();
 
-  assert.equal(promptCalls.length, 3);
-  assert.deepEqual(modelState.columnReorderCalls, [{fromIndex: 4, toIndex: 2}]);
+  assert.equal(promptCalls.length, 2);
+  assert.deepEqual(modelState.columnReorderCalls, [{fromIndex: 3, toIndex: 2}]);
 });
 
-test('board --columns removes an empty column interactively', {concurrency: false}, async () => {
+test('board --columns oculta move left para la primera columna y move right para la última', {concurrency: false}, async () => {
+  const firstColumn = loadBoardWithStubs({
+    promptAnswers: [
+      {selection: 'column:1'},
+      {action: 'cancel'}
+    ]
+  });
+
+  await firstColumn.Board.columns();
+
+  assert.doesNotMatch(firstColumn.promptCalls[1][0].choices.map(choice => choice.value).join(','), /move-left/);
+
+  const lastColumn = loadBoardWithStubs({
+    promptAnswers: [
+      {selection: 'column:4'},
+      {action: 'cancel'}
+    ]
+  });
+
+  await lastColumn.Board.columns();
+
+  assert.doesNotMatch(lastColumn.promptCalls[1][0].choices.map(choice => choice.value).join(','), /move-right/);
+});
+
+test('board --columns removes an empty non-default column from its action menu', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     board: createBoardState({
       defaultColumnId: 'backlog',
@@ -403,8 +473,8 @@ test('board --columns removes an empty column interactively', {concurrency: fals
       ]
     }),
     promptAnswers: [
-      {action: 'remove-column'},
-      {columnIndex: 3}
+      {selection: 'column:3'},
+      {action: 'remove-column'}
     ]
   });
 
@@ -414,29 +484,47 @@ test('board --columns removes an empty column interactively', {concurrency: fals
   assert.deepEqual(modelState.columnRemoveCalls, [3]);
 });
 
-test('board --columns blocks removing columns that still have cards', {concurrency: false}, async () => {
-  const {Board, logs, promptCalls, modelState} = loadBoardWithStubs({
+test('board --columns oculta remove cuando la columna es default o tiene cards', {concurrency: false}, async () => {
+  const defaultColumn = loadBoardWithStubs({
     board: createBoardState({
       columns: [
-        {id: 'backlog', title: 'Backlog', wipLimit: null, cards: [{title: 'One', description: '', position: 1}]},
-        {id: 'ready', title: 'Ready', wipLimit: 2, cards: [{title: 'Two', description: '', position: 1}]},
-        {id: 'in-progress', title: 'In Progress', wipLimit: null, cards: [{title: 'Three', description: '', position: 1}]},
-        {id: 'done', title: 'Done', wipLimit: null, cards: [{title: 'Four', description: '', position: 1}]}
+        {id: 'backlog', title: 'Backlog', wipLimit: null, cards: []},
+        {id: 'ready', title: 'Ready', wipLimit: 2, cards: []},
+        {id: 'in-progress', title: 'In Progress', wipLimit: null, cards: []},
+        {id: 'done', title: 'Done', wipLimit: null, cards: []}
       ]
     }),
     promptAnswers: [
-      {action: 'remove-column'}
+      {selection: 'column:1'},
+      {action: 'cancel'}
     ]
   });
 
-  await Board.columns();
+  await defaultColumn.Board.columns();
 
-  assert.equal(promptCalls.length, 1);
-  assert.deepEqual(modelState.columnRemoveCalls, []);
-  assert.ok(logs.some(entry => /empty column/i.test(entry)));
+  assert.doesNotMatch(defaultColumn.promptCalls[1][0].choices.map(choice => choice.value).join(','), /remove-column/);
+
+  const busyColumn = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {id: 'backlog', title: 'Backlog', wipLimit: null, cards: []},
+        {id: 'ready', title: 'Ready', wipLimit: 2, cards: [{title: 'Two', description: '', position: 1}]},
+        {id: 'in-progress', title: 'In Progress', wipLimit: null, cards: []},
+        {id: 'done', title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {selection: 'column:2'},
+      {action: 'cancel'}
+    ]
+  });
+
+  await busyColumn.Board.columns();
+
+  assert.doesNotMatch(busyColumn.promptCalls[1][0].choices.map(choice => choice.value).join(','), /remove-column/);
 });
 
-test('board --columns resets to simple default when the board has no cards', {concurrency: false}, async () => {
+test('board --columns resets to simple default from the initial selector special action when the board has no cards', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     board: createBoardState({
       defaultColumnId: 'ready',
@@ -447,7 +535,7 @@ test('board --columns resets to simple default when the board has no cards', {co
       ]
     }),
     promptAnswers: [
-      {action: 'reset-simple-default'}
+      {selection: 'reset-simple-default'}
     ]
   });
 
@@ -468,7 +556,7 @@ test('board --columns no resetea a simple default cuando el board sí tiene card
       ]
     }),
     promptAnswers: [
-      {action: 'reset-simple-default'}
+      {selection: 'reset-simple-default'}
     ]
   });
 
@@ -482,7 +570,7 @@ test('board --columns no resetea a simple default cuando el board sí tiene card
 test('board --columns cancel returns without changing columns', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
-      {action: 'cancel'}
+      {selection: 'cancel'}
     ]
   });
 

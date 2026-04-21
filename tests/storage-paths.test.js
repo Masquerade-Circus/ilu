@@ -28,21 +28,13 @@ test('utils/local-paths resuelve .ilu, bases de datos y temporales bajo HOME', (
   }
 });
 
-test('notes/notes crea el archivo temporal sin permisos ejecutables en Unix', async () => {
-  if (process.platform === 'win32') {
-    return;
-  }
-
+test('notes/notes usa prompt inline y ya no depende de archivo temporal para capturar contenido', async () => {
   const originalLoad = Module._load;
-  const originalPath = process.env.PATH;
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-notes-home-'));
-  const tempBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-notes-bin-'));
   const noteFile = path.join(tempHome, '.ilu', 'note.txt');
   const addedNotes = [];
   const currentList = {notes: [], labels: []};
-
-  fs.writeFileSync(path.join(tempBinDir, 'code'), '#!/bin/sh\nexit 0\n', {mode: 0o755});
-  process.env.PATH = tempBinDir;
+  let openWithEditorCalled = false;
 
   delete require.cache[require.resolve(notesModulePath)];
 
@@ -86,10 +78,16 @@ test('notes/notes crea el archivo temporal sin permisos ejecutables en Unix', as
     }
 
     if (request === './open-with-editor') {
-      return async (file) => {
-        const mode = fs.statSync(file).mode & 0o777;
-        assert.equal(mode, 0o600);
-        fs.writeFileSync(file, 'Texto desde editor', 'utf8');
+      return async () => {
+        openWithEditorCalled = true;
+      };
+    }
+
+    if (request === './inline-note-prompt') {
+      return async ({message, initialValue}) => {
+        assert.equal(message, 'Content of the note');
+        assert.equal(initialValue, '');
+        return 'Texto inline';
       };
     }
 
@@ -112,14 +110,13 @@ test('notes/notes crea el archivo temporal sin permisos ejecutables en Unix', as
 
     await Notes.add();
 
-    assert.deepEqual(addedNotes, [{title: 'Idea', labels: [], content: 'Texto desde editor'}]);
+    assert.deepEqual(addedNotes, [{title: 'Idea', labels: [], content: 'Texto inline'}]);
+    assert.equal(openWithEditorCalled, false);
     assert.equal(fs.existsSync(noteFile), false);
   } finally {
-    process.env.PATH = originalPath;
     Module._load = originalLoad;
     delete require.cache[require.resolve(notesModulePath)];
     fs.rmSync(tempHome, {recursive: true, force: true});
-    fs.rmSync(tempBinDir, {recursive: true, force: true});
   }
 });
 

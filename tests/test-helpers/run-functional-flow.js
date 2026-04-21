@@ -13,7 +13,8 @@ const promptAnswersByFlow = {
   ],
   note: [
     {title: 'Ideas', description: 'Notas base'},
-    {title: 'Idea rápida', content: 'Texto funcional'}
+    {title: 'Idea rápida', labels: []},
+    'Texto funcional'
   ],
   board: [
     {title: 'Product', description: 'Delivery flow', columns: 'Ideas, Ready, Ship'},
@@ -56,8 +57,14 @@ async function main() {
       };
     }
 
-    if (request === './open-with-editor' && flowName === 'note') {
-      return async () => {};
+    if (request === './inline-note-prompt' && flowName === 'note') {
+      return async () => {
+        if (promptAnswers.length === 0) {
+          throw new Error(`No inline prompt answers left for ${flowName}`);
+        }
+
+        return promptAnswers.shift();
+      };
     }
 
     return originalLoad.apply(this, arguments);

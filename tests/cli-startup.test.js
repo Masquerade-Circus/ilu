@@ -103,7 +103,8 @@ test('README documenta board v2 con columna default y columnas custom', () => {
 
   assert.match(readme, /--add` — add a new card to the default column/i);
   assert.match(readme, /--priority` — reorder cards within a selected column with keyboard controls/i);
-  assert.match(readme, /--columns` — manage columns for the current board, including the default column/i);
+  assert.match(readme, /--columns` — manage columns for the current board with a column-first interactive flow/i);
+  assert.match(readme, /`ilu board --columns` selects a column first, then shows only the actions that make sense for that column/i);
   assert.match(readme, /a new board can start with custom columns and a selected default column for new cards/i);
 });
 

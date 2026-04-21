@@ -6,19 +6,19 @@ const path = require('node:path');
 
 const notesModulePath = path.join(__dirname, 'notes.js');
 const modelModulePath = path.join(__dirname, 'model.js');
-const openWithEditorModulePath = path.join(__dirname, 'open-with-editor.js');
+const inlinePromptModulePath = path.join(__dirname, 'inline-note-prompt.js');
 const localPathsModulePath = path.join(__dirname, '..', 'utils', 'local-paths.js');
 const utilsModulePath = path.join(__dirname, '..', 'utils', 'index.js');
 const inquirerModulePath = path.join(__dirname, '..', 'utils', 'inquirer.js');
 
-function loadNotesWithStubs({platform, promptImpl, openWithEditorImpl, tempFilePath, model}) {
+function loadNotesWithStubs({platform, promptImpl, inlinePromptImpl, tempFilePath, model}) {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
   const originalAccessSync = fs.accessSync;
   const originalCacheEntries = new Map();
   const stubbedModules = new Map([
     [inquirerModulePath, {prompt: promptImpl}],
     [modelModulePath, model],
-    [openWithEditorModulePath, openWithEditorImpl],
+    [inlinePromptModulePath, inlinePromptImpl],
     [localPathsModulePath, {
       storageDirPath() {
         return path.dirname(tempFilePath);
@@ -80,11 +80,11 @@ function loadNotesWithStubs({platform, promptImpl, openWithEditorImpl, tempFileP
   }
 }
 
-test('notes.add usa textedit en macOS aunque no exista en PATH', async () => {
+test('notes.add usa prompt inline como vía principal para contenido', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-notes-test-'));
   const tempFilePath = path.join(tempDir, 'note.txt');
   const promptCalls = [];
-  const openCalls = [];
+  const inlinePromptCalls = [];
   const addedNotes = [];
 
   try {
@@ -98,8 +98,9 @@ test('notes.add usa textedit en macOS aunque no exista en PATH', async () => {
           labels: []
         });
       },
-      async openWithEditorImpl(file, options) {
-        openCalls.push({file, options});
+      async inlinePromptImpl(options) {
+        inlinePromptCalls.push(options);
+        return 'Texto inline';
       },
       model: {
         getCurrent() {
@@ -122,12 +123,9 @@ test('notes.add usa textedit en macOS aunque no exista en PATH', async () => {
 
     assert.equal(promptCalls.length, 1);
     assert.equal(promptCalls[0].some(question => question.name === 'content'), false);
-    assert.deepEqual(openCalls, [{
-      file: tempFilePath,
-      options: {app: 'textedit'}
-    }]);
+    assert.deepEqual(inlinePromptCalls, [{message: 'Content of the note', initialValue: ''}]);
     assert.equal(addedNotes.length, 1);
-    assert.equal(addedNotes[0].content, '');
+    assert.equal(addedNotes[0].content, 'Texto inline');
   } finally {
     fs.rmSync(tempDir, {recursive: true, force: true});
   }

@@ -122,6 +122,14 @@ Common options:
 - `--show`
 - `--remove` — remove selected notes interactively
 
+Notes:
+
+- `--add` and `--edit` capture note content with an inline terminal prompt
+- `Enter` confirms the note content
+- `Ctrl+N` inserts a new line in a portable way
+- `Shift+Enter` may insert a new line when the terminal reports it, but it is not required
+- `Esc` cancels the inline note prompt
+
 ### `note-list` / `nl`
 
 Manage note lists.
@@ -171,7 +179,7 @@ Common options:
 - `--move` — move the selected card interactively
 - `--priority` — reorder cards within a selected column with keyboard controls
 - `--remove` — remove selected cards interactively
-- `--columns` — manage columns for the current board, including the default column
+- `--columns` — manage columns for the current board with a column-first interactive flow
 
 Notes:
 
@@ -180,6 +188,7 @@ Notes:
 - a new board can start with custom columns and a selected default column for new cards
 - card priority is the card position inside each column
 - `ilu board --priority` selects a column first, then enters reorder mode for cards in that same column
+- `ilu board --columns` selects a column first, then shows only the actions that make sense for that column
 - the priority prompt uses `Space` to take/drop, `↑/↓` to move, `Enter` to confirm, and `Esc` to cancel
 - if the selected column has fewer than 2 cards, the command reports that there is nothing to reorder
 - moving a card forward triggers auto-pull from earlier columns until a full WIP-limited column stops the chain
@@ -248,7 +257,6 @@ Examples used by the current codebase:
 - `~/.ilu/notes.json`
 - `~/.ilu/boards.json`
 - `~/.ilu/clocks.json`
-- `~/.ilu/note.txt`
 
 ## Testing
 

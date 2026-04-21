@@ -87,17 +87,22 @@ async function selectColumn(message, columns) {
     return answers.columnIndex;
 }
 
-async function selectColumnIndex(message, columns, fieldName) {
+async function selectColumnsTarget(columns) {
     let answers = await inquirer.prompt([
         {
             type: 'select',
-            name: fieldName,
-            message,
-            choices: columns.map(column => ({name: column.title, value: column.index}))
+            name: 'selection',
+            message: 'Select a column to manage',
+            choices: [
+                ...columns.map(column => ({name: column.title, value: `column:${column.index}`})),
+                {name: '+ Add column', value: 'add-column'},
+                {name: '↺ Reset to simple default', value: 'reset-simple-default'},
+                {name: 'Cancel', value: 'cancel'}
+            ]
         }
     ]);
 
-    return answers[fieldName];
+    return answers.selection;
 }
 
 function getColumnsWithIndexes(board) {
@@ -106,6 +111,50 @@ function getColumnsWithIndexes(board) {
 
 function hasAnyCards(board) {
     return board.columns.some(column => column.cards.length > 0);
+}
+
+function canRemoveColumn(board, column) {
+    return column.cards.length === 0 && column.id !== board.defaultColumnId;
+}
+
+function getColumnActions(board, column, columnIndex) {
+    let choices = [
+        {name: 'Rename', value: 'rename-column'},
+        {name: 'Set WIP', value: 'set-wip'}
+    ];
+
+    if (column.id !== board.defaultColumnId) {
+        choices.push({name: 'Make default', value: 'make-default'});
+    }
+
+    if (columnIndex > 1) {
+        choices.push({name: 'Move left', value: 'move-left'});
+    }
+
+    if (columnIndex < board.columns.length) {
+        choices.push({name: 'Move right', value: 'move-right'});
+    }
+
+    if (canRemoveColumn(board, column)) {
+        choices.push({name: 'Remove', value: 'remove-column'});
+    }
+
+    choices.push({name: 'Cancel', value: 'cancel'});
+
+    return choices;
+}
+
+async function selectColumnAction(board, column, columnIndex) {
+    let answers = await inquirer.prompt([
+        {
+            type: 'select',
+            name: 'action',
+            message: `What do you want to do with "${column.title}"?`,
+            choices: getColumnActions(board, column, columnIndex)
+        }
+    ]);
+
+    return answers.action;
 }
 
 function validateWipLimitInput(value) {
@@ -234,84 +283,65 @@ let Board = {
     async columns() {
         let board = getCurrentBoard();
         let columns = getColumnsWithIndexes(board);
-        let answers = await inquirer.prompt([
-            {
-                type: 'select',
-                name: 'action',
-                message: 'Manage board columns',
-                choices: [
-                    {name: 'Set default column', value: 'set-default'},
-                    {name: 'Set WIP limit', value: 'set-wip'},
-                    {name: 'Rename column', value: 'rename-column'},
-                    {name: 'Add column', value: 'add-column'},
-                    {name: 'Reorder columns', value: 'reorder-columns'},
-                    {name: 'Remove empty column', value: 'remove-column'},
-                    {name: 'Reset to simple default', value: 'reset-simple-default'},
-                    {name: 'Cancel', value: 'cancel'}
-                ]
-            }
-        ]);
+        let selection = await selectColumnsTarget(columns);
 
-        if (answers.action === 'set-default') {
-            let columnIndex = await selectColumn('Select the default column', columns);
-            Model.columns.setDefault(columnIndex);
-        }
-
-        if (answers.action === 'set-wip') {
-            let columnIndex = await selectColumn('Select the column', columns);
-            let wipAnswer = await inquirer.prompt([
-                {
-                    type: 'input',
-                    name: 'wipLimit',
-                    message: 'WIP limit (leave empty for none)',
-                    validate: validateWipLimitInput
-                }
-            ]);
-
-            let wipLimit = String(wipAnswer.wipLimit || '').trim();
-            Model.columns.edit(columnIndex, {
-                wipLimit: wipLimit.length === 0 ? null : parseInt(wipLimit, 10)
-            });
-        }
-
-        if (answers.action === 'rename-column') {
-            let columnIndex = await selectColumn('Select the column to rename', columns);
-            let column = columns[columnIndex - 1];
-            let renameAnswer = await inquirer.prompt([
-                {type: 'input', name: 'title', message: 'Column title', suffix: ' (required)', validate: required('title'), default: column.title}
-            ]);
-            Model.columns.edit(columnIndex, {title: renameAnswer.title});
-        }
-
-        if (answers.action === 'add-column') {
+        if (selection === 'add-column') {
             let addAnswer = await inquirer.prompt([
                 {type: 'input', name: 'title', message: 'Column title', suffix: ' (required)', validate: required('title')}
             ]);
             Model.columns.add({title: addAnswer.title});
         }
 
-        if (answers.action === 'reorder-columns') {
-            let fromIndex = await selectColumnIndex('Select the column to move', columns, 'fromIndex');
-            let toIndex = await selectColumnIndex('Select the destination position', columns, 'toIndex');
-            Model.columns.reorder({fromIndex, toIndex});
-        }
-
-        if (answers.action === 'remove-column') {
-            let removableColumns = columns.filter(column => column.cards.length === 0 && column.id !== board.defaultColumnId);
-
-            if (removableColumns.length === 0) {
-                log.info('You need an empty column that is not the default column.'.blue, 'blue');
-            } else {
-                let columnIndex = await selectColumn('Select the empty column to remove', removableColumns);
-                Model.columns.remove(columnIndex);
-            }
-        }
-
-        if (answers.action === 'reset-simple-default') {
+        if (selection === 'reset-simple-default') {
             if (hasAnyCards(board)) {
                 log.info('Cannot reset to the simple default while the board has cards.'.blue, 'blue');
             } else {
                 Model.columns.resetSimpleDefault();
+            }
+        }
+
+        if (selection.startsWith('column:')) {
+            let columnIndex = parseInt(selection.split(':')[1], 10);
+            let column = board.columns[columnIndex - 1];
+            let action = await selectColumnAction(board, column, columnIndex);
+
+            if (action === 'set-wip') {
+                let wipAnswer = await inquirer.prompt([
+                    {
+                        type: 'input',
+                        name: 'wipLimit',
+                        message: 'WIP limit (leave empty for none)',
+                        validate: validateWipLimitInput
+                    }
+                ]);
+
+                let wipLimit = String(wipAnswer.wipLimit || '').trim();
+                Model.columns.edit(columnIndex, {
+                    wipLimit: wipLimit.length === 0 ? null : parseInt(wipLimit, 10)
+                });
+            }
+
+            if (action === 'rename-column') {
+                let renameAnswer = await inquirer.prompt([
+                    {type: 'input', name: 'title', message: 'Column title', suffix: ' (required)', validate: required('title'), default: column.title}
+                ]);
+                Model.columns.edit(columnIndex, {title: renameAnswer.title});
+            }
+
+            if (action === 'make-default') {
+                Model.columns.setDefault(columnIndex);
+            }
+
+            if (action === 'move-left') {
+                Model.columns.reorder({fromIndex: columnIndex, toIndex: columnIndex - 1});
+            }
+
+            if (action === 'move-right') {
+                Model.columns.reorder({fromIndex: columnIndex, toIndex: columnIndex + 1});
+            }
+
+            if (action === 'remove-column' && canRemoveColumn(board, column)) {
+                Model.columns.remove(columnIndex);
             }
         }
 
