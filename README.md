@@ -6,6 +6,7 @@ Small Node.js CLI utilities for personal productivity.
 
 - todo items and todo lists
 - notes and note lists
+- scrumban boards
 - quick text translation
 - saved world clocks
 
@@ -15,7 +16,7 @@ Small Node.js CLI utilities for personal productivity.
 - [x] Simple notes
 - [x] Translator
 - [x] World clock
-- [ ] Kanban boards
+- [x] Scrumban boards
 - [ ] Callendar and remainders
 
 ## Install
@@ -64,6 +65,8 @@ Available commands:
 | `todo-list` | `tl`  | Manage todo lists                     |
 | `note`      | `n`   | Manage notes in the current note list |
 | `note-list` | `nl`  | Manage note lists                     |
+| `board`     | `bd`  | Manage cards in the current board     |
+| `board-list`| `bl`  | Manage scrumban boards                |
 | `babel`     | `b`   | Translate text                        |
 | `clock`     | `c`   | Manage saved clocks                   |
 
@@ -155,6 +158,53 @@ Notes:
 - translation uses the native `fetch` available in the current Node.js runtime
 - the translated text is copied to the clipboard
 
+### `board` / `bd`
+
+Manage cards for the current board.
+
+Common options:
+
+- `--show` — show the current board as an adaptive ASCII view
+- `--add` — add a new card to the default column
+- `--details` — show details of the selected card interactively
+- `--edit` — edit the selected card interactively
+- `--move` — move the selected card interactively
+- `--priority` — reorder cards within a selected column with keyboard controls
+- `--remove` — remove selected cards interactively
+- `--columns` — manage columns for the current board, including the default column
+
+Notes:
+
+- running `ilu board` with no flags runs `--show` by default
+- a new board starts with `Backlog`, `Ready`, `In Progress` and `Done`
+- a new board can start with custom columns and a selected default column for new cards
+- card priority is the card position inside each column
+- `ilu board --priority` selects a column first, then enters reorder mode for cards in that same column
+- the priority prompt uses `Space` to take/drop, `↑/↓` to move, `Enter` to confirm, and `Esc` to cancel
+- if the selected column has fewer than 2 cards, the command reports that there is nothing to reorder
+- moving a card forward triggers auto-pull from earlier columns until a full WIP-limited column stops the chain
+
+### `board-list` / `bl`
+
+Manage scrumban boards.
+
+Common options:
+
+- `--show` — show all boards
+- `--add` — add a new board interactively
+- `--details` — show board details via interactive selection
+- `--edit` — edit the selected board interactively
+- `--use` — switch to the selected board interactively
+- `--current`
+- `--remove` — remove selected boards interactively
+
+Notes:
+
+- running `ilu board-list` with no flags runs `--show` by default
+- boards are stored in `~/.ilu/boards.json`
+- creating a board lets you define comma-separated columns and choose which one receives new cards by default
+- WIP limits are configured from `ilu board --columns`
+
 ### `clock` / `c`
 
 Manage saved clocks.
@@ -196,6 +246,7 @@ Examples used by the current codebase:
 
 - `~/.ilu/todos.json`
 - `~/.ilu/notes.json`
+- `~/.ilu/boards.json`
 - `~/.ilu/clocks.json`
 - `~/.ilu/note.txt`
 

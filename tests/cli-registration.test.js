@@ -89,21 +89,24 @@ test('configureProgram registra los comandos principales del CLI', () => {
     updateNotifier: () => ({ notify() {} }),
     Todos: { Tasks: { actions: action }, Lists: { actions: action } },
     Notes: { Notes: { actions: action }, Lists: { actions: action } },
+    Scrumban: { Board: { actions: action }, BoardLists: { actions: action } },
     Translate: { osLang: 'es', validate: translateValidate, action },
     Clocks: { actions: action }
   });
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'todo-list', 'note', 'note-list', 'babel', 'clock']
+    ['todo', 'todo-list', 'note', 'note-list', 'board', 'board-list', 'babel', 'clock']
   );
   assert.equal(commands[0].alias, 't');
   assert.equal(commands[1].alias, 'tl');
   assert.equal(commands[2].alias, 'n');
   assert.equal(commands[3].alias, 'nl');
-  assert.equal(commands[4].alias, 'b');
-  assert.equal(commands[5].alias, 'c');
-  assert.equal(commands[4].arguments[0].signature, '<text...>');
+  assert.equal(commands[4].alias, 'bd');
+  assert.equal(commands[5].alias, 'bl');
+  assert.equal(commands[6].alias, 'b');
+  assert.equal(commands[7].alias, 'c');
+  assert.equal(commands[6].arguments[0].signature, '<text...>');
 });
 
 test('configureProgram preserva argumentos y defaults de babel al parsear con commander', async () => {
@@ -306,4 +309,59 @@ test('configureProgram parsea flags interactivas de todo-list y note-list sin va
     {args: [], opts: {remove: true}},
     {args: [], opts: {current: true}}
   ]);
+});
+
+test('configureProgram registra board y board-list con default show cuando no reciben flags', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const boardCalls = [];
+  const boardListCalls = [];
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {
+      Board: {actions: async (args, opts) => boardCalls.push({args, opts})},
+      BoardLists: {actions: async (args, opts) => boardListCalls.push({args, opts})}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'bd']);
+  await program.parseAsync(['node', 'ilu', 'bl']);
+
+  assert.deepEqual(boardCalls, [{args: [], opts: {}}]);
+  assert.deepEqual(boardListCalls, [{args: [], opts: {}}]);
+});
+
+test('configureProgram parsea board --priority como flag interactiva sin valor explícito', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const boardCalls = [];
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {
+      Board: {actions: async (args, opts) => boardCalls.push({args, opts})},
+      BoardLists: {actions: async () => {}}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'board', '--priority']);
+
+  assert.deepEqual(boardCalls, [{args: [], opts: {priority: true}}]);
 });

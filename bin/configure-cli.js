@@ -8,6 +8,10 @@ function configureProgram(program, deps) {
     updateNotifier,
     Todos,
     Notes,
+    Scrumban = {
+      Board: {actions: async () => {}},
+      BoardLists: {actions: async () => {}}
+    },
     Translate,
     Clocks
   } = deps;
@@ -89,6 +93,33 @@ function configureProgram(program, deps) {
     .option('-E, --edit-label <position>', 'Edit the label at <position>', value => parseInt(value, 10))
     .option('-R, --remove-label [position]', 'Remove the label at [position], if no position, remove all labels', optionalInt)
     .action(createActionAdapter(Notes.Lists.actions));
+
+  program
+    .command('board')
+    .alias('bd')
+    .description('Manage cards for the current board')
+    .option('-s, --show', 'Show the current board as an adaptive ASCII view')
+    .option('-a, --add', 'Add a new card to the default column')
+    .option('-d, --details', 'Show details of the selected card interactively')
+    .option('-e, --edit', 'Edit the selected card interactively')
+    .option('-m, --move', 'Move the selected card interactively')
+    .option('-p, --priority', 'Reorder cards within a selected column interactively')
+    .option('-r, --remove', 'Remove selected cards interactively')
+    .option('-c, --columns', 'Manage columns for the current board')
+    .action(createActionAdapter(Scrumban.Board.actions));
+
+  program
+    .command('board-list')
+    .alias('bl')
+    .description('Manage scrumban boards')
+    .option('-s, --show', 'Show all boards')
+    .option('-a, --add', 'Add new board')
+    .option('-d, --details', 'Show details of the selected board interactively')
+    .option('-e, --edit', 'Edit the selected board interactively')
+    .option('-u, --use', 'Use the selected board interactively')
+    .option('-c, --current', 'Show the details of the current board')
+    .option('-r, --remove', 'Remove selected boards interactively')
+    .action(createActionAdapter(Scrumban.BoardLists.actions));
 
   program
     .command('babel')

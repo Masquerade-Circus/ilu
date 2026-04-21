@@ -66,3 +66,18 @@ test('flujo funcional base de clock agrega, muestra y elimina relojes en HOME te
   assert.match(result.output, /America\/Mexico_City/);
   assert.match(result.output, /1 clock has been removed/i);
 });
+
+test('flujo funcional base de board usa columnas custom y agrega la card en la columna default', () => {
+  const {tempHome, payload: result} = runFlow('board');
+
+  assert.equal(result.storageDir, path.join(tempHome, '.ilu'));
+  assert.equal(result.dbFile, path.join(tempHome, '.ilu', 'boards.json'));
+  assert.equal(result.dbFileExists, true);
+  assert.equal(result.currentBoard.title, 'Product');
+  assert.equal(result.currentBoard.defaultColumnId, 'ready');
+  assert.deepEqual(result.currentBoard.columns.map(column => column.title), ['Ideas', 'Ready', 'Ship']);
+  assert.deepEqual(result.currentBoard.columns[0].cards.map(card => card.title), []);
+  assert.deepEqual(result.currentBoard.columns[1].cards.map(card => card.title), ['Write docs']);
+  assert.match(result.output, /Ready/);
+  assert.match(result.output, /Write docs/);
+});

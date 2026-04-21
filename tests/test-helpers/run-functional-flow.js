@@ -15,6 +15,12 @@ const promptAnswersByFlow = {
     {title: 'Ideas', description: 'Notas base'},
     {title: 'Idea rápida', content: 'Texto funcional'}
   ],
+  board: [
+    {title: 'Product', description: 'Delivery flow', columns: 'Ideas, Ready, Ship'},
+    {defaultColumnId: 'ready'},
+    {title: 'Write docs', description: 'v1'},
+    {action: 'exit'}
+  ],
   clock: [
     {search: 'mexico'},
     {timezone: 'America/Mexico_City'},
@@ -116,6 +122,22 @@ async function main() {
         savedClocksBeforeRemoveAll: afterRemoveOne,
         savedClocksAfterRemoveAll: ClocksModel.find(),
         removeSelection: [1],
+        output: output.join('\n')
+      };
+    }
+
+    if (flowName === 'board') {
+      const Scrumban = require(path.join(repoRoot, 'scrumban'));
+      const ScrumbanModel = require(path.join(repoRoot, 'scrumban', 'model.js'));
+
+      await Scrumban.BoardLists.actions([], {add: true});
+      await Scrumban.Board.actions([], {add: true});
+
+      result = {
+        storageDir: localPaths.storageDirPath(),
+        dbFile: localPaths.dbFilePath('boards'),
+        dbFileExists: fs.existsSync(localPaths.dbFilePath('boards')),
+        currentBoard: ScrumbanModel.getCurrent(),
         output: output.join('\n')
       };
     }

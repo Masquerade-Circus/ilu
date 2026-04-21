@@ -1,0 +1,342 @@
+let isUndefined = require('lodash/isUndefined');
+let inquirer = require('../utils/inquirer');
+let {required, log} = require('../utils');
+let Model = require('./model');
+let renderBoard = require('./ascii-board');
+let promptBoardPriority = require('./board-priority-prompt');
+
+function getCurrentBoard() {
+    let board = Model.getCurrent();
+    if (!board) {
+        log.info(`You dont have any boards, try adding one.`.blue, 'blue');
+        process.exit(1);
+        return;
+    }
+    return board;
+}
+
+function getCards(board) {
+    let cards = [];
+
+    board.columns.forEach((column, columnIndex) => {
+        column.cards.forEach((card, positionIndex) => {
+            cards.push({
+                name: `[${column.title}] ${card.position} ${card.title}`,
+                value: `${columnIndex + 1}:${positionIndex + 1}`,
+                columnIndex: columnIndex + 1,
+                position: positionIndex + 1,
+                card
+            });
+        });
+    });
+
+    return cards;
+}
+
+async function selectCard(message, multiple = false) {
+    let board = getCurrentBoard();
+    let cards = getCards(board);
+
+    if (cards.length === 0) {
+        log.info(`You dont have any cards, try adding one.`.blue, 'blue');
+        process.exit(1);
+        return;
+    }
+
+    let answers = await inquirer.prompt([
+        {
+            type: multiple ? 'checkbox' : 'select',
+            name: multiple ? 'cardKeys' : 'cardKey',
+            message,
+            choices: cards,
+            validate(value) {
+                if (!multiple) {
+                    return true;
+                }
+                return value.length > 0 || 'Please select at least one card';
+            }
+        }
+    ]);
+
+    return multiple ? answers.cardKeys : answers.cardKey;
+}
+
+function parseCardKey(cardKey) {
+    let [columnIndex, position] = cardKey.split(':').map(value => parseInt(value, 10));
+    return {columnIndex, position};
+}
+
+function getCardByKey(cardKey) {
+    let board = getCurrentBoard();
+    let {columnIndex, position} = parseCardKey(cardKey);
+    let column = board.columns[columnIndex - 1];
+    let card = column && column.cards[position - 1];
+    return {board, columnIndex, position, column, card};
+}
+
+async function selectColumn(message, columns) {
+    let answers = await inquirer.prompt([
+        {
+            type: 'select',
+            name: 'columnIndex',
+            message,
+            choices: columns.map(column => ({name: column.title, value: column.index}))
+        }
+    ]);
+
+    return answers.columnIndex;
+}
+
+async function selectColumnIndex(message, columns, fieldName) {
+    let answers = await inquirer.prompt([
+        {
+            type: 'select',
+            name: fieldName,
+            message,
+            choices: columns.map(column => ({name: column.title, value: column.index}))
+        }
+    ]);
+
+    return answers[fieldName];
+}
+
+function getColumnsWithIndexes(board) {
+    return board.columns.map((column, index) => ({...column, index: index + 1}));
+}
+
+function hasAnyCards(board) {
+    return board.columns.some(column => column.cards.length > 0);
+}
+
+function validateWipLimitInput(value) {
+    let normalizedValue = String(value || '').trim();
+
+    if (normalizedValue.length === 0) {
+        return true;
+    }
+
+    if (/^[1-9]\d*$/.test(normalizedValue)) {
+        return true;
+    }
+
+    return 'Please enter a valid integer greater than or equal to 1';
+}
+
+let Board = {
+    getCurrent: getCurrentBoard,
+    async add() {
+        getCurrentBoard();
+
+        let answers = await inquirer.prompt([
+            {type: 'input', name: 'title', message: 'Title of the card', suffix: ' (required)', validate: required('title')},
+            {type: 'input', name: 'description', message: 'Description of the card'}
+        ]);
+
+        Model.cards.add(answers);
+        await Board.showWithActions();
+    },
+    async details() {
+        let cardKey = await selectCard('Select a card.');
+        let {card, column} = getCardByKey(cardKey);
+
+        log('Title'.gray);
+        log(card.title.cyan, 4);
+        log('Column'.gray);
+        log(column.title.cyan, 4);
+
+        if (card.description.trim().length > 0) {
+            log('Description'.gray);
+            log(card.description.cyan, 4);
+        }
+    },
+    async edit() {
+        let cardKey = await selectCard('Select a card to edit.');
+        let {card, columnIndex, position} = getCardByKey(cardKey);
+        let answers = await inquirer.prompt([
+            {type: 'input', name: 'title', message: 'Title of the card', suffix: ' (required)', validate: required('title'), default: card.title},
+            {type: 'input', name: 'description', message: 'Description of the card', default: card.description}
+        ]);
+
+        Model.cards.edit({columnIndex, position, values: answers});
+        await Board.showWithActions();
+    },
+    async move() {
+        let board = getCurrentBoard();
+        let cardKey = await selectCard('Select a card to move.');
+        let {columnIndex, position} = parseCardKey(cardKey);
+        let answers = await inquirer.prompt([
+            {
+                type: 'select',
+                name: 'columnIndex',
+                message: 'Select the destination column',
+                choices: board.columns.map((column, index) => ({name: column.title, value: index + 1}))
+            }
+        ]);
+
+        let targetColumn = board.columns[answers.columnIndex - 1];
+        Model.cards.move({
+            fromColumn: columnIndex,
+            fromPosition: position,
+            toColumn: answers.columnIndex,
+            toPosition: targetColumn.cards.length + 1
+        });
+        await Board.showWithActions();
+    },
+    async priority() {
+        let board = getCurrentBoard();
+        let columns = getColumnsWithIndexes(board);
+        let columnIndex = await selectColumn('Select the column to reorder', columns);
+        let column = board.columns[columnIndex - 1];
+
+        if (!column || column.cards.length < 2) {
+            log.info('This column has fewer than two cards, there is nothing to change.'.blue, 'blue');
+            await Board.showWithActions();
+            return;
+        }
+
+        let move = await promptBoardPriority({
+            columnTitle: column.title,
+            cards: column.cards
+        });
+
+        if (move && move.fromPosition !== move.toPosition) {
+            Model.cards.move({
+                fromColumn: columnIndex,
+                fromPosition: move.fromPosition,
+                toColumn: columnIndex,
+                toPosition: move.toPosition
+            });
+        }
+
+        await Board.showWithActions();
+    },
+    async remove() {
+        let cardKeys = await selectCard('Select cards to remove.', true);
+        let grouped = cardKeys.reduce((acc, cardKey) => {
+            let {columnIndex, position} = parseCardKey(cardKey);
+            if (!acc[columnIndex]) {
+                acc[columnIndex] = [];
+            }
+            acc[columnIndex].push(position);
+            return acc;
+        }, {});
+
+        Object.keys(grouped)
+            .map(value => parseInt(value, 10))
+            .sort((left, right) => left - right)
+            .forEach(columnIndex => {
+                Model.cards.remove({columnIndex, positions: grouped[columnIndex]});
+            });
+
+        log.info(`${cardKeys.length} ${cardKeys.length === 1 ? 'card has' : 'cards have'} been removed.`.blue, 'blue');
+        await Board.showWithActions();
+    },
+    async columns() {
+        let board = getCurrentBoard();
+        let columns = getColumnsWithIndexes(board);
+        let answers = await inquirer.prompt([
+            {
+                type: 'select',
+                name: 'action',
+                message: 'Manage board columns',
+                choices: [
+                    {name: 'Set default column', value: 'set-default'},
+                    {name: 'Set WIP limit', value: 'set-wip'},
+                    {name: 'Rename column', value: 'rename-column'},
+                    {name: 'Add column', value: 'add-column'},
+                    {name: 'Reorder columns', value: 'reorder-columns'},
+                    {name: 'Remove empty column', value: 'remove-column'},
+                    {name: 'Reset to simple default', value: 'reset-simple-default'},
+                    {name: 'Cancel', value: 'cancel'}
+                ]
+            }
+        ]);
+
+        if (answers.action === 'set-default') {
+            let columnIndex = await selectColumn('Select the default column', columns);
+            Model.columns.setDefault(columnIndex);
+        }
+
+        if (answers.action === 'set-wip') {
+            let columnIndex = await selectColumn('Select the column', columns);
+            let wipAnswer = await inquirer.prompt([
+                {
+                    type: 'input',
+                    name: 'wipLimit',
+                    message: 'WIP limit (leave empty for none)',
+                    validate: validateWipLimitInput
+                }
+            ]);
+
+            let wipLimit = String(wipAnswer.wipLimit || '').trim();
+            Model.columns.edit(columnIndex, {
+                wipLimit: wipLimit.length === 0 ? null : parseInt(wipLimit, 10)
+            });
+        }
+
+        if (answers.action === 'rename-column') {
+            let columnIndex = await selectColumn('Select the column to rename', columns);
+            let column = columns[columnIndex - 1];
+            let renameAnswer = await inquirer.prompt([
+                {type: 'input', name: 'title', message: 'Column title', suffix: ' (required)', validate: required('title'), default: column.title}
+            ]);
+            Model.columns.edit(columnIndex, {title: renameAnswer.title});
+        }
+
+        if (answers.action === 'add-column') {
+            let addAnswer = await inquirer.prompt([
+                {type: 'input', name: 'title', message: 'Column title', suffix: ' (required)', validate: required('title')}
+            ]);
+            Model.columns.add({title: addAnswer.title});
+        }
+
+        if (answers.action === 'reorder-columns') {
+            let fromIndex = await selectColumnIndex('Select the column to move', columns, 'fromIndex');
+            let toIndex = await selectColumnIndex('Select the destination position', columns, 'toIndex');
+            Model.columns.reorder({fromIndex, toIndex});
+        }
+
+        if (answers.action === 'remove-column') {
+            let removableColumns = columns.filter(column => column.cards.length === 0 && column.id !== board.defaultColumnId);
+
+            if (removableColumns.length === 0) {
+                log.info('You need an empty column that is not the default column.'.blue, 'blue');
+            } else {
+                let columnIndex = await selectColumn('Select the empty column to remove', removableColumns);
+                Model.columns.remove(columnIndex);
+            }
+        }
+
+        if (answers.action === 'reset-simple-default') {
+            if (hasAnyCards(board)) {
+                log.info('Cannot reset to the simple default while the board has cards.'.blue, 'blue');
+            } else {
+                Model.columns.resetSimpleDefault();
+            }
+        }
+
+        await Board.showWithActions();
+    },
+    async show() {
+        let board = getCurrentBoard();
+        log(`\n${renderBoard(board)}\n`, 0);
+    },
+    async showWithActions() {
+        await Board.show();
+    },
+    async actions(args, opts) {
+        switch (true) {
+            case !isUndefined(opts.add): await Board.add(); break;
+            case !isUndefined(opts.details): await Board.details(); break;
+            case !isUndefined(opts.edit): await Board.edit(); break;
+            case !isUndefined(opts.move): await Board.move(); break;
+            case !isUndefined(opts.priority): await Board.priority(); break;
+            case !isUndefined(opts.remove): await Board.remove(); break;
+            case !isUndefined(opts.columns): await Board.columns(); break;
+            case !isUndefined(opts.show): await Board.show(); break;
+            default: await Board.show(); break;
+        }
+    }
+};
+
+module.exports = Board;
