@@ -81,3 +81,13 @@ test('flujo funcional base de board usa columnas custom y agrega la card en la c
   assert.match(result.output, /Ready/);
   assert.match(result.output, /Write docs/);
 });
+
+test('flujo funcional base de board ya no expone el comando board-list', () => {
+  const result = spawnSync(process.execPath, [path.join(repoRoot, 'bin', 'cli.js'), 'board-list', '--show'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]board-list['"]/i);
+});

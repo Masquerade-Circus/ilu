@@ -14,7 +14,7 @@ if (inquirer.default) {
 const repoRoot = path.resolve(__dirname, '..');
 const clocksModulePath = path.join(repoRoot, 'clocks', 'clocks.js');
 
-function loadClocksWithStubs({promptAnswers, savedClocks = []} = {}) {
+function loadClocksWithStubs({promptAnswers, savedClocks = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
@@ -45,15 +45,29 @@ function loadClocksWithStubs({promptAnswers, savedClocks = []} = {}) {
     if (request === '../utils') {
       return {
         log: Object.assign(
-          (message) => logs.push(message),
+          (message) => {
+            if (events) {
+              events.push('log');
+            }
+            logs.push(message);
+          },
           {
             info(message) {
+              if (events) {
+                events.push('log.info');
+              }
               logs.push(message);
             },
             pointerSmall(message) {
+              if (events) {
+                events.push('log.pointerSmall');
+              }
               logs.push(message);
             },
             cross(message) {
+              if (events) {
+                events.push('log.cross');
+              }
               logs.push(message);
             }
           }
@@ -218,6 +232,34 @@ test('clock valida timezone con Intl antes de persistir', {concurrency: false}, 
   });
 
   assert.deepEqual(modelState.addCalls, []);
+});
+
+test('clock --show limpia la terminal antes de renderizar los relojes', {concurrency: false}, async () => {
+  const events = [];
+  const {Clocks, logs} = loadClocksWithStubs({
+    events,
+    savedClocks: [
+      {timezone: 'America/Mexico_City', name: 'CDMX'}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    await withIntlDateTimeFormatStub({
+      'America/Mexico_City': '10:15:20'
+    }, async () => {
+      Clocks.show();
+    });
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.pointerSmall']);
+  assert.ok(logs.some(entry => /CDMX/.test(entry)));
 });
 
 test('clock --add usa un prompt soportado por el runtime actual de inquirer para seleccionar timezone', {concurrency: false}, async () => {

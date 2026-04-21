@@ -2,6 +2,7 @@ let isUndefined = require('lodash/isUndefined');
 let inquirer = require('../utils/inquirer');
 let {required, log} = require('../utils');
 let Model = require('./model');
+let BoardLists = require('./board-lists');
 let renderBoard = require('./ascii-board');
 let promptBoardPriority = require('./board-priority-prompt');
 
@@ -349,10 +350,26 @@ let Board = {
     },
     async show() {
         let board = getCurrentBoard();
+        console.clear();
         log(`\n${renderBoard(board)}\n`, 0);
     },
     async showWithActions() {
         await Board.show();
+    },
+    list() {
+        return BoardLists.show();
+    },
+    async use() {
+        await BoardLists.use();
+    },
+    async addBoard() {
+        await BoardLists.add();
+    },
+    async editBoard() {
+        await BoardLists.edit();
+    },
+    async removeBoard() {
+        await BoardLists.remove();
     },
     async actions(args, opts) {
         switch (true) {
@@ -363,6 +380,11 @@ let Board = {
             case !isUndefined(opts.priority): await Board.priority(); break;
             case !isUndefined(opts.remove): await Board.remove(); break;
             case !isUndefined(opts.columns): await Board.columns(); break;
+            case !isUndefined(opts.listBoards): Board.list(); break;
+            case !isUndefined(opts.useBoard): await Board.use(); break;
+            case !isUndefined(opts.addBoard): await Board.addBoard(); break;
+            case !isUndefined(opts.editBoard): await Board.editBoard(); break;
+            case !isUndefined(opts.removeBoard): await Board.removeBoard(); break;
             case !isUndefined(opts.show): await Board.show(); break;
             default: await Board.show(); break;
         }

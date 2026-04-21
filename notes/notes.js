@@ -72,6 +72,7 @@ let Notes = {
     },
     show() {
         let list = Notes.getCurrent();
+        console.clear();
         if (list.notes.length === 0) {
             log.info(`You dont have any notes, try adding one.`.blue, 'blue');
             process.exit(1);

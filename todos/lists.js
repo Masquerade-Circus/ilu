@@ -71,6 +71,7 @@ let Lists = {
     },
     show() {
         let lists = Model.find();
+        console.clear();
 
         if (lists.length === 0) {
             log.info(`You dont have any lists, try adding one.`.blue, 'blue');

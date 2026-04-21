@@ -87,7 +87,7 @@ test('node bin/cli.js board --help muestra ayuda base del recurso scrumban', () 
   const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'board', '--help');
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Manage cards for the current board/);
+  assert.match(`${result.stdout}${result.stderr}`, /Manage the current board and board collection/i);
   assert.match(`${result.stdout}${result.stderr}`, /--show\s+Show the current board as an adaptive ASCII view/i);
   assert.match(`${result.stdout}${result.stderr}`, /--add\s+Add a new card to the default column/i);
   assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details of the selected card interactively/i);
@@ -96,6 +96,13 @@ test('node bin/cli.js board --help muestra ayuda base del recurso scrumban', () 
   assert.match(`${result.stdout}${result.stderr}`, /--priority\s+Reorder cards within a selected column\s+interactively/i);
   assert.match(`${result.stdout}${result.stderr}`, /--remove\s+Remove selected cards interactively/i);
   assert.match(`${result.stdout}${result.stderr}`, /--columns\s+Manage columns for the current board/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-l,\s*--list-boards\s+Show all boards/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-u,\s*--use-board\s+Use the selected board interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-ab,\s*--add-board\s+Add new board/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-eb,\s*--edit-board\s+Edit the selected board interactively/i);
+  assert.match(`${result.stdout}${result.stderr}`, /-rb,\s*--remove-board\s+Remove selected boards interactively/i);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--create-board\b/i);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /--current\b/i);
 });
 
 test('README documenta board v2 con columna default y columnas custom', () => {
@@ -108,25 +115,24 @@ test('README documenta board v2 con columna default y columnas custom', () => {
   assert.match(readme, /a new board can start with custom columns and a selected default column for new cards/i);
 });
 
-test('README alinea board-list --show con el contrato público actual', () => {
+test('README documenta la gestión de boards dentro de board y elimina board-list', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
 
-  assert.match(readme, /--show` — show all boards/i);
-  assert.doesNotMatch(readme, /--show` — show all boards and prompt for the next action/i);
+  assert.match(readme, /`board`\s+\|\s+`bd`\s+\|\s+Manage cards and boards/i);
+  assert.match(readme, /--list-boards` — show all boards/i);
+  assert.match(readme, /--use-board` — switch to the selected board interactively/i);
+  assert.match(readme, /-ab`, `--add-board` — add a new board interactively/i);
+  assert.match(readme, /--edit-board` — edit the selected board interactively/i);
+  assert.match(readme, /--remove-board` — remove selected boards interactively/i);
+  assert.doesNotMatch(readme, /--create-board`/i);
+  assert.doesNotMatch(readme, /`board-list`|`bl`|ilu board-list|--current` — show the details of the current board|--list` — show all boards|--use` — switch to the selected board interactively/i);
 });
 
-test('node bin/cli.js board-list --help muestra ayuda base de boards', () => {
-  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'board-list', '--help');
+test('node bin/cli.js board-list --show falla porque el comando ya no existe', () => {
+  const result = runCli(path.join(repoRoot, 'bin/cli.js'), 'board-list', '--show');
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Manage scrumban boards/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--show\s+Show all boards/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--add\s+Add new board/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--details\s+Show details of the selected board interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--edit\s+Edit the selected board interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--use\s+Use the selected board interactively/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--current\s+Show the details of the current board/i);
-  assert.match(`${result.stdout}${result.stderr}`, /--remove\s+Remove selected boards interactively/i);
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /unknown command ['"]board-list['"]/i);
 });
 
 test('node bin/cli.js clock --help muestra ayuda del subcomando', () => {

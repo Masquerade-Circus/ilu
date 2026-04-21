@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const tasksModulePath = path.join(repoRoot, 'todos', 'tasks.js');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.js');
 
-function loadTasksWithStubs({promptAnswers = [], savedTasks = [], labels = []} = {}) {
+function loadTasksWithStubs({promptAnswers = [], savedTasks = [], labels = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
@@ -48,18 +48,35 @@ function loadTasksWithStubs({promptAnswers = [], savedTasks = [], labels = []} =
         required: () => true,
         getLabel: (color, title) => `[${title}]`,
         log: Object.assign(
-          (message) => logs.push(message),
+          (message) => {
+            if (events) {
+              events.push('log');
+            }
+            logs.push(message);
+          },
           {
             info(message) {
+              if (events) {
+                events.push('log.info');
+              }
               logs.push(message);
             },
             radioOn(message) {
+              if (events) {
+                events.push('log.radioOn');
+              }
               logs.push(message);
             },
             radioOff(message) {
+              if (events) {
+                events.push('log.radioOff');
+              }
               logs.push(message);
             },
             cross(message) {
+              if (events) {
+                events.push('log.cross');
+              }
               logs.push(message);
             }
           }
@@ -125,6 +142,32 @@ test('todo --details usa selección interactiva como única vía', {concurrency:
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2]);
   assert.ok(logs.some(entry => /Dos/.test(entry)));
   assert.ok(logs.some(entry => /Desc 2/.test(entry)));
+});
+
+test('todo --show limpia la terminal antes de renderizar las tareas', {concurrency: false}, async () => {
+  const events = [];
+  const {Tasks, logs} = loadTasksWithStubs({
+    events,
+    savedTasks: [
+      {title: 'Uno'},
+      {title: 'Dos', done: true}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    Tasks.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.radioOff', 'log.radioOn']);
+  assert.ok(logs.some(entry => /Uno/.test(entry)));
+  assert.ok(logs.some(entry => /Dos/.test(entry)));
 });
 
 test('todo --edit usa selección interactiva como única vía', {concurrency: false}, async () => {

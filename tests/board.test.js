@@ -23,7 +23,7 @@ function createBoardState(overrides = {}) {
   };
 }
 
-function loadBoardWithStubs({promptAnswers = [], board = createBoardState()} = {}) {
+function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const logCalls = [];
@@ -62,21 +62,30 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState()} = {
     }
 
     if (request === '../utils') {
-      return {
-        required: () => true,
-        log: Object.assign(
-          (message, spaces, type, color) => {
-            logCalls.push({message, spaces, type, color});
-            logs.push(message);
-          },
-          {
-            info(message) {
+        return {
+          required: () => true,
+          log: Object.assign(
+            (message, spaces, type, color) => {
+              if (events) {
+                events.push('log');
+              }
+              logCalls.push({message, spaces, type, color});
               logs.push(message);
             },
-            cross(message) {
-              logs.push(message);
+            {
+              info(message) {
+                if (events) {
+                  events.push('log.info');
+                }
+                logs.push(message);
+              },
+              cross(message) {
+                if (events) {
+                  events.push('log.cross');
+                }
+                logs.push(message);
+              }
             }
-          }
         )
       };
     }
@@ -651,11 +660,22 @@ test('board --remove usa selección interactiva múltiple de cards', {concurrenc
   ]);
 });
 
-test('board --show renders ascii board without prompting for next action', {concurrency: false}, async () => {
-  const {Board, logs, logCalls, promptCalls} = loadBoardWithStubs();
+test('board --show limpia la terminal antes de renderizar el ascii board y no pide acciones posteriores', {concurrency: false}, async () => {
+  const events = [];
+  const {Board, logs, logCalls, promptCalls} = loadBoardWithStubs({events});
+  const originalConsoleClear = console.clear;
 
-  await Board.show();
+  console.clear = () => {
+    events.push('clear');
+  };
 
+  try {
+    await Board.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log']);
   assert.ok(logs.includes('\nASCII BOARD\n'));
   assert.deepEqual(logCalls[0], {
     message: '\nASCII BOARD\n',
@@ -666,11 +686,98 @@ test('board --show renders ascii board without prompting for next action', {conc
   assert.equal(promptCalls.length, 0);
 });
 
-test('board actions default to show without prompting for next action', {concurrency: false}, async () => {
-  const {Board, logs, promptCalls} = loadBoardWithStubs();
+test('board actions default siguen limpiando terminal y mostrando solo el board', {concurrency: false}, async () => {
+  const events = [];
+  const {Board, logs, promptCalls} = loadBoardWithStubs({events});
+  const originalConsoleClear = console.clear;
 
-  await Board.actions([], {});
+  console.clear = () => {
+    events.push('clear');
+  };
 
+  try {
+    await Board.actions([], {});
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log']);
   assert.ok(logs.includes('\nASCII BOARD\n'));
   assert.equal(promptCalls.length, 0);
+});
+
+test('board actions enruta gestión de boards a BoardLists con las nuevas flags públicas', {concurrency: false}, async () => {
+  const originalLoad = Module._load;
+  const calls = [];
+
+  delete require.cache[require.resolve(boardModulePath)];
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === './board-lists') {
+      return {
+        show() {
+          calls.push('show');
+        },
+        use() {
+          calls.push('use');
+        },
+        add() {
+          calls.push('add');
+        },
+        edit() {
+          calls.push('edit');
+        },
+        remove() {
+          calls.push('remove');
+        }
+      };
+    }
+
+    if (request === '../utils/inquirer') {
+      return {prompt: async () => ({})};
+    }
+
+    if (request === '../utils') {
+      return {required: () => true, log: Object.assign(() => {}, {info() {}, cross() {}})};
+    }
+
+    if (request === './model') {
+      return {
+        getCurrent() {
+          return createBoardState();
+        },
+        cards: {add() {}, edit() {}, remove() {}, move() {}},
+        columns: {add() {}, edit() {}, setDefault() {}, reorder() {}, remove() {}, resetSimpleDefault() {}}
+      };
+    }
+
+    if (request === './ascii-board') {
+      return () => 'ASCII BOARD';
+    }
+
+    if (request === './board-priority-prompt') {
+      return async () => ({fromPosition: 1, toPosition: 1});
+    }
+
+    if (request === 'lodash/isUndefined') {
+      return value => typeof value === 'undefined';
+    }
+
+    return originalLoad.apply(this, arguments);
+  };
+
+  try {
+    const Board = require(boardModulePath);
+
+    await Board.actions([], {listBoards: true});
+    await Board.actions([], {useBoard: true});
+    await Board.actions([], {addBoard: true});
+    await Board.actions([], {editBoard: true});
+    await Board.actions([], {removeBoard: true});
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[require.resolve(boardModulePath)];
+  }
+
+  assert.deepEqual(calls, ['show', 'use', 'add', 'edit', 'remove']);
 });

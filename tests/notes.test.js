@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const notesModulePath = path.join(repoRoot, 'notes', 'notes.js');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.js');
 
-function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} = {}) {
+function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], events} = {}) {
   const originalLoad = Module._load;
   const originalPathEnv = process.env.PATH;
   const logs = [];
@@ -52,15 +52,29 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = []} =
         required: () => true,
         getLabel: (color, title) => `[${title}]`,
         log: Object.assign(
-          (message) => logs.push(message),
+          (message) => {
+            if (events) {
+              events.push('log');
+            }
+            logs.push(message);
+          },
           {
             info(message) {
+              if (events) {
+                events.push('log.info');
+              }
               logs.push(message);
             },
             pointerSmall(message) {
+              if (events) {
+                events.push('log.pointerSmall');
+              }
               logs.push(message);
             },
             cross(message) {
+              if (events) {
+                events.push('log.cross');
+              }
               logs.push(message);
             }
           }
@@ -145,6 +159,32 @@ test('note --details usa selección interactiva como única vía', {concurrency:
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2]);
   assert.ok(logs.some(entry => /Dos/.test(entry)));
   assert.ok(logs.some(entry => /Texto 2/.test(entry)));
+});
+
+test('note --show limpia la terminal antes de renderizar las notas', {concurrency: false}, async () => {
+  const events = [];
+  const {Notes, logs} = loadNotesWithStubs({
+    events,
+    savedNotes: [
+      {title: 'Uno'},
+      {title: 'Dos'}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    Notes.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
+  assert.ok(logs.some(entry => /Uno/.test(entry)));
+  assert.ok(logs.some(entry => /Dos/.test(entry)));
 });
 
 test('note --edit usa selección interactiva como única vía', {concurrency: false}, async () => {

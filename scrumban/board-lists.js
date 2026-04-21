@@ -131,6 +131,7 @@ let BoardLists = {
     },
     show() {
         let boards = Model.find();
+        console.clear();
 
         if (boards.length === 0) {
             log.info(`You dont have any boards, try adding one.`.blue, 'blue');

@@ -2,6 +2,12 @@ require('colors');
 
 const {Option} = require('commander');
 
+const boardManagementAliases = new Map([
+  ['-ab', '--add-board'],
+  ['-eb', '--edit-board'],
+  ['-rb', '--remove-board']
+]);
+
 function configureProgram(program, deps) {
   const {
     pkg,
@@ -33,6 +39,39 @@ function configureProgram(program, deps) {
       return handler(mapArgs(positionalArgs), opts);
     };
   }
+
+  function normalizeArgv(argv) {
+    if (!Array.isArray(argv)) {
+      return argv;
+    }
+
+    return argv.map(value => boardManagementAliases.get(value) || value);
+  }
+
+  function wrapParseMethod(methodName) {
+    if (typeof program[methodName] !== 'function') {
+      return;
+    }
+
+    const original = program[methodName].bind(program);
+
+    program[methodName] = function patchedParse(argv, ...rest) {
+      return original(normalizeArgv(argv), ...rest);
+    };
+  }
+
+  function registerBoardManagementOption(command, shortFlag, longFlag, description) {
+    command.option(longFlag, description);
+
+    if (Array.isArray(command.options) && command.options.length > 0) {
+      command.options[command.options.length - 1].flags = `${shortFlag}, ${longFlag}`;
+    }
+
+    return command;
+  }
+
+  wrapParseMethod('parse');
+  wrapParseMethod('parseAsync');
 
   program
     .name('ilu')
@@ -94,10 +133,10 @@ function configureProgram(program, deps) {
     .option('-R, --remove-label [position]', 'Remove the label at [position], if no position, remove all labels', optionalInt)
     .action(createActionAdapter(Notes.Lists.actions));
 
-  program
+  const boardCommand = program
     .command('board')
     .alias('bd')
-    .description('Manage cards for the current board')
+    .description('Manage the current board and board collection')
     .option('-s, --show', 'Show the current board as an adaptive ASCII view')
     .option('-a, --add', 'Add a new card to the default column')
     .option('-d, --details', 'Show details of the selected card interactively')
@@ -106,20 +145,15 @@ function configureProgram(program, deps) {
     .option('-p, --priority', 'Reorder cards within a selected column interactively')
     .option('-r, --remove', 'Remove selected cards interactively')
     .option('-c, --columns', 'Manage columns for the current board')
-    .action(createActionAdapter(Scrumban.Board.actions));
+    .option('-l, --list-boards', 'Show all boards')
+    .option('-u, --use-board', 'Use the selected board interactively');
 
-  program
-    .command('board-list')
-    .alias('bl')
-    .description('Manage scrumban boards')
-    .option('-s, --show', 'Show all boards')
-    .option('-a, --add', 'Add new board')
-    .option('-d, --details', 'Show details of the selected board interactively')
-    .option('-e, --edit', 'Edit the selected board interactively')
-    .option('-u, --use', 'Use the selected board interactively')
-    .option('-c, --current', 'Show the details of the current board')
-    .option('-r, --remove', 'Remove selected boards interactively')
-    .action(createActionAdapter(Scrumban.BoardLists.actions));
+  registerBoardManagementOption(boardCommand, '-ab', '--add-board', 'Add new board');
+  registerBoardManagementOption(boardCommand, '-eb', '--edit-board', 'Edit the selected board interactively');
+  registerBoardManagementOption(boardCommand, '-rb', '--remove-board', 'Remove selected boards interactively');
+
+  boardCommand
+    .action(createActionAdapter(Scrumban.Board.actions));
 
   program
     .command('babel')

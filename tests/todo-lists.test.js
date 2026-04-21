@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const listsModulePath = path.join(repoRoot, 'todos', 'lists.js');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.js');
 
-function loadTodoListsWithStubs({promptAnswers = [], savedLists = []} = {}) {
+function loadTodoListsWithStubs({promptAnswers = [], savedLists = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
@@ -55,24 +55,47 @@ function loadTodoListsWithStubs({promptAnswers = [], savedLists = []} = {}) {
         colors: {blue: 'blue', red: 'red'},
         getLabel: (color, title) => `[${title}]`,
         log: Object.assign(
-          (message) => logs.push(message),
+          (message) => {
+            if (events) {
+              events.push('log');
+            }
+            logs.push(message);
+          },
           {
             info(message) {
+              if (events) {
+                events.push('log.info');
+              }
               logs.push(message);
             },
             pointerSmall(message) {
+              if (events) {
+                events.push('log.pointerSmall');
+              }
               logs.push(message);
             },
             radioOn(message) {
+              if (events) {
+                events.push('log.radioOn');
+              }
               logs.push(message);
             },
             radioOff(message) {
+              if (events) {
+                events.push('log.radioOff');
+              }
               logs.push(message);
             },
             cross(message) {
+              if (events) {
+                events.push('log.cross');
+              }
               logs.push(message);
             },
             warning(message) {
+              if (events) {
+                events.push('log.warning');
+              }
               logs.push(message);
             }
           }
@@ -166,6 +189,32 @@ test('todo-list --details usa selección interactiva como única vía', {concurr
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2]);
   assert.ok(logs.some(entry => /Work/.test(entry)));
   assert.ok(logs.some(entry => /Pendientes/.test(entry)));
+});
+
+test('todo-list --show limpia la terminal antes de renderizar las listas', {concurrency: false}, async () => {
+  const events = [];
+  const {Lists, logs} = loadTodoListsWithStubs({
+    events,
+    savedLists: [
+      {title: 'Inbox', current: true},
+      {title: 'Work'}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    Lists.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
+  assert.ok(logs.some(entry => /Inbox/.test(entry)));
+  assert.ok(logs.some(entry => /Work/.test(entry)));
 });
 
 test('todo-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {

@@ -59,7 +59,7 @@ function createBoard(list = {}) {
   };
 }
 
-function loadBoardListsWithStubs({promptAnswers = [], savedBoards = []} = {}) {
+function loadBoardListsWithStubs({promptAnswers = [], savedBoards = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
@@ -99,22 +99,39 @@ function loadBoardListsWithStubs({promptAnswers = [], savedBoards = []} = {}) {
     if (request === '../utils' || (isPromptSelectionHelper && request === './')) {
       return {
         required: () => true,
-        log: Object.assign(
-          (message) => logs.push(message),
-          {
-            info(message) {
+            log: Object.assign(
+            (message) => {
+              if (events) {
+                events.push('log');
+              }
               logs.push(message);
             },
-            pointerSmall(message) {
-              logs.push(message);
-            },
-            warning(message) {
-              logs.push(message);
-            },
-            cross(message) {
-              logs.push(message);
+            {
+              info(message) {
+                if (events) {
+                  events.push('log.info');
+                }
+                logs.push(message);
+              },
+              pointerSmall(message) {
+                if (events) {
+                  events.push('log.pointerSmall');
+                }
+                logs.push(message);
+              },
+              warning(message) {
+                if (events) {
+                  events.push('log.warning');
+                }
+                logs.push(message);
+              },
+              cross(message) {
+                if (events) {
+                  events.push('log.cross');
+                }
+                logs.push(message);
+              }
             }
-          }
         )
       };
     }
@@ -225,6 +242,32 @@ test('board-list --add crea un board con set simple default aceptado rápidament
   ]);
   assert.equal(modelState.boards[0].defaultColumnId, 'backlog');
   assert.ok(logs.some(entry => /Product/.test(entry)));
+});
+
+test('board-list --show limpia la terminal antes de renderizar la lista', {concurrency: false}, async () => {
+  const events = [];
+  const {BoardLists, logs} = loadBoardListsWithStubs({
+    events,
+    savedBoards: [
+      {title: 'Product', current: true},
+      {title: 'Support'}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    BoardLists.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
+  assert.ok(logs.some(entry => /Product/.test(entry)));
+  assert.ok(logs.some(entry => /Support/.test(entry)));
 });
 
 test('board-list --add crea un board con columnas personalizadas y elige columna default', {concurrency: false}, async () => {

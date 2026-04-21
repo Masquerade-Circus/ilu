@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const listsModulePath = path.join(repoRoot, 'notes', 'lists.js');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.js');
 
-function loadNoteListsWithStubs({promptAnswers = [], savedLists = []} = {}) {
+function loadNoteListsWithStubs({promptAnswers = [], savedLists = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
@@ -55,18 +55,35 @@ function loadNoteListsWithStubs({promptAnswers = [], savedLists = []} = {}) {
         colors: {blue: 'blue', red: 'red'},
         getLabel: (color, title) => `[${title}]`,
         log: Object.assign(
-          (message) => logs.push(message),
+          (message) => {
+            if (events) {
+              events.push('log');
+            }
+            logs.push(message);
+          },
           {
             info(message) {
+              if (events) {
+                events.push('log.info');
+              }
               logs.push(message);
             },
             pointerSmall(message) {
+              if (events) {
+                events.push('log.pointerSmall');
+              }
               logs.push(message);
             },
             cross(message) {
+              if (events) {
+                events.push('log.cross');
+              }
               logs.push(message);
             },
             warning(message) {
+              if (events) {
+                events.push('log.warning');
+              }
               logs.push(message);
             }
           }
@@ -160,6 +177,32 @@ test('note-list --details usa selección interactiva como única vía', {concurr
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2]);
   assert.ok(logs.some(entry => /Ideas/.test(entry)));
   assert.ok(logs.some(entry => /Notas activas/.test(entry)));
+});
+
+test('note-list --show limpia la terminal antes de renderizar las listas', {concurrency: false}, async () => {
+  const events = [];
+  const {Lists, logs} = loadNoteListsWithStubs({
+    events,
+    savedLists: [
+      {title: 'Inbox', current: true},
+      {title: 'Ideas'}
+    ]
+  });
+  const originalConsoleClear = console.clear;
+
+  console.clear = () => {
+    events.push('clear');
+  };
+
+  try {
+    Lists.show();
+  } finally {
+    console.clear = originalConsoleClear;
+  }
+
+  assert.deepEqual(events, ['clear', 'log.pointerSmall', 'log.pointerSmall']);
+  assert.ok(logs.some(entry => /Inbox/.test(entry)));
+  assert.ok(logs.some(entry => /Ideas/.test(entry)));
 });
 
 test('note-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {

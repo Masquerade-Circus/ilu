@@ -65,8 +65,7 @@ Available commands:
 | `todo-list` | `tl`  | Manage todo lists                     |
 | `note`      | `n`   | Manage notes in the current note list |
 | `note-list` | `nl`  | Manage note lists                     |
-| `board`     | `bd`  | Manage cards in the current board     |
-| `board-list`| `bl`  | Manage scrumban boards                |
+| `board`     | `bd`  | Manage cards and boards               |
 | `babel`     | `b`   | Translate text                        |
 | `clock`     | `c`   | Manage saved clocks                   |
 
@@ -168,7 +167,7 @@ Notes:
 
 ### `board` / `bd`
 
-Manage cards for the current board.
+Manage cards for the current board and board collection.
 
 Common options:
 
@@ -180,39 +179,26 @@ Common options:
 - `--priority` — reorder cards within a selected column with keyboard controls
 - `--remove` — remove selected cards interactively
 - `--columns` — manage columns for the current board with a column-first interactive flow
+- `--list-boards` — show all boards
+- `--use-board` — switch to the selected board interactively
+- `-ab`, `--add-board` — add a new board interactively
+- `-eb`, `--edit-board` — edit the selected board interactively
+- `-rb`, `--remove-board` — remove selected boards interactively
 
 Notes:
 
 - running `ilu board` with no flags runs `--show` by default
 - a new board starts with `Backlog`, `Ready`, `In Progress` and `Done`
 - a new board can start with custom columns and a selected default column for new cards
+- `ilu board --list-boards` shows the available boards
+- `ilu board --use-board` switches the current board interactively
+- all board creation and lifecycle management now lives under `ilu board`
 - card priority is the card position inside each column
 - `ilu board --priority` selects a column first, then enters reorder mode for cards in that same column
 - `ilu board --columns` selects a column first, then shows only the actions that make sense for that column
 - the priority prompt uses `Space` to take/drop, `↑/↓` to move, `Enter` to confirm, and `Esc` to cancel
 - if the selected column has fewer than 2 cards, the command reports that there is nothing to reorder
 - moving a card forward triggers auto-pull from earlier columns until a full WIP-limited column stops the chain
-
-### `board-list` / `bl`
-
-Manage scrumban boards.
-
-Common options:
-
-- `--show` — show all boards
-- `--add` — add a new board interactively
-- `--details` — show board details via interactive selection
-- `--edit` — edit the selected board interactively
-- `--use` — switch to the selected board interactively
-- `--current`
-- `--remove` — remove selected boards interactively
-
-Notes:
-
-- running `ilu board-list` with no flags runs `--show` by default
-- boards are stored in `~/.ilu/boards.json`
-- creating a board lets you define comma-separated columns and choose which one receives new cards by default
-- WIP limits are configured from `ilu board --columns`
 
 ### `clock` / `c`
 

@@ -137,7 +137,7 @@ async function main() {
       const Scrumban = require(path.join(repoRoot, 'scrumban'));
       const ScrumbanModel = require(path.join(repoRoot, 'scrumban', 'model.js'));
 
-      await Scrumban.BoardLists.actions([], {add: true});
+      await Scrumban.Board.actions([], {addBoard: true});
       await Scrumban.Board.actions([], {add: true});
 
       result = {
