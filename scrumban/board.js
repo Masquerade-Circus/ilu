@@ -3,7 +3,7 @@ let inquirer = require('../utils/inquirer');
 let {required, log} = require('../utils');
 let Model = require('./model');
 let BoardLists = require('./board-lists');
-let renderBoard = require('./ascii-board');
+let renderBoard = require('./board-renderer');
 let promptBoardPriority = require('./board-priority-prompt');
 
 function getCurrentBoard() {

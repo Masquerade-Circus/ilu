@@ -135,8 +135,8 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
       };
     }
 
-    if (request === './ascii-board') {
-      return () => 'ASCII BOARD';
+    if (request === './board-renderer') {
+      return () => 'BOARD RENDERER';
     }
 
     if (request === './board-priority-prompt') {
@@ -692,7 +692,7 @@ test('board --remove usa selección interactiva múltiple de cards', {concurrenc
   ]);
 });
 
-test('board --show no limpia la terminal antes de renderizar el ascii board y no pide acciones posteriores', {concurrency: false}, async () => {
+test('board --show no limpia la terminal antes de renderizar el board renderer y no pide acciones posteriores', {concurrency: false}, async () => {
   const events = [];
   const {Board, logs, logCalls, promptCalls} = loadBoardWithStubs({events});
   const originalConsoleClear = console.clear;
@@ -708,9 +708,9 @@ test('board --show no limpia la terminal antes de renderizar el ascii board y no
   }
 
   assert.deepEqual(events, ['log']);
-  assert.ok(logs.includes(`\nBoard: ${'Product'.cyan}\nASCII BOARD\n`));
+  assert.ok(logs.includes(`\nBoard: ${'Product'.cyan}\nBOARD RENDERER\n`));
   assert.deepEqual(logCalls[0], {
-    message: `\nBoard: ${'Product'.cyan}\nASCII BOARD\n`,
+    message: `\nBoard: ${'Product'.cyan}\nBOARD RENDERER\n`,
     spaces: 0,
     type: undefined,
     color: undefined
@@ -763,8 +763,8 @@ test('board actions enruta gestión de boards a BoardLists con las nuevas flags 
       };
     }
 
-    if (request === './ascii-board') {
-      return () => 'ASCII BOARD';
+    if (request === './board-renderer') {
+      return () => 'BOARD RENDERER';
     }
 
     if (request === './board-priority-prompt') {

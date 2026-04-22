@@ -2,7 +2,6 @@
 let {Command} = require('commander');
 let pkg = require('../package.json');
 // TODO use https://github.com/sindresorhus/terminal-link to parse content and convert links
-// TODO use https://github.com/Automattic/cli-table to kanban
 
 let Translate = require('../translate');
 let configureProgram = require('./configure-cli');
