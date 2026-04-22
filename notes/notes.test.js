@@ -11,7 +11,7 @@ const localPathsModulePath = path.join(__dirname, '..', 'utils', 'local-paths.js
 const utilsModulePath = path.join(__dirname, '..', 'utils', 'index.js');
 const inquirerModulePath = path.join(__dirname, '..', 'utils', 'inquirer.js');
 
-function loadNotesWithStubs({platform, promptImpl, inlinePromptImpl, tempFilePath, model}) {
+function loadNotesWithStubs({platform, promptImpl, inlinePromptImpl, storageDirPath, model}) {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
   const originalAccessSync = fs.accessSync;
   const originalCacheEntries = new Map();
@@ -21,10 +21,7 @@ function loadNotesWithStubs({platform, promptImpl, inlinePromptImpl, tempFilePat
     [inlinePromptModulePath, inlinePromptImpl],
     [localPathsModulePath, {
       storageDirPath() {
-        return path.dirname(tempFilePath);
-      },
-      noteTempFilePath() {
-        return tempFilePath;
+        return storageDirPath;
       }
     }],
     [utilsModulePath, {
@@ -82,7 +79,6 @@ function loadNotesWithStubs({platform, promptImpl, inlinePromptImpl, tempFilePat
 
 test('notes.add usa prompt inline como vía principal para contenido', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-notes-test-'));
-  const tempFilePath = path.join(tempDir, 'note.txt');
   const promptCalls = [];
   const inlinePromptCalls = [];
   const addedNotes = [];
@@ -90,7 +86,7 @@ test('notes.add usa prompt inline como vía principal para contenido', async () 
   try {
     const Notes = loadNotesWithStubs({
       platform: 'darwin',
-      tempFilePath,
+      storageDirPath: tempDir,
       promptImpl(questions) {
         promptCalls.push(questions);
         return Promise.resolve({

@@ -38,7 +38,7 @@ test('git backend classifies common git failures', () => {
   assert.equal(backend.classifyGitError(new Error('fatal: not a git repository')).kind, 'config');
 });
 
-test('git backend ensures .config is ignored in synced repo', () => {
+test('git backend ensures only sync config is ignored in synced repo', () => {
   const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-ignore-'));
   const backend = loadBackendWithExecStub(() => '');
 
@@ -47,7 +47,7 @@ test('git backend ensures .config is ignored in synced repo', () => {
     const gitignore = fs.readFileSync(path.join(tempRepo, '.gitignore'), 'utf8');
 
     assert.match(gitignore, /^\.config\/$/m);
-    assert.match(gitignore, /^note\.txt$/m);
+    assert.doesNotMatch(gitignore, /^note\.txt$/m);
     assert.doesNotMatch(gitignore, /^\.sync\/$/m);
   } finally {
     fs.rmSync(tempRepo, {recursive: true, force: true});

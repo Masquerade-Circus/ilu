@@ -104,10 +104,6 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
       };
     }
 
-    if (request === './open-with-editor') {
-      return async () => {};
-    }
-
     if (request === './inline-note-prompt') {
       return async (options) => {
         inlinePromptCalls.push(options);

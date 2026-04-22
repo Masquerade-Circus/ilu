@@ -16,10 +16,6 @@ function dbFilePath(dbname) {
     return path.join(storageDirPath(), `${dbname}.json`);
 }
 
-function noteTempFilePath() {
-    return path.join(storageDirPath(), 'note.txt');
-}
-
 function syncDirPath() {
     return path.join(storageDirPath(), SYNC_DIRNAME);
 }
@@ -43,7 +39,6 @@ function syncLockFilePath() {
 module.exports = {
     storageDirPath,
     dbFilePath,
-    noteTempFilePath,
     syncDirPath,
     syncConfigFilePath,
     ttsConfigFilePath,

@@ -11,13 +11,17 @@ const repoRoot = path.resolve(__dirname, '..');
 const localPathsModulePath = path.join(repoRoot, 'utils', 'local-paths.js');
 const notesModulePath = path.join(repoRoot, 'notes', 'notes.js');
 
-test('utils/local-paths resuelve .ilu, bases de datos y temporales bajo HOME', () => {
+test('el helper legado para abrir editor externo ya no existe en notes', () => {
+  assert.equal(fs.existsSync(path.join(repoRoot, 'notes', 'open-with-editor.js')), false);
+});
+
+test('utils/local-paths resuelve .ilu, bases de datos y sync bajo HOME', () => {
   const localPaths = require(localPathsModulePath);
   return withTempHome(tempHome => {
     assert.equal(localPaths.storageDirPath(), path.join(tempHome, '.ilu'));
     assert.equal(localPaths.dbFilePath('notes'), path.join(tempHome, '.ilu', 'notes.json'));
     assert.equal(localPaths.dbFilePath('clocks'), path.join(tempHome, '.ilu', 'clocks.json'));
-    assert.equal(localPaths.noteTempFilePath(), path.join(tempHome, '.ilu', 'note.txt'));
+    assert.equal(typeof localPaths.noteTempFilePath, 'undefined');
     assert.equal(localPaths.syncDirPath(), path.join(tempHome, '.ilu', '.config'));
     assert.equal(localPaths.syncConfigFilePath(), path.join(tempHome, '.ilu', '.config', 'sync-config.json'));
     assert.equal(localPaths.ttsConfigFilePath(), path.join(tempHome, '.ilu', '.config', 'tts-config.json'));
@@ -28,10 +32,8 @@ test('utils/local-paths resuelve .ilu, bases de datos y temporales bajo HOME', (
 test('notes/notes usa prompt inline y ya no depende de archivo temporal para capturar contenido', async () => {
   const originalLoad = Module._load;
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-notes-home-'));
-  const noteFile = path.join(tempHome, '.ilu', 'note.txt');
   const addedNotes = [];
   const currentList = {notes: [], labels: []};
-  let openWithEditorCalled = false;
 
   delete require.cache[require.resolve(notesModulePath)];
 
@@ -74,12 +76,6 @@ test('notes/notes usa prompt inline y ya no depende de archivo temporal para cap
       return () => undefined;
     }
 
-    if (request === './open-with-editor') {
-      return async () => {
-        openWithEditorCalled = true;
-      };
-    }
-
     if (request === './inline-note-prompt') {
       return async ({message, initialValue}) => {
         assert.equal(message, 'Content of the note');
@@ -92,9 +88,6 @@ test('notes/notes usa prompt inline y ya no depende de archivo temporal para cap
       return {
         storageDirPath() {
           return path.join(tempHome, '.ilu');
-        },
-        noteTempFilePath() {
-          return noteFile;
         }
       };
     }
@@ -108,8 +101,6 @@ test('notes/notes usa prompt inline y ya no depende de archivo temporal para cap
     await Notes.add();
 
     assert.deepEqual(addedNotes, [{title: 'Idea', labels: [], content: 'Texto inline'}]);
-    assert.equal(openWithEditorCalled, false);
-    assert.equal(fs.existsSync(noteFile), false);
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(notesModulePath)];
@@ -131,9 +122,8 @@ test('puede correr con HOME temporal sin tocar datos reales', () => {
     process.stdout.write(JSON.stringify({
       storageDir: paths.storageDirPath(),
       todosDbFile: paths.dbFilePath('todos'),
-      noteFile: paths.noteTempFilePath(),
       notesDir: Notes.dir,
-      noteGetter: typeof Notes.getTempFilePath === 'function' ? Notes.getTempFilePath() : null,
+      noteGetter: typeof Notes.getTempFilePath,
       todosDbExists: fs.existsSync(paths.dbFilePath('todos'))
     }));
   `;
@@ -150,9 +140,8 @@ test('puede correr con HOME temporal sin tocar datos reales', () => {
 
     assert.equal(result.storageDir, expectedStorageDir);
     assert.equal(result.todosDbFile, path.join(expectedStorageDir, 'todos.json'));
-    assert.equal(result.noteFile, path.join(expectedStorageDir, 'note.txt'));
     assert.equal(result.notesDir, `${expectedStorageDir}/`);
-    assert.equal(result.noteGetter, path.join(expectedStorageDir, 'note.txt'));
+    assert.equal(result.noteGetter, 'undefined');
     assert.equal(result.todosDbExists, true);
   } finally {
     fs.rmSync(tempHome, {recursive: true, force: true});

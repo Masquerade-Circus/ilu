@@ -243,7 +243,6 @@ Current config/runtime files:
 Notes:
 
 - `.config/` is local configuration/runtime state, not synced user data.
-- Temporary note capture may use `~/.ilu/note.txt` internally.
 
 ## Interactive behavior
 

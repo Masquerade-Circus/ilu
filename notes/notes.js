@@ -18,9 +18,6 @@ function getNoteChoice(item, index) {
 
 let Notes = {
     dir: `${localPaths.storageDirPath()}/`,
-    getTempFilePath() {
-        return localPaths.noteTempFilePath();
-    },
     getCurrent() {
         let list = Model.getCurrent();
         if (!list) {

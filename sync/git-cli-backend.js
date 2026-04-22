@@ -33,7 +33,7 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
             lines = fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/).filter(Boolean);
         }
 
-        ['.config/', 'note.txt'].forEach(entry => {
+        ['.config/'].forEach(entry => {
             if (!lines.includes(entry)) {
                 lines.push(entry);
             }
