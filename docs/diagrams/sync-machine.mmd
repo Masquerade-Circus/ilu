@@ -1,0 +1,59 @@
+---
+title: Sync
+---
+
+stateDiagram-v2
+direction TB
+
+classDef danger fill:#f8d7da,stroke:#721c24,stroke-width:2px,text-align:left,color:#721c24
+classDef warning fill:#fff3cd,stroke:#856404,stroke-width:2px,text-align:left,color:#856404
+classDef success fill:#d4edda,stroke:#155724,stroke-width:2px,text-align:left,color:#155724
+classDef primary fill:#cce5ff,stroke:#004085,stroke-width:2px,text-align:left,color:#004085
+classDef info fill:#d1ecf1,stroke:#0c5460,stroke-width:2px,text-align:left,color:#0c5460
+classDef def fill:#f8f9fa,stroke:#6c757d,stroke-width:2px,text-align:left,color:#6c757d
+
+state "disabled" as disabled
+state "misconfigured" as misconfigured
+state "healthy" as healthy
+state "pending_remote" as pending_remote
+state "syncing" as syncing
+state "route_after_sync" as route_after_sync
+state "degraded_network" as degraded_network
+state "degraded_auth" as degraded_auth
+state "conflict" as conflict
+class disabled def
+class misconfigured def
+class healthy def
+class pending_remote def
+class syncing def
+class route_after_sync def
+class degraded_network def
+class degraded_auth def
+class conflict def
+
+syncing: └┬ AEn-runSync<br> ├┬ success<br> │└ T-route_after_sync<br> └┬ failure<br>  └ T-route_after_sync
+
+[*] --> healthy
+disabled --> healthy: ENABLE<br>└ G-isEnabled
+disabled --> misconfigured: CONFIG_BROKEN
+misconfigured --> disabled: DISABLE
+misconfigured --> healthy: ENABLE<br>└ G-isEnabled
+healthy --> pending_remote: LOCAL_PERSISTED
+healthy --> disabled: DISABLE
+healthy --> misconfigured: CONFIG_BROKEN
+pending_remote --> syncing: SYNC_REQUESTED<br>└ G-isEnabled
+pending_remote --> syncing: RETRY<br>└ G-isEnabled
+pending_remote --> disabled: DISABLE
+pending_remote --> misconfigured: CONFIG_BROKEN
+syncing --> route_after_sync: route_after_sync
+route_after_sync --> healthy: healthy<br>└ G-isHealthySyncOutcome
+route_after_sync --> degraded_network: degraded_network<br>└ G-isNetworkOutcome
+route_after_sync --> degraded_auth: degraded_auth<br>└ G-isAuthOutcome
+route_after_sync --> conflict: conflict<br>└ G-isConflictOutcome
+route_after_sync --> misconfigured: misconfigured
+degraded_network --> syncing: RETRY<br>└ G-hasPendingRemote
+degraded_network --> disabled: DISABLE
+degraded_auth --> syncing: RETRY<br>└ G-hasPendingRemote
+degraded_auth --> disabled: DISABLE
+conflict --> pending_remote: CONFLICT_RESOLVED
+conflict --> disabled: DISABLE

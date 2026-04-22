@@ -7,6 +7,7 @@ let pkg = require('../package.json');
 let Todos = require('../todos');
 let Notes = require('../notes');
 let Scrumban = require('../scrumban');
+let Sync = require('../sync/commands');
 let Translate = require('../translate');
 let Clocks = require('../clocks');
 let configureProgram = require('./configure-cli');
@@ -18,6 +19,7 @@ configureProgram(program, {
     Todos,
     Notes,
     Scrumban,
+    Sync,
     Translate,
     Clocks
 });

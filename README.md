@@ -64,6 +64,7 @@ Available commands:
 | `todo`      | `t`   | Manage tasks and todo lists           |
 | `note`      | `n`   | Manage notes and note lists           |
 | `board`     | `bd`  | Manage cards and boards               |
+| `sync`      | —     | Sync local data to a Git remote       |
 | `babel`     | `b`   | Translate text                        |
 | `clock`     | `c`   | Manage saved clocks                   |
 
@@ -209,6 +210,28 @@ Example display shape:
 ```text
 1 10:15:20 - CDMX (America/Mexico_City)
 ```
+
+### `sync`
+
+Manage automatic sync of local `ilu` data to a Git remote owned by the user.
+
+```bash
+ilu sync init --remote <url> [--branch main]
+ilu sync status
+ilu sync retry
+ilu sync enable
+ilu sync disable
+```
+
+Behavior:
+
+- sync is **local-first**: a successful local write happens before any remote sync work
+- the runtime uses an internal X-Robot state machine for sync lifecycle management
+- default sync behavior is automatic once configured
+- if remote sync fails, local data remains saved
+- `sync status` reports whether data is healthy, pending, degraded, conflicted, or disabled
+- `sync retry` forces a new sync attempt for pending work
+- `sync init` requires a Git remote URL and defaults to branch `main`
 
 ## Local data
 

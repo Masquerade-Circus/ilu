@@ -1,6 +1,7 @@
 let fs = require('node:fs');
 let path = require('node:path');
 let localPaths = require('../utils/local-paths');
+let notifySync = require('../sync/ilu-hooks');
 
 function getFilePath() {
     return localPaths.dbFilePath('clocks');
@@ -23,6 +24,7 @@ function read() {
 function write(clocks) {
     ensureStorageDir();
     fs.writeFileSync(getFilePath(), JSON.stringify(clocks, null, 2), 'utf8');
+    notifySync({domain: 'clocks', action: 'save'});
     return clocks;
 }
 

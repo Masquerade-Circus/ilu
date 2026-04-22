@@ -9,6 +9,60 @@ const configureCliModulePath = path.join(repoRoot, 'bin', 'configure-cli.js');
 function createFakeProgram() {
   const commands = [];
 
+  function createCommandApi(entry, parentReturn) {
+    return {
+      alias(value) {
+        entry.alias = value;
+        return this;
+      },
+      help(value) {
+        entry.help = value;
+        return this;
+      },
+      description(value) {
+        entry.description = value;
+        return this;
+      },
+      option(flags, description, parser, defaultValue) {
+        entry.options.push({ flags, description, parser, defaultValue });
+        return this;
+      },
+      requiredOption(flags, description, parser, defaultValue) {
+        entry.options.push({ flags, description, parser, defaultValue, required: true });
+        return this;
+      },
+      addOption(option) {
+        entry.options.push({
+          flags: option.flags,
+          description: option.description,
+          defaultValue: option.defaultValue
+        });
+        return this;
+      },
+      argument(signature, description, validator) {
+        entry.arguments.push({ signature, description, validator });
+        return this;
+      },
+      command(name) {
+        const nestedEntry = {
+          name: `${entry.name} ${name}`,
+          alias: undefined,
+          help: undefined,
+          description: undefined,
+          options: [],
+          arguments: [],
+          action: undefined
+        };
+        commands.push(nestedEntry);
+        return createCommandApi(nestedEntry, this);
+      },
+      action(handler) {
+        entry.action = handler;
+        return parentReturn;
+      }
+    };
+  }
+
   const program = {
     INT: Symbol('INT'),
     name() {
@@ -33,40 +87,7 @@ function createFakeProgram() {
 
       commands.push(entry);
 
-      return {
-        alias(value) {
-          entry.alias = value;
-          return this;
-        },
-        help(value) {
-          entry.help = value;
-          return this;
-        },
-        description(value) {
-          entry.description = value;
-          return this;
-        },
-        option(flags, description, parser, defaultValue) {
-          entry.options.push({ flags, description, parser, defaultValue });
-          return this;
-        },
-        addOption(option) {
-          entry.options.push({
-            flags: option.flags,
-            description: option.description,
-            defaultValue: option.defaultValue
-          });
-          return this;
-        },
-        argument(signature, description, validator) {
-          entry.arguments.push({ signature, description, validator });
-          return this;
-        },
-        action(handler) {
-          entry.action = handler;
-          return program;
-        }
-      };
+      return createCommandApi(entry, program);
     },
     parse() {
       return this;
@@ -96,14 +117,14 @@ test('configureProgram registra los comandos principales del CLI', () => {
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'note', 'board', 'babel', 'clock']
+    ['todo', 'note', 'board', 'sync', 'sync init', 'sync status', 'sync retry', 'sync enable', 'sync disable', 'babel', 'clock']
   );
   assert.equal(commands[0].alias, 't');
   assert.equal(commands[1].alias, 'n');
   assert.equal(commands[2].alias, 'bd');
-  assert.equal(commands[3].alias, 'b');
-  assert.equal(commands[4].alias, 'c');
-  assert.equal(commands[3].arguments[0].signature, '<text...>');
+  assert.equal(commands[9].alias, 'b');
+  assert.equal(commands[10].alias, 'c');
+  assert.equal(commands[9].arguments[0].signature, '<text...>');
 });
 
 test('configureProgram preserva argumentos y defaults de babel al parsear con commander', async () => {

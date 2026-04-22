@@ -18,6 +18,13 @@ function configureProgram(program, deps) {
       Board: {actions: async () => {}},
       BoardLists: {actions: async () => {}}
     },
+    Sync = {
+      init: async () => {},
+      status: async () => {},
+      retry: async () => {},
+      enable: async () => {},
+      disable: async () => {}
+    },
     Translate,
     Clocks
   } = deps;
@@ -190,6 +197,37 @@ function configureProgram(program, deps) {
 
   boardCommand
     .action(createActionAdapter(Scrumban.Board.actions));
+
+  const syncCommand = program
+    .command('sync')
+    .description('Manage personal data sync');
+
+  syncCommand
+    .command('init')
+    .description('Initialize sync against a remote repository')
+    .requiredOption('--remote <url>', 'Remote repository URL')
+    .option('--branch <name>', 'Remote branch', 'main')
+    .action(createActionAdapter(Sync.init));
+
+  syncCommand
+    .command('status')
+    .description('Show sync status')
+    .action(createActionAdapter(Sync.status));
+
+  syncCommand
+    .command('retry')
+    .description('Retry pending sync work')
+    .action(createActionAdapter(Sync.retry));
+
+  syncCommand
+    .command('enable')
+    .description('Enable sync')
+    .action(createActionAdapter(Sync.enable));
+
+  syncCommand
+    .command('disable')
+    .description('Disable sync')
+    .action(createActionAdapter(Sync.disable));
 
   program
     .command('babel')

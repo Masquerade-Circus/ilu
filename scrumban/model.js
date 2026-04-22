@@ -1,4 +1,5 @@
 let loadDb = require('../utils/load-db');
+let notifySync = require('../sync/ilu-hooks');
 
 let DEFAULT_COLUMNS = [
     {id: 'backlog', title: 'Backlog', wipLimit: null},
@@ -134,7 +135,9 @@ let Model = {
     save(board) {
         validateDefaultColumn(board);
         normalizeColumns(board);
-        return Model.collection.update(board);
+        let saved = Model.collection.update(board);
+        notifySync({domain: 'boards', action: 'save'});
+        return saved;
     },
     add(item) {
         let columns = Array.isArray(item.columns) && item.columns.length > 0
@@ -160,16 +163,20 @@ let Model = {
     remove(item) {
         if (!item) {
             Model.collection.find().forEach(current => Model.collection.remove(current));
+            notifySync({domain: 'boards', action: 'remove'});
             return;
         }
 
         Model.collection.remove(item);
         Model.updateIndexes();
+        notifySync({domain: 'boards', action: 'remove'});
     },
     updateIndexes() {
         Model.find().forEach((item, index) => {
             item.index = index + 1;
-            Model.save(item);
+            validateDefaultColumn(item);
+            normalizeColumns(item);
+            Model.collection.update(item);
         });
     },
     getCurrent() {
@@ -181,12 +188,18 @@ let Model = {
     use(id) {
         Model.find({current: true}).forEach(item => {
             item.current = false;
-            Model.save(item);
+            validateDefaultColumn(item);
+            normalizeColumns(item);
+            Model.collection.update(item);
         });
 
         let current = Model.get(id);
         current.current = true;
-        return Model.save(current);
+        validateDefaultColumn(current);
+        normalizeColumns(current);
+        let saved = Model.collection.update(current);
+        notifySync({domain: 'boards', action: 'use'});
+        return saved;
     }
 };
 

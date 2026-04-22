@@ -1,6 +1,11 @@
 let includes = require('lodash/includes');
 let loadDb = require('./load-db');
 let isUndefined = require('lodash/isUndefined');
+let notifySync = require('../sync/ilu-hooks');
+
+function detectDomain(dbName, collectionName) {
+    return dbName || collectionName || 'data';
+}
 
 function createNestedCollection(Model, key, options = {}) {
     let nestedCollection = {
@@ -44,6 +49,11 @@ function createNestedCollection(Model, key, options = {}) {
 
 module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}) {
     let DB = loadDb(dbName);
+    let domain = detectDomain(dbName, collectionName);
+
+    function afterPersist(action) {
+        notifySync({domain, action});
+    }
 
     let Model = {
         collection: DB.getCollection(collectionName),
@@ -72,16 +82,20 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
             return Model.use(insertedDocument.$id);
         },
         save(item) {
-            return Model.collection.update(item);
+            let saved = Model.collection.update(item);
+            afterPersist('save');
+            return saved;
         },
         remove(item) {
             if (isUndefined(item)) {
                 Model.collection.find().forEach(item => Model.collection.remove(item));
+                afterPersist('remove');
                 return;
             }
 
             Model.collection.remove(item);
             Model.updateIndexes();
+            afterPersist('remove');
         },
         getCurrent() {
             return Model.findOne({current: true});
@@ -97,19 +111,21 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
             let items = Model.find();
             items.forEach((item, index) => {
                 item.index = index + 1;
-                Model.save(item);
+                Model.collection.update(item);
             });
         },
         use(id) {
             let prevCurrent = Model.find({current: true});
-            prevCurrent.map(item => {
+            prevCurrent.forEach(item => {
                 item.current = false;
-                Model.save(item);
+                Model.collection.update(item);
             });
 
             let current = Model.get(id);
             current.current = true;
-            return Model.save(current);
+            let saved = Model.collection.update(current);
+            afterPersist('use');
+            return saved;
         }
     };
 
