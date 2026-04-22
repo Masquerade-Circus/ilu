@@ -2,22 +2,7 @@
 
 Small Node.js CLI utilities for personal productivity.
 
-`ilu` currently includes:
-
-- todo items and todo lists
-- notes and note lists
-- scrumban boards
-- quick text translation
-- saved world clocks
-
-## Roadmap
-
-- [x] Todos
-- [x] Simple notes
-- [x] Translator
-- [x] World clock
-- [x] Scrumban boards
-- [ ] Callendar and remainders
+`ilu` currently includes todo lists, note lists, boards, translation, saved clocks, Git-based sync, and text-to-speech.
 
 ## Install
 
@@ -28,27 +13,27 @@ npm install
 node bin/cli.js --help
 ```
 
-The real CLI entry point in this repo is `bin/cli.js`.
+The main CLI entry point in this repo is `bin/cli.js`.
 
-You can also use:
+### Install globally
+
+You can expose the `ilu` command globally from this repository with either:
 
 ```bash
-node index.js --help
+npm install -g .
 ```
 
-### Installed CLI name
-
-The published executable name is:
+or:
 
 ```bash
-ilu
+npm link
 ```
 
-If the package is installed globally, you can run commands like:
+Then verify the installed CLI:
 
 ```bash
+ilu --version
 ilu --help
-ilu todo --show
 ```
 
 ## Usage
@@ -59,22 +44,17 @@ ilu <command> [options]
 
 Available commands:
 
-| Command     | Alias | Purpose                               |
-| ----------- | ----- | ------------------------------------- |
-| `todo`      | `t`   | Manage tasks and todo lists           |
-| `note`      | `n`   | Manage notes and note lists           |
-| `board`     | `bd`  | Manage cards and boards               |
-| `sync`      | —     | Sync local data to a Git remote       |
-| `babel`     | `b`   | Translate text                        |
-| `clock`     | `c`   | Manage saved clocks                   |
+| Command | Alias | Purpose |
+| --- | --- | --- |
+| `todo` | `t` | Manage tasks and todo lists |
+| `note` | `n` | Manage notes and note lists |
+| `board` | `bd` | Manage cards and boards |
+| `sync` | — | Sync local data with a Git remote |
+| `babel` | `b` | Translate text |
+| `clock` | `c` | Manage saved clocks |
+| `tts` | — | Convert `.txt` or `.md` files to audio |
 
-Most resource commands default to `--show` behavior when you run them without flags.
-
-## Interactive behavior
-
-Commands that create or edit data are designed for a human using an interactive terminal.
-
-If an interactive command is run without a TTY, `ilu` exits with a clean error message instead of a prompt stack trace.
+Most resource commands default to their show/list behavior when run without flags.
 
 ## Commands overview
 
@@ -85,21 +65,21 @@ Manage tasks for the current active todo list and the todo list collection.
 Common options:
 
 - `--add`
-- `--details` — show task details via interactive selection
-- `--edit` — edit the selected task interactively
+- `--details`
+- `--edit`
 - `--show`
 - `--check`
-- `--remove` — remove selected tasks interactively
-- `--lists` — show all todo lists
-- `--use-list` — switch to the selected todo list interactively
-- `--add-list` — add a new todo list
-- `--edit-list` — edit the selected todo list interactively
-- `--remove-list` — remove selected todo lists interactively
+- `--remove`
+- `--lists`
+- `--use-list`
+- `--add-list`
+- `--edit-list`
+- `--remove-list`
 
 Notes:
 
-- running `ilu todo` with no flags still defaults to showing tasks from the current todo list
-- all todo list lifecycle management now lives under `ilu todo`
+- `ilu todo` shows tasks from the current todo list by default.
+- Todo list lifecycle management lives under `ilu todo`.
 
 ### `note` / `n`
 
@@ -108,25 +88,47 @@ Manage notes for the current active note list and the note list collection.
 Common options:
 
 - `--add`
-- `--details` — show note details via interactive selection
-- `--edit` — edit the selected note interactively
-- `--show` — show all notes in the current note list
-- `--remove` — remove selected notes interactively
-- `--lists` — show all note lists
-- `--use-list` — switch to the selected note list interactively
-- `--add-list` — add a new note list
-- `--edit-list` — edit the selected note list interactively
-- `--remove-list` — remove selected note lists interactively
+- `--details`
+- `--edit`
+- `--show`
+- `--remove`
+- `--lists`
+- `--use-list`
+- `--add-list`
+- `--edit-list`
+- `--remove-list`
 
 Notes:
 
-- running `ilu note` with no flags still defaults to showing notes from the current note list
-- all note list lifecycle management now lives under `ilu note`
-- `--add` and `--edit` capture note content with an inline terminal prompt
-- `Enter` confirms the note content
-- `Ctrl+N` inserts a new line in a portable way
-- `Shift+Enter` may insert a new line when the terminal reports it, but it is not required
-- `Esc` cancels the inline note prompt
+- `ilu note` shows notes from the current note list by default.
+- Note list lifecycle management lives under `ilu note`.
+- `--add` and `--edit` use an inline terminal prompt for note content.
+
+### `board` / `bd`
+
+Manage cards for the current board and board collection.
+
+Common options:
+
+- `--show`
+- `--add`
+- `--details`
+- `--edit`
+- `--move`
+- `--priority`
+- `--remove`
+- `--columns`
+- `--list-boards`
+- `--use-board`
+- `-ab`, `--add-board`
+- `-eb`, `--edit-board`
+- `-rb`, `--remove-board`
+
+Notes:
+
+- `ilu board` runs `--show` by default.
+- Board lifecycle management lives under `ilu board`.
+- New boards start with `Backlog`, `Ready`, `In Progress`, and `Done` unless custom columns are chosen.
 
 ### `babel` / `b`
 
@@ -144,43 +146,8 @@ Options:
 
 Notes:
 
-- translation uses the native `fetch` available in the current Node.js runtime
-- the translated text is copied to the clipboard
-
-### `board` / `bd`
-
-Manage cards for the current board and board collection.
-
-Common options:
-
-- `--show` — show the current board as an adaptive ASCII view
-- `--add` — add a new card to the default column
-- `--details` — show details of the selected card interactively
-- `--edit` — edit the selected card interactively
-- `--move` — move the selected card interactively
-- `--priority` — reorder cards within a selected column with keyboard controls
-- `--remove` — remove selected cards interactively
-- `--columns` — manage columns for the current board with a column-first interactive flow
-- `--list-boards` — show all boards
-- `--use-board` — switch to the selected board interactively
-- `-ab`, `--add-board` — add a new board interactively
-- `-eb`, `--edit-board` — edit the selected board interactively
-- `-rb`, `--remove-board` — remove selected boards interactively
-
-Notes:
-
-- running `ilu board` with no flags runs `--show` by default
-- a new board starts with `Backlog`, `Ready`, `In Progress` and `Done`
-- a new board can start with custom columns and a selected default column for new cards
-- `ilu board --list-boards` shows the available boards
-- `ilu board --use-board` switches the current board interactively
-- all board creation and lifecycle management now lives under `ilu board`
-- card priority is the card position inside each column
-- `ilu board --priority` selects a column first, then enters reorder mode for cards in that same column
-- `ilu board --columns` selects a column first, then shows only the actions that make sense for that column
-- the priority prompt uses `Space` to take/drop, `↑/↓` to move, `Enter` to confirm, and `Esc` to cancel
-- if the selected column has fewer than 2 cards, the command reports that there is nothing to reorder
-- moving a card forward triggers auto-pull from earlier columns until a full WIP-limited column stops the chain
+- Translation uses the current Node.js runtime `fetch` implementation.
+- The translated text is copied to the clipboard.
 
 ### `clock` / `c`
 
@@ -197,23 +164,37 @@ Options:
 - `--show` — show all saved clocks
 - `--remove [position]` — remove one clock by position, or remove all when no position is given
 
+Notes:
+
+- `ilu clock` shows saved clocks by default.
+- Clocks are stored in `~/.ilu/clocks.json`.
+- Each clock requires an IANA timezone and a display name.
+
+### `tts`
+
+Convert a text or markdown file to audio.
+
+```bash
+ilu tts <inputFile> <outputFile>
+ilu tts voice
+```
+
 Behavior:
 
-- running `ilu clock` with no flags shows saved clocks by default
-- clocks are stored in `~/.ilu/clocks.json`
-- each clock requires an IANA timezone and a display name
-- output is shown as: time, then name, then timezone
-- the output uses color styling for those segments
-
-Example display shape:
-
-```text
-1 10:15:20 - CDMX (America/Mexico_City)
-```
+- Input files must use `.txt` or `.md`.
+- `ilu tts voice` opens an interactive voice selector and persists the default voice.
+- TTS configuration is stored in `~/.ilu/.config/tts-config.json`.
+- The OpenAI API key is also stored in that file once provided.
+- The default model is `gpt-4o-mini-tts`.
+- The default voice is `alloy` until another voice is saved.
+- Long inputs are chunked before synthesis.
+- Chunk files are written to a temporary numbered parts directory next to the output file.
+- If generation is interrupted, existing numbered chunk files are reused on retry.
+- Final audio is merged with `ffmpeg`.
 
 ### `sync`
 
-Manage automatic sync of local `ilu` data to a Git remote owned by the user.
+Manage automatic sync of local `ilu` data with a Git remote.
 
 ```bash
 ilu sync init --remote <url> [--branch main]
@@ -225,28 +206,50 @@ ilu sync disable
 
 Behavior:
 
-- sync is **local-first**: a successful local write happens before any remote sync work
-- the runtime uses an internal X-Robot state machine for sync lifecycle management
-- default sync behavior is automatic once configured
-- if remote sync fails, local data remains saved
-- `sync status` reports whether data is healthy, pending, degraded, conflicted, or disabled
-- `sync retry` forces a new sync attempt for pending work
-- `sync init` requires a Git remote URL and defaults to branch `main`
+- Sync is local-first: local writes happen before remote sync work.
+- `sync init` requires a remote URL and defaults to branch `main`.
+- Sync configuration is stored in `~/.ilu/.config/sync-config.json`.
+- Runtime sync state is stored in `~/.ilu/.config/sync-state.json`.
+- Sync tracks local data files under `~/.ilu/` and initializes a Git repository there.
+- Sync currently tracks `todos.json`, `notes.json`, `boards.json`, and `clocks.json`.
+- `.config/` is intentionally excluded from synced data.
+- `sync retry` triggers a new sync attempt for pending work.
+- `sync enable` and `sync disable` toggle sync in local config/state.
+- `sync status` reports the current runtime status and may also show pending remote work or the last error kind.
+- If remote sync fails, local data remains on disk.
+- `sync init` stops when both local data and remote history already exist, to avoid overwriting data.
 
-## Local data
+## Local data and config
 
-`ilu` stores its local files under:
+`ilu` stores local state under:
 
 ```text
 ~/.ilu/
 ```
 
-Examples used by the current codebase:
+Current data files:
 
 - `~/.ilu/todos.json`
 - `~/.ilu/notes.json`
 - `~/.ilu/boards.json`
 - `~/.ilu/clocks.json`
+
+Current config/runtime files:
+
+- `~/.ilu/.config/sync-config.json`
+- `~/.ilu/.config/sync-state.json`
+- `~/.ilu/.config/tts-config.json`
+
+Notes:
+
+- `.config/` is local configuration/runtime state, not synced user data.
+- Temporary note capture may use `~/.ilu/note.txt` internally.
+
+## Interactive behavior
+
+Commands that create or edit data are designed for interactive terminal use.
+
+If an interactive command runs without a TTY, `ilu` exits with a clean error instead of a prompt stack trace.
 
 ## Testing
 
@@ -261,5 +264,3 @@ Current `npm test` runs:
 ```bash
 node --test
 ```
-
-The repository includes CLI and functional tests under `tests/`.

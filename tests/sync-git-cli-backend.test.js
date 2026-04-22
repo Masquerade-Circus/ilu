@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
 
@@ -34,4 +36,20 @@ test('git backend classifies common git failures', () => {
   assert.equal(backend.classifyGitError(new Error('Authentication failed')).kind, 'auth');
   assert.equal(backend.classifyGitError(new Error('CONFLICT (content): Merge conflict in notes.json')).kind, 'conflict');
   assert.equal(backend.classifyGitError(new Error('fatal: not a git repository')).kind, 'config');
+});
+
+test('git backend ensures .config is ignored in synced repo', () => {
+  const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-ignore-'));
+  const backend = loadBackendWithExecStub(() => '');
+
+  try {
+    backend.createGitCliBackend({repoPath: tempRepo}).ensureReady();
+    const gitignore = fs.readFileSync(path.join(tempRepo, '.gitignore'), 'utf8');
+
+    assert.match(gitignore, /^\.config\/$/m);
+    assert.match(gitignore, /^note\.txt$/m);
+    assert.doesNotMatch(gitignore, /^\.sync\/$/m);
+  } finally {
+    fs.rmSync(tempRepo, {recursive: true, force: true});
+  }
 });

@@ -1,5 +1,6 @@
 let fs = require('node:fs');
 let localPaths = require('../utils/local-paths');
+let configStore = require('../utils/config-store');
 let {createSyncRuntime} = require('./index');
 let adapter = require('./ilu-adapter');
 let stateStore = require('./state-store');
@@ -10,9 +11,7 @@ function ensureSyncDir() {
 }
 
 function saveConfig(config) {
-    ensureSyncDir();
-    fs.writeFileSync(localPaths.syncConfigFilePath(), JSON.stringify(config, null, 2), 'utf8');
-    return config;
+    return configStore.saveSyncConfig(config.sync || {}, {fs, paths: localPaths});
 }
 
 async function init(args, options = {}) {
@@ -42,12 +41,14 @@ async function init(args, options = {}) {
     }
 
     let config = saveConfig({
-        enabled: true,
-        remoteUrl,
-        branch,
-        autoSync: true,
-        autoPull: true,
-        autoPush: true
+        sync: {
+            enabled: true,
+            remoteUrl,
+            branch,
+            autoSync: true,
+            autoPull: true,
+            autoPush: true
+        }
     });
 
     let nextState = stateStore.saveState({
@@ -91,7 +92,7 @@ async function retry() {
 
 async function enable() {
     let config = adapter.getSyncConfig();
-    saveConfig({...config, enabled: true});
+    saveConfig({sync: {...config, enabled: true}});
     let runtime = createSyncRuntime();
     if (typeof runtime.enable === 'function') {
         await runtime.enable();
@@ -101,7 +102,7 @@ async function enable() {
 
 async function disable() {
     let config = adapter.getSyncConfig();
-    saveConfig({...config, enabled: false});
+    saveConfig({sync: {...config, enabled: false}});
     let runtime = createSyncRuntime();
     if (typeof runtime.disable === 'function') {
         await runtime.disable();

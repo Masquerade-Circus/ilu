@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
+const {withTempHome} = require('../support/home-sandbox');
 
 const repoRoot = path.resolve(__dirname, '..');
 const commandsModulePath = path.join(repoRoot, 'sync', 'commands.js');
@@ -9,10 +11,52 @@ const commandsModulePath = path.join(repoRoot, 'sync', 'commands.js');
 function loadCommandsWithStubs(overrides = {}) {
   const originalLoad = Module._load;
   const calls = [];
+  const defaultLocalPaths = {
+    syncDirPath() {
+      return '/tmp/ilu-test-sync';
+    },
+    syncConfigFilePath() {
+      return '/tmp/ilu-test-sync/sync-config.json';
+    }
+  };
+  const defaultFs = {
+    mkdirSync() {},
+    writeFileSync() {},
+    existsSync() {
+      return false;
+    },
+    readFileSync() {
+      throw new Error('readFileSync should not be called in sync init test');
+    }
+  };
+  const defaultConfigStore = {
+    saveSyncConfig(config) {
+      return {
+        enabled: config.enabled === true,
+        remoteUrl: typeof config.remoteUrl === 'string' && config.remoteUrl.trim() ? config.remoteUrl.trim() : null,
+        branch: typeof config.branch === 'string' && config.branch.trim() ? config.branch.trim() : 'main',
+        autoSync: config.autoSync !== false,
+        autoPull: config.autoPull !== false,
+        autoPush: config.autoPush !== false
+      };
+    }
+  };
 
   delete require.cache[require.resolve(commandsModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'node:fs') {
+      return overrides.fs || defaultFs;
+    }
+
+    if (request === '../utils/local-paths') {
+      return overrides.localPaths || defaultLocalPaths;
+    }
+
+    if (request === '../utils/config-store') {
+      return overrides.configStore || defaultConfigStore;
+    }
+
     if (request === './index') {
       return overrides.syncIndex || {
         createSyncRuntime() {
@@ -93,6 +137,15 @@ test('sync init valida remote y usa branch main por default', async () => {
   const result = await commands.init([], {remote: '/tmp/remote.git'});
   assert.equal(result.branch, 'main');
   assert.equal(result.remoteUrl, '/tmp/remote.git');
+});
+
+test('sync init en este test no escribe config real en disco', async () => {
+  await withTempHome(async tempHome => {
+    const tempConfigPath = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
+    const {commands} = loadCommandsWithStubs();
+    await commands.init([], {remote: '/tmp/remote.git'});
+    assert.equal(fs.existsSync(tempConfigPath), false);
+  }, {prefix: 'ilu-sync-init-test-'});
 });
 
 test('sync init aborta si local y remoto ya tienen historia', async () => {

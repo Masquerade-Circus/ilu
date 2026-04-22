@@ -1,62 +1,98 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const {setTestHome, withTempHome} = require('../support/home-sandbox');
 
 const repoRoot = path.resolve(__dirname, '..');
 const adapterModulePath = path.join(repoRoot, 'sync', 'ilu-adapter.js');
 
 function loadAdapterWithHome(tempHome) {
-  const originalHome = process.env.HOME;
+  const restoreHome = setTestHome(tempHome);
   delete require.cache[require.resolve(adapterModulePath)];
-  process.env.HOME = tempHome;
 
   const adapter = require(adapterModulePath);
 
   return {
     adapter,
     restore() {
-      process.env.HOME = originalHome;
+      restoreHome();
       delete require.cache[require.resolve(adapterModulePath)];
     }
   };
 }
 
 test('ilu adapter resolves source root and tracked entries under ~/.ilu', () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-adapter-'));
-  const {adapter, restore} = loadAdapterWithHome(tempHome);
-
-  try {
-    assert.equal(adapter.getSourceRoot(), path.join(tempHome, '.ilu'));
-    assert.deepEqual(adapter.listTrackedEntries(), [
-      'todos.json',
-      'notes.json',
-      'boards.json',
-      'clocks.json'
-    ]);
-  } finally {
-    restore();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+  return withTempHome(tempHome => {
+    const {adapter, restore} = loadAdapterWithHome(tempHome);
+    try {
+      assert.equal(adapter.getSourceRoot(), path.join(tempHome, '.ilu'));
+      assert.deepEqual(adapter.listTrackedEntries(), [
+        'todos.json',
+        'notes.json',
+        'boards.json',
+        'clocks.json'
+      ]);
+    } finally {
+      restore();
+    }
+  }, {prefix: 'ilu-sync-adapter-'});
 });
 
 test('ilu adapter exposes normalized sync config and commit message builder', () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-adapter-config-'));
-  const {adapter, restore} = loadAdapterWithHome(tempHome);
+  return withTempHome(tempHome => {
+    const {adapter, restore} = loadAdapterWithHome(tempHome);
+    try {
+      assert.deepEqual(adapter.getSyncConfig(), {
+        enabled: false,
+        remoteUrl: null,
+        branch: 'main',
+        autoSync: true,
+        autoPull: true,
+        autoPush: true
+      });
+      assert.match(adapter.buildCommitMessage({domain: 'todos', action: 'save'}), /todos/i);
+    } finally {
+      restore();
+    }
+  }, {prefix: 'ilu-sync-adapter-config-'});
+});
 
-  try {
-    assert.deepEqual(adapter.getSyncConfig(), {
-      enabled: false,
-      remoteUrl: null,
+test('ilu adapter ignora compatibilidad legacy y solo lee sync-config.json en .config', () => {
+  return withTempHome(tempHome => {
+    const legacyConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
+    const currentConfigFile = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
+    fs.mkdirSync(path.dirname(legacyConfigFile), {recursive: true});
+    fs.mkdirSync(path.dirname(currentConfigFile), {recursive: true});
+    fs.writeFileSync(legacyConfigFile, JSON.stringify({
+      enabled: true,
+      remoteUrl: '/tmp/legacy.git',
+      branch: 'legacy',
+    autoSync: false,
+    autoPull: false,
+    autoPush: false
+    }, null, 2), 'utf8');
+    fs.writeFileSync(currentConfigFile, JSON.stringify({
+      enabled: true,
+      remoteUrl: '/tmp/remote.git',
       branch: 'main',
-      autoSync: true,
-      autoPull: true,
-      autoPush: true
-    });
-    assert.match(adapter.buildCommitMessage({domain: 'todos', action: 'save'}), /todos/i);
-  } finally {
-    restore();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+    autoSync: true,
+    autoPull: false,
+    autoPush: true
+    }, null, 2), 'utf8');
+
+    const {adapter, restore} = loadAdapterWithHome(tempHome);
+    try {
+      assert.deepEqual(adapter.getSyncConfig(), {
+        enabled: true,
+        remoteUrl: '/tmp/remote.git',
+        branch: 'main',
+        autoSync: true,
+        autoPull: false,
+        autoPush: true
+      });
+    } finally {
+      restore();
+    }
+  }, {prefix: 'ilu-sync-adapter-legacy-'});
 });

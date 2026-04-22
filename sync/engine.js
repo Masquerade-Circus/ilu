@@ -1,15 +1,35 @@
 let {createSyncMachine, invoke} = require('./machine');
 let {classifyGitError} = require('./git-cli-backend');
 
+function isSyncConfigMisconfigured(config = {}) {
+    return config.enabled === true && !config.remoteUrl;
+}
+
 function normalizeState(config, storedState = {}) {
+    let status = storedState.status;
+
+    if (status === 'misconfigured' && !isSyncConfigMisconfigured(config)) {
+        status = config.enabled ? 'healthy' : 'disabled';
+    }
+
+    let hasPendingRemote = storedState.hasPendingRemote === true;
+    let lastErrorKind = storedState.lastErrorKind || null;
+    let lastErrorMessage = storedState.lastErrorMessage || null;
+
+    if (status === 'healthy') {
+        hasPendingRemote = false;
+        lastErrorKind = null;
+        lastErrorMessage = null;
+    }
+
     return {
         enabled: config.enabled === true,
-        status: storedState.status || (config.enabled ? 'healthy' : 'disabled'),
-        hasPendingRemote: storedState.hasPendingRemote === true,
+        status: status || (config.enabled ? 'healthy' : 'disabled'),
+        hasPendingRemote,
         retryCount: storedState.retryCount || 0,
         backoffUntil: storedState.backoffUntil || null,
-        lastErrorKind: storedState.lastErrorKind || null,
-        lastErrorMessage: storedState.lastErrorMessage || null,
+        lastErrorKind,
+        lastErrorMessage,
         lastSyncReason: storedState.lastSyncReason || null,
         lastPhase: storedState.lastPhase || null,
         lastSnapshotId: storedState.lastSnapshotId || null,

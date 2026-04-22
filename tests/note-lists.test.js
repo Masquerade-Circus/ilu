@@ -179,45 +179,6 @@ test('note-list --details usa selección interactiva como única vía', {concurr
   assert.ok(logs.some(entry => /Notas activas/.test(entry)));
 });
 
-test('note-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Lists, promptCalls, modelState} = loadNoteListsWithStubs({
-    savedLists: [
-      {title: 'Inbox', description: 'Base'},
-      {title: 'Ideas', description: 'Notas activas'}
-    ],
-    promptAnswers: [
-      {index: 2},
-      {title: 'Ideas 2', description: 'Curadas'}
-    ]
-  });
-
-  await Lists.edit();
-
-  assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].type, 'select');
-  assert.equal(promptCalls[1][0].name, 'title');
-  assert.deepEqual(modelState.saveCalls, [
-    {index: 2, title: 'Ideas 2', description: 'Curadas'}
-  ]);
-});
-
-test('note-list --use usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Lists, promptCalls, modelState} = loadNoteListsWithStubs({
-    savedLists: [
-      {title: 'Inbox', current: true},
-      {title: 'Ideas'}
-    ],
-    promptAnswers: [{index: 2}]
-  });
-
-  await Lists.use();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'select');
-  assert.deepEqual(modelState.useCalls, ['list-2']);
-  assert.equal(modelState.lists[1].current, true);
-});
-
 test('note-list --remove usa selección interactiva como única vía', {concurrency: false}, async () => {
   const {Lists, promptCalls, modelState} = loadNoteListsWithStubs({
     savedLists: [

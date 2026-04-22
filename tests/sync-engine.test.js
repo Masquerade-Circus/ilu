@@ -226,3 +226,56 @@ test('sync engine retry also works from pending_remote bootstrap state', async (
 
   assert.equal(runtime.getSyncStatus().status, 'healthy');
 });
+
+test('sync engine does not preserve stale misconfigured state when config is currently valid', () => {
+  const {createSyncRuntime} = loadEngine();
+  const harness = createHarness({
+    state: {
+      enabled: true,
+      status: 'misconfigured',
+      hasPendingRemote: false,
+      retryCount: 0,
+      lastErrorKind: null,
+      lastErrorMessage: null,
+      lastSyncReason: null,
+      lastPhase: null,
+      lastSnapshotId: null,
+      lastSyncedSnapshotId: null
+    }
+  });
+
+  const runtime = createSyncRuntime(harness);
+  const status = runtime.getSyncStatus();
+
+  assert.equal(status.status, 'healthy');
+  assert.equal(harness.state.status, 'healthy');
+});
+
+test('sync engine clears stale pending and error flags when healthy state is rehydrated', () => {
+  const {createSyncRuntime} = loadEngine();
+  const harness = createHarness({
+    state: {
+      enabled: true,
+      status: 'healthy',
+      hasPendingRemote: true,
+      retryCount: 2,
+      lastErrorKind: 'unknown',
+      lastErrorMessage: 'stale error',
+      lastSyncReason: 'save',
+      lastPhase: null,
+      lastSnapshotId: null,
+      lastSyncedSnapshotId: null
+    }
+  });
+
+  const runtime = createSyncRuntime(harness);
+  const status = runtime.getSyncStatus();
+
+  assert.equal(status.status, 'healthy');
+  assert.equal(status.hasPendingRemote, false);
+  assert.equal(status.lastErrorKind, null);
+  assert.equal(status.lastErrorMessage, null);
+  assert.equal(harness.state.hasPendingRemote, false);
+  assert.equal(harness.state.lastErrorKind, null);
+  assert.equal(harness.state.lastErrorMessage, null);
+});

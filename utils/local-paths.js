@@ -3,6 +3,7 @@ let path = require('path');
 let {
     SYNC_DIRNAME,
     SYNC_CONFIG_FILENAME,
+    TTS_CONFIG_FILENAME,
     SYNC_STATE_FILENAME,
     SYNC_LOCK_FILENAME
 } = require('../sync/contracts');
@@ -31,6 +32,10 @@ function syncStateFilePath() {
     return path.join(syncDirPath(), SYNC_STATE_FILENAME);
 }
 
+function ttsConfigFilePath() {
+    return path.join(syncDirPath(), TTS_CONFIG_FILENAME);
+}
+
 function syncLockFilePath() {
     return path.join(syncDirPath(), SYNC_LOCK_FILENAME);
 }
@@ -41,6 +46,7 @@ module.exports = {
     noteTempFilePath,
     syncDirPath,
     syncConfigFilePath,
+    ttsConfigFilePath,
     syncStateFilePath,
     syncLockFilePath
 };

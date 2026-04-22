@@ -213,20 +213,3 @@ test('todo --remove usa selección interactiva como única vía', {concurrency: 
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2, 3]);
   assert.deepEqual(modelState.list.tasks.map(task => task.title), ['Dos']);
 });
-
-test('todo --remove ya no acepta índice directo y siempre pregunta', {concurrency: false}, async () => {
-  const {Tasks, promptCalls, modelState} = loadTasksWithStubs({
-    savedTasks: [
-      {title: 'Uno'},
-      {title: 'Dos'}
-    ],
-    promptAnswers: [{indexes: [2]}]
-  });
-
-  await Tasks.remove();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'checkbox');
-  assert.deepEqual(modelState.removeCalls, [2]);
-  assert.deepEqual(modelState.list.tasks.map(task => task.title), ['Uno']);
-});

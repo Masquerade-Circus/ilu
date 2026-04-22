@@ -1,5 +1,6 @@
 let fs = require('node:fs');
 let localPaths = require('../utils/local-paths');
+let configStore = require('../utils/config-store');
 let stateStore = require('./state-store');
 
 const TRACKED_ENTRIES = [
@@ -9,25 +10,8 @@ const TRACKED_ENTRIES = [
     'clocks.json'
 ];
 
-function loadJsonIfExists(filePath, fallback) {
-    if (!fs.existsSync(filePath)) {
-        return fallback;
-    }
-
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
 function getSyncConfig() {
-    let config = loadJsonIfExists(localPaths.syncConfigFilePath(), {});
-
-    return {
-        enabled: config.enabled === true,
-        remoteUrl: config.remoteUrl || null,
-        branch: config.branch || 'main',
-        autoSync: config.autoSync !== false,
-        autoPull: config.autoPull !== false,
-        autoPush: config.autoPush !== false
-    };
+    return configStore.getSyncConfig({fs, paths: localPaths});
 }
 
 module.exports = {

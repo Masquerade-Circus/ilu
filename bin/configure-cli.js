@@ -26,7 +26,11 @@ function configureProgram(program, deps) {
       disable: async () => {}
     },
     Translate,
-    Clocks
+    Clocks,
+    Tts = {
+      action: async () => {},
+      voiceAction: async () => {}
+    }
   } = deps;
 
   if (typeof updateNotifier === 'function') {
@@ -249,6 +253,22 @@ function configureProgram(program, deps) {
     .option('-s, --show', 'Show all saved clocks')
     .option('-r, --remove [position]', 'Remove the clock at [position], if no position, remove all clocks', optionalInt)
     .action(createActionAdapter(Clocks.actions));
+
+  const ttsCommand = program
+    .command('tts')
+    .description('Convert a text or markdown file to audio')
+    .argument('<inputFile>', 'Input .txt or .md file')
+    .argument('<outputFile>', 'Output audio file path');
+
+  ttsCommand
+    .command('voice')
+    .description('Select or persist the default TTS voice')
+    .action(createActionAdapter(Tts.voiceAction, () => ({})));
+
+  ttsCommand.action(createActionAdapter(
+    Tts.action,
+    ([inputFile, outputFile]) => ({inputFile, outputFile})
+  ));
 
   return program;
 }

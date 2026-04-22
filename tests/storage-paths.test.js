@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
 const {execFileSync} = require('node:child_process');
+const {withTempHome} = require('../support/home-sandbox');
 
 const repoRoot = path.resolve(__dirname, '..');
 const localPathsModulePath = path.join(repoRoot, 'utils', 'local-paths.js');
@@ -12,20 +13,16 @@ const notesModulePath = path.join(repoRoot, 'notes', 'notes.js');
 
 test('utils/local-paths resuelve .ilu, bases de datos y temporales bajo HOME', () => {
   const localPaths = require(localPathsModulePath);
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-paths-'));
-  const originalHome = process.env.HOME;
-
-  process.env.HOME = tempHome;
-
-  try {
+  return withTempHome(tempHome => {
     assert.equal(localPaths.storageDirPath(), path.join(tempHome, '.ilu'));
     assert.equal(localPaths.dbFilePath('notes'), path.join(tempHome, '.ilu', 'notes.json'));
     assert.equal(localPaths.dbFilePath('clocks'), path.join(tempHome, '.ilu', 'clocks.json'));
     assert.equal(localPaths.noteTempFilePath(), path.join(tempHome, '.ilu', 'note.txt'));
-  } finally {
-    process.env.HOME = originalHome;
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+    assert.equal(localPaths.syncDirPath(), path.join(tempHome, '.ilu', '.config'));
+    assert.equal(localPaths.syncConfigFilePath(), path.join(tempHome, '.ilu', '.config', 'sync-config.json'));
+    assert.equal(localPaths.ttsConfigFilePath(), path.join(tempHome, '.ilu', '.config', 'tts-config.json'));
+    assert.equal(localPaths.syncStateFilePath(), path.join(tempHome, '.ilu', '.config', 'sync-state.json'));
+  }, {prefix: 'ilu-paths-'});
 });
 
 test('notes/notes usa prompt inline y ya no depende de archivo temporal para capturar contenido', async () => {

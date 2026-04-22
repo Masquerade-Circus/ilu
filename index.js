@@ -1,2 +1,2 @@
-#!/usr/bin/node --harmony
+#!/usr/bin/env node
 require('./bin/cli');

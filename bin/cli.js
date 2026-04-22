@@ -1,16 +1,59 @@
-#!/usr/bin/node --harmony
+#!/usr/bin/env node
 let {Command} = require('commander');
 let pkg = require('../package.json');
 // TODO use https://github.com/sindresorhus/terminal-link to parse content and convert links
 // TODO use https://github.com/Automattic/cli-table to kanban
 
-let Todos = require('../todos');
-let Notes = require('../notes');
-let Scrumban = require('../scrumban');
-let Sync = require('../sync/commands');
 let Translate = require('../translate');
-let Clocks = require('../clocks');
 let configureProgram = require('./configure-cli');
+
+function lazyAction(load, select) {
+    return async (...args) => select(load())(...args);
+}
+
+let Todos = {
+    Tasks: {
+        actions: lazyAction(() => require('../todos'), (module) => module.Tasks.actions)
+    },
+    Lists: {
+        actions: lazyAction(() => require('../todos'), (module) => module.Lists.actions)
+    }
+};
+
+let Notes = {
+    Notes: {
+        actions: lazyAction(() => require('../notes'), (module) => module.Notes.actions)
+    },
+    Lists: {
+        actions: lazyAction(() => require('../notes'), (module) => module.Lists.actions)
+    }
+};
+
+let Scrumban = {
+    Board: {
+        actions: lazyAction(() => require('../scrumban'), (module) => module.Board.actions)
+    },
+    BoardLists: {
+        actions: lazyAction(() => require('../scrumban'), (module) => module.BoardLists.actions)
+    }
+};
+
+let Sync = {
+    init: lazyAction(() => require('../sync/commands'), (module) => module.init),
+    status: lazyAction(() => require('../sync/commands'), (module) => module.status),
+    retry: lazyAction(() => require('../sync/commands'), (module) => module.retry),
+    enable: lazyAction(() => require('../sync/commands'), (module) => module.enable),
+    disable: lazyAction(() => require('../sync/commands'), (module) => module.disable)
+};
+
+let Clocks = {
+    actions: lazyAction(() => require('../clocks'), (module) => module.actions)
+};
+
+let Tts = {
+    action: lazyAction(() => require('../tts'), (module) => module.action),
+    voiceAction: lazyAction(() => require('../tts'), (module) => module.voiceAction)
+};
 
 let program = new Command();
 
@@ -21,7 +64,8 @@ configureProgram(program, {
     Scrumban,
     Sync,
     Translate,
-    Clocks
+    Clocks,
+    Tts
 });
 
 program.parse(process.argv);

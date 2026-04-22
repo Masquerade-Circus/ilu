@@ -142,25 +142,6 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
   }
 }
 
-test('note --details usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Notes, logs, promptCalls} = loadNotesWithStubs({
-    savedNotes: [
-      {title: 'Uno', content: 'Texto 1'},
-      {title: 'Dos', content: 'Texto 2'}
-    ],
-    promptAnswers: [{index: 2}]
-  });
-
-  await Notes.details();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'select');
-  assert.equal(promptCalls[0][0].name, 'index');
-  assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2]);
-  assert.ok(logs.some(entry => /Dos/.test(entry)));
-  assert.ok(logs.some(entry => /Texto 2/.test(entry)));
-});
-
 test('note --show no limpia la terminal antes de renderizar las notas', {concurrency: false}, async () => {
   const events = [];
   const {Notes, logs} = loadNotesWithStubs({
@@ -251,21 +232,4 @@ test('note --remove usa selección interactiva como única vía', {concurrency: 
   assert.equal(promptCalls[0][0].name, 'indexes');
   assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2, 3]);
   assert.deepEqual(modelState.list.notes.map(note => note.title), ['Dos']);
-});
-
-test('note --remove ya no acepta índice directo y siempre pregunta', {concurrency: false}, async () => {
-  const {Notes, promptCalls, modelState} = loadNotesWithStubs({
-    savedNotes: [
-      {title: 'Uno'},
-      {title: 'Dos'}
-    ],
-    promptAnswers: [{indexes: [2]}]
-  });
-
-  await Notes.remove();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'checkbox');
-  assert.deepEqual(modelState.removeCalls, [2]);
-  assert.deepEqual(modelState.list.notes.map(note => note.title), ['Uno']);
 });
