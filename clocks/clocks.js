@@ -3,6 +3,7 @@ require('colors');
 let inquirer = require('../utils/inquirer');
 let {log} = require('../utils');
 let Model = require('./model');
+let promptPriority = require('./priority-prompt');
 let isUndefined = require('lodash/isUndefined');
 
 let FALLBACK_TIMEZONES = [
@@ -14,6 +15,14 @@ let FALLBACK_TIMEZONES = [
     'Europe/Madrid',
     'Etc/UTC',
     'Asia/Tokyo'
+];
+
+let TIMEZONE_ALIASES = [
+    {
+        label: 'UTC (Etc/UTC)',
+        value: 'Etc/UTC',
+        terms: ['utc']
+    }
 ];
 
 function fail(message) {
@@ -53,8 +62,36 @@ function searchTimezones(search) {
     let normalizedSearch = normalizeSearch(search);
 
     return getAvailableTimezones()
-        .filter(timezone => timezone.toLowerCase().includes(normalizedSearch))
+        .filter(timezone => normalizedSearch.length === 0 || timezone.toLowerCase().includes(normalizedSearch))
         .slice(0, 20);
+}
+
+function searchTimezoneChoices(search) {
+    let normalizedSearch = normalizeSearch(search);
+    let choices = [];
+    let seen = new Set();
+
+    TIMEZONE_ALIASES
+        .filter(alias => normalizedSearch.length > 0 && alias.terms.some(term => term.includes(normalizedSearch) || normalizedSearch.includes(term)))
+        .forEach(alias => {
+            if (seen.has(alias.value)) {
+                return;
+            }
+
+            seen.add(alias.value);
+            choices.push({name: alias.label, value: alias.value});
+        });
+
+    searchTimezones(search).forEach(timezone => {
+        if (seen.has(timezone)) {
+            return;
+        }
+
+        seen.add(timezone);
+        choices.push({name: timezone, value: timezone});
+    });
+
+    return choices.slice(0, 20);
 }
 
 function getClockChoice(item, index) {
@@ -94,24 +131,14 @@ let Clocks = {
         return item;
     },
     async add() {
-        let searchAnswer = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'search',
-                message: 'Search timezone',
-                suffix: ' (required)',
-                validate(value) {
-                    return searchTimezones(value).length > 0 || 'Please provide a search with matching timezones';
-                }
-            }
-        ]);
-        let matches = searchTimezones(searchAnswer.search);
         let timezoneAnswer = await inquirer.prompt([
             {
-                type: 'select',
+                type: 'search',
                 name: 'timezone',
-                message: 'Select a timezone',
-                choices: matches.map(timezone => ({name: timezone, value: timezone}))
+                message: 'Search and select a timezone',
+                source(search) {
+                    return searchTimezoneChoices(search);
+                }
             }
         ]);
         let nameAnswer = await inquirer.prompt([
@@ -154,6 +181,27 @@ let Clocks = {
         clocks.forEach((item, index) => {
             log.pointerSmall(`${index + 1} ${formatTime(item.timezone).cyan.bold} - ${item.name.white} ${`(${item.timezone})`.gray}`);
         });
+    },
+    async priority() {
+        let clocks = Model.find();
+
+        if (clocks.length < 2) {
+            log.info('You need at least two clocks to change their priority.');
+
+            if (clocks.length > 0) {
+                Clocks.show();
+            }
+
+            return;
+        }
+
+        let move = await promptPriority({clocks: clocks.map(clock => ({...clock}))});
+
+        if (move && move.fromPosition !== move.toPosition) {
+            Model.move(move);
+        }
+
+        Clocks.show();
     },
     async remove(index) {
         if (typeof index === 'number') {
@@ -200,6 +248,7 @@ let Clocks = {
         switch (true) {
             case !isUndefined(opts.add): await Clocks.add(); break;
             case !isUndefined(opts.show): Clocks.show(); break;
+            case !isUndefined(opts.priority): await Clocks.priority(); break;
             case !isUndefined(opts.remove): await Clocks.remove(opts.remove); break;
             default: Clocks.show(); break;
         }

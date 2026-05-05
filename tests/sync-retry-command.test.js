@@ -9,13 +9,15 @@ const commandsModulePath = path.join(repoRoot, 'sync', 'commands.js');
 test('sync retry delegates to runtime retry and returns status', async () => {
   const originalLoad = Module._load;
   const calls = [];
+  const runtimeCreationArgs = [];
 
   delete require.cache[require.resolve(commandsModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === './index') {
       return {
-        createSyncRuntime() {
+        createSyncRuntime(...args) {
+          runtimeCreationArgs.push(args);
           return {
             async retry(context) {
               calls.push(context);
@@ -24,8 +26,15 @@ test('sync retry delegates to runtime retry and returns status', async () => {
               return {status: 'healthy'};
             }
           };
+        },
+        getSyncConfig() {
+          return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
         }
       };
+    }
+
+    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
+      throw new Error(`commands.js should not import ${request} directly`);
     }
 
     return originalLoad.apply(this, arguments);
@@ -36,6 +45,7 @@ test('sync retry delegates to runtime retry and returns status', async () => {
     const result = await commands.retry();
 
     assert.deepEqual(calls, [{reason: 'manual'}]);
+    assert.deepEqual(runtimeCreationArgs, [[]]);
     assert.deepEqual(result, {status: 'healthy'});
   } finally {
     Module._load = originalLoad;
@@ -62,28 +72,15 @@ test('sync enable re-enables runtime state instead of leaving it disabled', asyn
               return {status: 'healthy', enabled: true};
             }
           };
-        }
-      };
-    }
-
-    if (request === './ilu-adapter') {
-      return {
+        },
         getSyncConfig() {
           return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
         }
       };
     }
 
-    if (request === './state-store') {
-      return {
-        loadState() {
-          return {enabled: false, status: 'disabled'};
-        },
-        saveState(state) {
-          savedStates.push(state);
-          return state;
-        }
-      };
+    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
+      throw new Error(`commands.js should not import ${request} directly`);
     }
 
     if (request === '../utils/local-paths') {
@@ -97,10 +94,6 @@ test('sync enable re-enables runtime state instead of leaving it disabled', asyn
         readFileSync() { return '{}'; },
         writeFileSync(file, value) { savedConfigs.push(JSON.parse(value)); }
       };
-    }
-
-    if (request === './git-cli-backend') {
-      return {createGitCliBackend() { return {}; }};
     }
 
     return originalLoad.apply(this, arguments);
@@ -134,16 +127,15 @@ test('sync enable reescribe solo sync-config sin depender de config de tts', asy
               return {status: 'healthy', enabled: true};
             }
           };
-        }
-      };
-    }
-
-    if (request === './ilu-adapter') {
-      return {
+        },
         getSyncConfig() {
           return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
         }
       };
+    }
+
+    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
+      throw new Error(`commands.js should not import ${request} directly`);
     }
 
     if (request === '../utils/config-store') {
@@ -155,27 +147,12 @@ test('sync enable reescribe solo sync-config sin depender de config de tts', asy
       };
     }
 
-    if (request === './state-store') {
-      return {
-        loadState() {
-          return {enabled: false, status: 'disabled'};
-        },
-        saveState(state) {
-          return state;
-        }
-      };
-    }
-
     if (request === '../utils/local-paths') {
       return {syncDirPath() { return '/tmp/.ilu/.config'; }, syncConfigFilePath() { return '/tmp/.ilu/.config/sync-config.json'; }};
     }
 
     if (request === 'node:fs') {
       return {mkdirSync() {}, writeFileSync() {}};
-    }
-
-    if (request === './git-cli-backend') {
-      return {createGitCliBackend() { return {}; }};
     }
 
     return originalLoad.apply(this, arguments);

@@ -188,7 +188,7 @@ function configureProgram(program, deps) {
     .option('-a, --add', 'Add a new card to the default column')
     .option('-d, --details', 'Show details of the selected card interactively')
     .option('-e, --edit', 'Edit the selected card interactively')
-    .option('-m, --move', 'Move the selected card interactively')
+    .option('-m, --move', 'Move selected cards interactively')
     .option('-p, --priority', 'Reorder cards within a selected column interactively')
     .option('-r, --remove', 'Remove selected cards interactively')
     .option('-c, --columns', 'Manage columns for the current board')
@@ -251,6 +251,7 @@ function configureProgram(program, deps) {
     .description('Manage saved clocks')
     .option('-a, --add', 'Add a new clock')
     .option('-s, --show', 'Show all saved clocks')
+    .option('-p, --priority', 'Reorder saved clocks interactively')
     .option('-r, --remove [position]', 'Remove the clock at [position], if no position, remove all clocks', optionalInt)
     .action(createActionAdapter(Clocks.actions));
 

@@ -5,6 +5,8 @@ const Module = require('node:module');
 
 const repoRoot = path.resolve(__dirname, '..');
 const modelModulePath = path.join(repoRoot, 'scrumban', 'model.js');
+const hooksModulePath = path.join(repoRoot, 'sync', 'ilu-hooks.js');
+const syncIndexModulePath = path.join(repoRoot, 'sync', 'index.js');
 
 function createCollection() {
   const items = [];
@@ -39,39 +41,64 @@ function createCollection() {
 function loadBoardModel(events) {
   const originalLoad = Module._load;
   const fakeCollection = createCollection();
+  const state = {syncIndexLoadCount: 0};
 
   delete require.cache[require.resolve(modelModulePath)];
+  delete require.cache[require.resolve(hooksModulePath)];
+  delete require.cache[require.resolve(syncIndexModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
+    if (/sync-core/.test(request)) {
+      throw new Error(`Unexpected sync-core import: ${request}`);
+    }
     if (request === '../utils/load-db') {
       return () => ({getCollection() { return fakeCollection; }});
     }
-    if (request === '../sync/ilu-hooks') {
-      return async (context) => {
-        events.push(context);
+    if (request === './index' && parent && parent.filename === hooksModulePath) {
+      state.syncIndexLoadCount += 1;
+      return {
+        notifyLocalMutation: async (context) => {
+          events.push(context);
+        }
       };
     }
     return originalLoad.apply(this, arguments);
   };
 
-  try {
-    return require(modelModulePath);
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(modelModulePath)];
-  }
+  return {
+    Model: require(modelModulePath),
+    state,
+    restore() {
+      Module._load = originalLoad;
+      delete require.cache[require.resolve(modelModulePath)];
+      delete require.cache[require.resolve(hooksModulePath)];
+      delete require.cache[require.resolve(syncIndexModulePath)];
+    }
+  };
 }
 
-test('board model notifies sync after board persistence', async () => {
+test('board model routes persistence notifications through consumer hooks lazily', async () => {
   const events = [];
-  const Model = loadBoardModel(events);
+  const {Model, state, restore} = loadBoardModel(events);
 
-  Model.add({title: 'Board', description: ''});
-  Model.cards.add({title: 'Card'});
-  Model.cards.edit({columnIndex: 1, position: 1, values: {title: 'Card 2'}});
-  Model.cards.remove({columnIndex: 1, positions: [1]});
+  try {
+    assert.equal(state.syncIndexLoadCount, 0);
 
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(events.length >= 3, true);
-  assert.equal(events.every(event => event.domain === 'boards'), true);
+    Model.add({title: 'Board', description: ''});
+    Model.cards.add({title: 'Card'});
+    Model.cards.edit({columnIndex: 1, position: 1, values: {title: 'Card 2'}});
+    Model.cards.remove({columnIndex: 1, positions: [1]});
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(state.syncIndexLoadCount, 4);
+    assert.deepEqual(events, [
+      {domain: 'boards', action: 'use'},
+      {domain: 'boards', action: 'save'},
+      {domain: 'boards', action: 'save'},
+      {domain: 'boards', action: 'save'}
+    ]);
+  } finally {
+    restore();
+  }
 });

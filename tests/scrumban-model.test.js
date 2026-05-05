@@ -308,6 +308,86 @@ test('scrumban model moves cards forward and auto-pulls earlier columns while ca
   assert.deepEqual(current.columns[2].cards.map(card => card.title), ['One']);
 });
 
+test('scrumban model moveMany moves selected cards without auto-pulling unselected cards', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.cards.add({title: 'A', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'B', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'C', description: ''}, {columnIndex: 1});
+
+  Model.cards.moveMany({
+    cards: [
+      {fromColumn: 1, fromPosition: 1},
+      {fromColumn: 1, fromPosition: 3}
+    ],
+    toColumn: 3
+  });
+
+  const current = Model.getCurrent();
+
+  assert.deepEqual(current.columns.map(column => column.cards.map(card => card.title)), [
+    ['B'],
+    [],
+    ['A', 'C'],
+    []
+  ]);
+});
+
+test('scrumban model moveMany ignores duplicate selections for the same original card', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.cards.add({title: 'A', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'B', description: ''}, {columnIndex: 1});
+
+  Model.cards.moveMany({
+    cards: [
+      {fromColumn: 1, fromPosition: 1},
+      {fromColumn: 1, fromPosition: 1}
+    ],
+    toColumn: 2
+  });
+
+  const current = Model.getCurrent();
+
+  assert.deepEqual(current.columns.map(column => column.cards.map(card => card.title)), [
+    ['B'],
+    ['A'],
+    [],
+    []
+  ]);
+});
+
+test('scrumban model moveMany validates destination WIP before mutating', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.columns.edit(2, {wipLimit: 2});
+  Model.cards.add({title: 'A', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'B', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'Existing', description: ''}, {columnIndex: 2});
+
+  assert.throws(() => {
+    Model.cards.moveMany({
+      cards: [
+        {fromColumn: 1, fromPosition: 1},
+        {fromColumn: 1, fromPosition: 2}
+      ],
+      toColumn: 2
+    });
+  }, /wip/i);
+
+  const current = Model.getCurrent();
+
+  assert.deepEqual(current.columns.map(column => column.cards.map(card => card.title)), [
+    ['A', 'B'],
+    ['Existing'],
+    [],
+    []
+  ]);
+});
+
 test('scrumban model keeps auto-pull based on visual column order after reorder', () => {
   const {Model} = loadModel();
 

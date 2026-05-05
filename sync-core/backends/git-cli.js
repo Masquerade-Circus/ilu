@@ -1,0 +1,248 @@
+let fs = require('node:fs');
+let path = require('node:path');
+let {execFileSync} = require('node:child_process');
+let {classifyGitError} = require('../contracts');
+
+function normalizeIgnorePatterns(ignorePatterns = []) {
+    return ignorePatterns
+        .filter(entry => typeof entry === 'string')
+        .map(entry => entry.trim())
+        .filter(Boolean);
+}
+
+function normalizeRelativePath(value) {
+    return value.split(path.sep).join('/');
+}
+
+function createIgnoreMatcher(ignorePatterns = []) {
+    let normalizedPatterns = ignorePatterns
+        .filter(pattern => typeof pattern === 'string')
+        .map(pattern => normalizeRelativePath(pattern.trim()))
+        .filter(Boolean);
+
+    return function isIgnored(relativePath) {
+        let normalizedPath = normalizeRelativePath(relativePath);
+
+        return normalizedPatterns.some(pattern => {
+            if (pattern.endsWith('/**')) {
+                let prefix = pattern.slice(0, -3);
+                return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+            }
+
+            let escaped = pattern.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+            let regex = new RegExp(`^${escaped.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')}$`);
+            return regex.test(normalizedPath);
+        });
+    };
+}
+
+function collectFiles(rootPath, {isIgnored = () => false, includeGitFiles = false} = {}) {
+    let collected = [];
+
+    if (!rootPath || !fs.existsSync(rootPath)) {
+        return collected;
+    }
+
+    function walk(currentPath) {
+        let entries = fs.readdirSync(currentPath, {withFileTypes: true});
+
+        entries.forEach(entry => {
+            if (!includeGitFiles && entry.name === '.git') {
+                return;
+            }
+
+            let absolutePath = path.join(currentPath, entry.name);
+            let relativePath = normalizeRelativePath(path.relative(rootPath, absolutePath));
+
+            if (isIgnored(relativePath)) {
+                return;
+            }
+
+            if (entry.isDirectory()) {
+                walk(absolutePath);
+                return;
+            }
+
+            collected.push(relativePath);
+        });
+    }
+
+    walk(rootPath);
+    return collected;
+}
+
+function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remoteUrl = null, ignorePatterns = []} = {}) {
+    let normalizedIgnorePatterns = normalizeIgnorePatterns(ignorePatterns);
+
+    function getRuntimeIgnorePatterns(ignorePatterns = []) {
+        return normalizeIgnorePatterns([...normalizedIgnorePatterns, ...ignorePatterns]);
+    }
+
+    function ensureIgnoreFile() {
+        if (normalizedIgnorePatterns.length === 0) {
+            return;
+        }
+
+        let ignoreFile = path.join(repoPath, '.gitignore');
+        let lines = [];
+
+        if (fs.existsSync(ignoreFile)) {
+            lines = fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/).filter(Boolean);
+        }
+
+        normalizedIgnorePatterns.forEach(entry => {
+            if (!lines.includes(entry)) {
+                lines.push(entry);
+            }
+        });
+
+        fs.writeFileSync(ignoreFile, `${lines.join('\n')}\n`, 'utf8');
+    }
+
+    function run(args, options = {}) {
+        let cwd = repoPath && fs.existsSync(repoPath) ? repoPath : process.cwd();
+
+        return execFileSync('git', args, {
+            cwd,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: {
+                ...process.env,
+                PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+                GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'ilu sync',
+                GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'sync@ilu.local',
+                GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'ilu sync',
+                GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'sync@ilu.local'
+            },
+            ...options
+        }).trim();
+    }
+
+    function ensureDir(filePath) {
+        fs.mkdirSync(path.dirname(filePath), {recursive: true});
+    }
+
+    function isTracked(entry) {
+        try {
+            run(['ls-files', '--error-unmatch', '--', entry]);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    return {
+        ensureReady() {
+            if (!repoPath) {
+                throw new Error('Missing repo path');
+            }
+
+            fs.mkdirSync(repoPath, {recursive: true});
+
+            if (!fs.existsSync(path.join(repoPath, '.git'))) {
+                run(['init', '-b', branch]);
+            }
+
+            ensureIgnoreFile();
+
+            if (remoteUrl) {
+                let currentRemoteUrl = '';
+
+                try {
+                    currentRemoteUrl = run(['remote', 'get-url', remote]);
+                } catch (error) {
+                    currentRemoteUrl = '';
+                }
+
+                if (!currentRemoteUrl) {
+                    run(['remote', 'add', remote, remoteUrl]);
+                } else if (currentRemoteUrl !== remoteUrl) {
+                    run(['remote', 'set-url', remote, remoteUrl]);
+                }
+            }
+        },
+        syncWorkingTree({sourceRoot, ignorePatterns = []}) {
+            let isIgnored = createIgnoreMatcher(getRuntimeIgnorePatterns(ignorePatterns));
+            let sourceFiles = collectFiles(sourceRoot, {isIgnored});
+            let sourceRootPath = sourceRoot ? path.resolve(sourceRoot) : null;
+            let repoRootPath = repoPath ? path.resolve(repoPath) : null;
+
+            sourceFiles.forEach(entry => {
+                let sourceFile = path.join(sourceRoot, entry);
+                let targetFile = path.join(repoPath, entry);
+
+                ensureDir(targetFile);
+
+                if (sourceRootPath === repoRootPath && path.resolve(sourceFile) === path.resolve(targetFile)) {
+                    return;
+                }
+
+                fs.copyFileSync(sourceFile, targetFile);
+            });
+
+            collectFiles(repoPath, {isIgnored}).forEach(entry => {
+                if (entry === '.gitignore' || sourceFiles.includes(entry)) {
+                    return;
+                }
+
+                fs.rmSync(path.join(repoPath, entry), {force: true});
+            });
+        },
+        hasChanges() {
+            return run(['status', '--porcelain']).length > 0;
+        },
+        commit(message, {entries = []} = {}) {
+            let trackedEntries = entries.length > 0 ? entries : ['.'];
+
+            if (trackedEntries.length === 1 && trackedEntries[0] === '.') {
+                run(['add', '--all', '--', '.']);
+            } else {
+                trackedEntries.forEach(entry => {
+                    if (fs.existsSync(path.join(repoPath, entry)) || isTracked(entry)) {
+                        run(['add', '--all', '--', entry]);
+                    }
+                });
+            }
+
+            return run(['commit', '-m', message]);
+        },
+        fetch() {
+            return run(['fetch', remote]);
+        },
+        adoptRemote() {
+            return run(['checkout', '-B', branch, `${remote}/${branch}`]);
+        },
+        inspectBootstrap({sourceRoot, ignorePatterns = []} = {}) {
+            let isIgnored = createIgnoreMatcher(getRuntimeIgnorePatterns(ignorePatterns));
+            let localHasData = collectFiles(sourceRoot, {isIgnored}).length > 0;
+            let remoteHasHistory = false;
+
+            try {
+                remoteHasHistory = run(['ls-remote', '--heads', remoteUrl || remote]).length > 0;
+            } catch (error) {
+                throw classifyGitError(error).error;
+            }
+
+            return {localHasData, remoteHasHistory};
+        },
+        integrate() {
+            if (run(['ls-remote', '--heads', remote, branch]).length === 0) {
+                return '';
+            }
+
+            return run(['pull', '--rebase', remote, branch]);
+        },
+        push() {
+            return run(['push', remote, branch]);
+        },
+        getStatus() {
+            return run(['status', '--short', '--branch']);
+        },
+        classifyGitError
+    };
+}
+
+module.exports = {
+    createGitCliBackend,
+    classifyGitError
+};

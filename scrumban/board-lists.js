@@ -53,6 +53,16 @@ function getBoardChoiceName(item) {
     return item.current ? `${item.index} ${item.title} (current)` : `${item.index} ${item.title}`;
 }
 
+function filterChoices(choices, search) {
+    let normalizedSearch = String(search || '').trim().toLowerCase();
+
+    if (normalizedSearch.length === 0) {
+        return choices;
+    }
+
+    return choices.filter(choice => choice.name.toLowerCase().includes(normalizedSearch));
+}
+
 async function selectBoardIndex(message) {
     return selectOne(Model.find(), {
         message,
@@ -96,12 +106,16 @@ let BoardLists = {
         ]);
 
         let columns = parseInitialColumns(answers.columns);
+        let defaultColumnChoices = columns.map(column => ({name: column.title, value: column.id}));
         let defaultColumn = await inquirer.prompt([
             {
-                type: 'select',
+                type: 'search',
                 name: 'defaultColumnId',
                 message: 'Default column for new cards',
-                choices: columns.map(column => ({name: column.title, value: column.id})),
+                choices: defaultColumnChoices,
+                source(search) {
+                    return filterChoices(defaultColumnChoices, search);
+                },
                 default: columns[0].id
             }
         ]);

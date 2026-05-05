@@ -6,6 +6,7 @@ let {
     state,
     transition,
     entry,
+    exit,
     immediate,
     guard,
     invoke
@@ -81,28 +82,34 @@ function createSyncMachine(config = {}) {
                 backoffUntil: config.backoffUntil || null,
                 lastSyncReason: config.lastSyncReason || null,
                 lastPhase: config.lastPhase || null,
+                lastSnapshotId: config.lastSnapshotId || null,
+                lastSyncedSnapshotId: config.lastSyncedSnapshotId || null,
                 syncOutcome: null
             })
         ),
         state(
             'disabled',
-            transition('ENABLE', 'healthy', guard(isEnabled)),
+            transition('ENABLE', 'healthy', exit(ctx => {
+                ctx.enabled = true;
+            })),
             transition('CONFIG_BROKEN', 'misconfigured')
         ),
         state(
             'misconfigured',
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             })),
-            transition('ENABLE', 'healthy', guard(isEnabled))
+            transition('ENABLE', 'healthy', exit(ctx => {
+                ctx.enabled = true;
+            }))
         ),
         state(
             'healthy',
-            transition('LOCAL_PERSISTED', 'pending_remote', entry((ctx, payload = {}) => {
+            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx, payload = {}) => {
                 ctx.hasPendingRemote = true;
                 ctx.lastSyncReason = payload.action || null;
             })),
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             })),
             transition('CONFIG_BROKEN', 'misconfigured')
@@ -111,7 +118,7 @@ function createSyncMachine(config = {}) {
             'pending_remote',
             transition('SYNC_REQUESTED', 'syncing', guard(isEnabled)),
             transition('RETRY', 'syncing', guard(isEnabled)),
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             })),
             transition('CONFIG_BROKEN', 'misconfigured')
@@ -131,23 +138,23 @@ function createSyncMachine(config = {}) {
         state(
             'degraded_network',
             transition('RETRY', 'syncing', guard(hasPendingRemote)),
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             }))
         ),
         state(
             'degraded_auth',
             transition('RETRY', 'syncing', guard(hasPendingRemote)),
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             }))
         ),
         state(
             'conflict',
-            transition('CONFLICT_RESOLVED', 'pending_remote', entry(ctx => {
+            transition('CONFLICT_RESOLVED', 'pending_remote', exit(ctx => {
                 ctx.syncOutcome = null;
             })),
-            transition('DISABLE', 'disabled', entry(ctx => {
+            transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             }))
         )

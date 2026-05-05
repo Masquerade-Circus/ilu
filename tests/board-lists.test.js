@@ -227,7 +227,7 @@ test('board-list --add crea un board con set simple default aceptado rápidament
   assert.equal(promptCalls.length, 2);
   assert.equal(promptCalls[0][0].name, 'title');
   assert.equal(promptCalls[0][2].name, 'columns');
-  assert.equal(promptCalls[1][0].type, 'select');
+  assert.equal(promptCalls[1][0].type, 'search');
   assert.deepEqual(modelState.addCalls, [{
     title: 'Product',
     description: 'Delivery flow',
@@ -256,7 +256,7 @@ test('board-list --details usa selección interactiva como única vía', {concur
   await BoardLists.details();
 
   assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'select');
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.ok(logs.some(entry => /Product/.test(entry)));
   assert.ok(logs.some(entry => /Delivery/.test(entry)));
   assert.ok(logs.some(entry => /Backlog/.test(entry)));
@@ -277,7 +277,7 @@ test('board-list --edit usa selección interactiva como única vía', {concurren
   await BoardLists.edit();
 
   assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].type, 'select');
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.equal(promptCalls[1][0].name, 'title');
   assert.deepEqual(modelState.saveCalls, [
     {index: 2, title: 'Product 2', description: 'Updated'}
@@ -296,7 +296,7 @@ test('board-list --use usa selección interactiva como única vía', {concurrenc
   await BoardLists.use();
 
   assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'select');
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.deepEqual(modelState.useCalls, ['board-2']);
   assert.equal(modelState.boards[1].current, true);
 });

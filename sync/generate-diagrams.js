@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-let {generateSyncDiagrams} = require('./diagram');
+let {generateSyncDiagrams} = require('../sync-core/diagram');
 
 generateSyncDiagrams()
     .then(result => {

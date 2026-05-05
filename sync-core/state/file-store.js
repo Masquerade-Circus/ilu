@@ -1,0 +1,47 @@
+let fs = require('node:fs');
+let path = require('node:path');
+
+function createFileStateStore({defaultState, getStateFilePath, fileSystem = fs, pathModule = path} = {}) {
+    if (typeof defaultState !== 'function' || typeof getStateFilePath !== 'function') {
+        throw new Error('File state store requires defaultState and getStateFilePath');
+    }
+
+    function ensureStateDir() {
+        fileSystem.mkdirSync(pathModule.dirname(getStateFilePath()), {recursive: true});
+    }
+
+    function loadState() {
+        let file = getStateFilePath();
+
+        if (!fileSystem.existsSync(file)) {
+            return saveState(defaultState());
+        }
+
+        return {
+            ...defaultState(),
+            ...JSON.parse(fileSystem.readFileSync(file, 'utf8'))
+        };
+    }
+
+    function saveState(state) {
+        ensureStateDir();
+        let nextState = {
+            ...defaultState(),
+            ...state
+        };
+        fileSystem.writeFileSync(getStateFilePath(), JSON.stringify(nextState, null, 2), 'utf8');
+        return nextState;
+    }
+
+    return {
+        defaultState,
+        ensureStateDir,
+        getStateFilePath,
+        loadState,
+        saveState
+    };
+}
+
+module.exports = {
+    createFileStateStore
+};

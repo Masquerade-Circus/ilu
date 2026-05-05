@@ -163,6 +163,7 @@ Options:
 - `--add` — add a new saved clock
 - `--show` — show all saved clocks
 - `--remove [position]` — remove one clock by position, or remove all when no position is given
+- `--priority` — reorder saved clocks interactively
 
 Notes:
 

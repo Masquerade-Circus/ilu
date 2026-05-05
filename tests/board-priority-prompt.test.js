@@ -42,6 +42,37 @@ test('priority prompt reducer inicia sobre la columna completa y toma, mueve y s
   });
 });
 
+test('priority prompt reducer conserva el origen al navegar antes de arrastrar una card', () => {
+  delete require.cache[require.resolve(priorityPromptModulePath)];
+
+  const {createState, reducePriorityPrompt} = require(priorityPromptModulePath);
+  let state = createState({
+    columnTitle: 'Ready',
+    cards: [
+      {title: 'One', position: 1},
+      {title: 'Two', position: 2},
+      {title: 'Three', position: 3}
+    ]
+  });
+
+  state = reducePriorityPrompt(state, 'down');
+  state = reducePriorityPrompt(state, 'down');
+  state = reducePriorityPrompt(state, 'space');
+  state = reducePriorityPrompt(state, 'up');
+  state = reducePriorityPrompt(state, 'up');
+  state = reducePriorityPrompt(state, 'space');
+  state = reducePriorityPrompt(state, 'enter');
+
+  assert.equal(state.status, 'confirmed');
+  assert.equal(state.dragging, false);
+  assert.equal(state.cursorIndex, 0);
+  assert.deepEqual(state.cards.map(card => card.title), ['Three', 'One', 'Two']);
+  assert.deepEqual(state.pendingMove, {
+    fromPosition: 3,
+    toPosition: 1
+  });
+});
+
 test('priority prompt reducer solo confirma con enter cuando no está arrastrando', () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 

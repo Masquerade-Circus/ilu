@@ -6,17 +6,19 @@ const {execFileSync} = require('node:child_process');
 const {withTempHome} = require('../support/home-sandbox');
 
 const repoRoot = path.resolve(__dirname, '..');
+const coreEngineModulePath = path.join(repoRoot, 'sync-core', 'engine.js');
+const coreMachineModulePath = path.join(repoRoot, 'sync-core', 'machine.js');
 const createTempGitRemote = require('./test-helpers/create-temp-git-remote');
 
 function clearRuntimeCaches() {
   [
     path.join(repoRoot, 'sync', 'commands.js'),
     path.join(repoRoot, 'sync', 'index.js'),
-    path.join(repoRoot, 'sync', 'engine.js'),
     path.join(repoRoot, 'sync', 'ilu-adapter.js'),
     path.join(repoRoot, 'sync', 'state-store.js'),
     path.join(repoRoot, 'sync', 'git-cli-backend.js'),
-    path.join(repoRoot, 'sync', 'machine.js'),
+    path.join(repoRoot, 'sync-core', 'engine.js'),
+    path.join(repoRoot, 'sync-core', 'machine.js'),
     path.join(repoRoot, 'utils', 'local-paths.js'),
     path.join(repoRoot, 'utils', 'load-db.js'),
     path.join(repoRoot, 'utils', 'create-list-model.js'),
@@ -141,6 +143,7 @@ test('auto-sync after mutation pushes to local bare remote', async () => {
   await withTempHome(async () => {
     const TodosModel = loadFresh(path.join(repoRoot, 'todos', 'model.js'));
     const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.js'));
+    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.js'));
 
     await SyncCommands.init([], {remote: remote.remotePath});
     TodosModel.add({title: 'Inbox', description: ''});
@@ -148,9 +151,111 @@ test('auto-sync after mutation pushes to local bare remote', async () => {
     await new Promise(resolve => setTimeout(resolve, 250));
     const heads = git(['ls-remote', '--heads', remote.remotePath]);
     assert.match(heads, /main/);
+    assert.equal(syncIndex.getSyncStatus().status, 'healthy');
+    assert.equal(syncIndex.getSyncStatus().hasPendingRemote, false);
   }, {prefix: 'ilu-sync-home-'});
 
   remote.cleanup();
+});
+
+test('sync consumer createSyncRuntime() sin argumentos sigue funcionando después de bootstrap', async () => {
+  const remote = createTempGitRemote();
+
+  await withTempHome(async () => {
+    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.js'));
+    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.js'));
+
+    await SyncCommands.init([], {remote: remote.remotePath});
+
+    const runtime = syncIndex.createSyncRuntime();
+    const status = runtime.getSyncStatus();
+
+    assert.equal(typeof runtime.notifyLocalMutation, 'function');
+    assert.equal(status.status, 'healthy');
+  }, {prefix: 'ilu-sync-home-'});
+
+  remote.cleanup();
+});
+
+test('loadFresh clears extracted sync-core runtime modules before requiring sync consumer entrypoints', () => {
+  const poisonedCreateSyncRuntime = () => ({kind: 'poisoned'});
+  const originalCoreEngineEntry = require.cache[require.resolve(coreEngineModulePath)];
+  const originalCoreMachineEntry = require.cache[require.resolve(coreMachineModulePath)];
+
+  require.cache[require.resolve(coreEngineModulePath)] = {
+    id: coreEngineModulePath,
+    filename: coreEngineModulePath,
+    loaded: true,
+    exports: {
+      createSyncRuntime: poisonedCreateSyncRuntime
+    }
+  };
+
+  require.cache[require.resolve(coreMachineModulePath)] = {
+    id: coreMachineModulePath,
+    filename: coreMachineModulePath,
+    loaded: true,
+    exports: {
+      createSyncMachine() {
+        return {kind: 'poisoned-machine'};
+      },
+      invoke() {}
+    }
+  };
+
+  try {
+    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.js'));
+    const runtime = syncIndex.createSyncRuntimeAdvanced({
+      config: {
+        enabled: true,
+        remoteUrl: '/tmp/advanced-remote.git',
+        branch: 'main',
+        autoSync: false,
+        autoPull: false,
+        autoPush: false
+      },
+      sourceRoot: '/tmp/advanced-source',
+      stateStore: {
+        loadState() {
+          return {enabled: true, status: 'healthy'};
+        },
+        saveState(nextState) {
+          return nextState;
+        }
+      },
+      backend: {
+        ensureReady() {},
+        syncWorkingTree() {},
+        hasChanges() {
+          return false;
+        },
+        commit() {},
+        fetch() {},
+        integrate() {},
+        push() {},
+        getStatus() {
+          return '## main';
+        }
+      }
+    });
+
+    assert.notDeepEqual(runtime, {kind: 'poisoned'});
+    assert.equal(typeof runtime.getSyncStatus, 'function');
+  } finally {
+    if (originalCoreEngineEntry) {
+      require.cache[require.resolve(coreEngineModulePath)] = originalCoreEngineEntry;
+    } else {
+      delete require.cache[require.resolve(coreEngineModulePath)];
+    }
+
+    if (originalCoreMachineEntry) {
+      require.cache[require.resolve(coreMachineModulePath)] = originalCoreMachineEntry;
+    } else {
+      delete require.cache[require.resolve(coreMachineModulePath)];
+    }
+
+    clearRuntimeCaches();
+  }
 });
 
 test('remote unavailable does not remove local data', async () => {

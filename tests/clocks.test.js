@@ -13,16 +13,19 @@ if (inquirer.default) {
 
 const repoRoot = path.resolve(__dirname, '..');
 const clocksModulePath = path.join(repoRoot, 'clocks', 'clocks.js');
+const priorityPromptModulePath = path.join(repoRoot, 'clocks', 'priority-prompt.js');
 
-function loadClocksWithStubs({promptAnswers, savedClocks = [], events} = {}) {
+function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], events} = {}) {
   const originalLoad = Module._load;
   const logs = [];
   const promptCalls = [];
   const queuedAnswers = Array.isArray(promptAnswers) ? [...promptAnswers] : [promptAnswers];
+  const queuedPriorityMoves = Array.isArray(priorityMoves) ? [...priorityMoves] : [priorityMoves];
   const modelState = {
     clocks: savedClocks.map(clock => ({...clock})),
     addCalls: [],
-    removeCalls: []
+    removeCalls: [],
+    moveCalls: []
   };
 
   delete require.cache[require.resolve(clocksModulePath)];
@@ -104,7 +107,26 @@ function loadClocksWithStubs({promptAnswers, savedClocks = [], events} = {}) {
           }
 
           modelState.clocks = [];
+        },
+        move(move) {
+          modelState.moveCalls.push(move);
+          const [clock] = modelState.clocks.splice(move.fromPosition - 1, 1);
+          if (clock) {
+            modelState.clocks.splice(move.toPosition - 1, 0, clock);
+          }
         }
+      };
+    }
+
+    if (request === './priority-prompt') {
+      return async (options) => {
+        promptCalls.push([{type: 'clock-priority', ...options}]);
+
+        if (queuedPriorityMoves.length === 0) {
+          throw new Error('No priority moves left');
+        }
+
+        return queuedPriorityMoves.shift();
       };
     }
 
@@ -161,15 +183,16 @@ async function runPromptWithActualInquirer(type) {
   const output = new PassThrough();
   let rendered = '';
   let settleTimer;
+  let submitted = false;
 
   output.on('data', chunk => {
     rendered += chunk.toString('utf8');
-  });
-
-  output.once('data', () => {
-    setImmediate(() => {
-      input.write('\n');
-    });
+    if (!submitted && /America\/Mexico_City/.test(rendered)) {
+      submitted = true;
+      setImmediate(() => {
+        input.write('\n');
+      });
+    }
   });
 
   const prompt = inquirer.createPromptModule({
@@ -180,15 +203,25 @@ async function runPromptWithActualInquirer(type) {
   });
 
   const answerPromise = prompt([
-    {
-      type,
-      name: 'timezone',
-      message: 'Select a timezone',
-      choices: [
-        {name: 'America/Mexico_City', value: 'America/Mexico_City'},
-        {name: 'Europe/Madrid', value: 'Europe/Madrid'}
-      ]
-    }
+    type === 'search'
+      ? {
+          type,
+          name: 'timezone',
+          message: 'Select a timezone',
+          source: async () => [
+            {name: 'America/Mexico_City', value: 'America/Mexico_City'},
+            {name: 'Europe/Madrid', value: 'Europe/Madrid'}
+          ]
+        }
+      : {
+          type,
+          name: 'timezone',
+          message: 'Select a timezone',
+          choices: [
+            {name: 'America/Mexico_City', value: 'America/Mexico_City'},
+            {name: 'Europe/Madrid', value: 'Europe/Madrid'}
+          ]
+        }
   ]);
 
   const guardedAnswerPromise = Promise.race([
@@ -216,7 +249,6 @@ async function runPromptWithActualInquirer(type) {
 test('clock valida timezone con Intl antes de persistir', {concurrency: false}, async () => {
   const {Clocks, modelState} = loadClocksWithStubs({
     promptAnswers: [
-      {search: 'Mars'},
       {timezone: 'Mars/Olympus'},
       {name: 'Base'}
     ]
@@ -262,15 +294,15 @@ test('clock --show no limpia la terminal antes de renderizar los relojes', {conc
   assert.ok(logs.some(entry => /CDMX/.test(entry)));
 });
 
-test('clock --add usa un prompt soportado por el runtime actual de inquirer para seleccionar timezone', {concurrency: false}, async () => {
+test('clock --add usa búsqueda interactiva soportada por el runtime actual de inquirer y resuelve alias utc', {concurrency: false}, async () => {
   const promptModule = inquirer.createPromptModule();
-  const selectRuntime = await runPromptWithActualInquirer('select');
+  const searchRuntime = await runPromptWithActualInquirer('search');
 
   assert.equal('list' in promptModule.prompts, false);
-  assert.equal('select' in promptModule.prompts, true);
-  assert.equal(selectRuntime.answer.timezone, 'America/Mexico_City');
-  assert.match(selectRuntime.rendered, /America\/Mexico_City/);
-  assert.match(selectRuntime.rendered, /↑↓ navigate/u);
+  assert.equal('search' in promptModule.prompts, true);
+  assert.equal(searchRuntime.answer.timezone, 'America/Mexico_City');
+  assert.match(searchRuntime.rendered, /America\/Mexico_City/);
+  assert.match(searchRuntime.rendered, /↑↓ navigate/u);
 
   const originalSupportedValuesOf = Intl.supportedValuesOf;
   Intl.supportedValuesOf = () => [
@@ -282,28 +314,27 @@ test('clock --add usa un prompt soportado por el runtime actual de inquirer para
   try {
     const {Clocks, modelState, promptCalls} = loadClocksWithStubs({
       promptAnswers: [
-        {search: 'mex'},
-        {timezone: 'America/Mexico_City'},
+        {timezone: 'Etc/UTC'},
         {name: 'CDMX'}
       ]
     });
 
     await withIntlDateTimeFormatStub({
-      'America/Mexico_City': '10:15:20'
+      'Etc/UTC': '10:15:20'
     }, async () => {
       await Clocks.add();
     });
 
-    assert.equal(promptCalls.length, 3);
-    assert.equal(promptCalls[0][0].name, 'search');
-    assert.equal(promptCalls[1][0].type, 'select');
-    assert.equal(promptCalls[1][0].name, 'timezone');
+    assert.equal(promptCalls.length, 2);
+    assert.equal(promptCalls[0][0].type, 'search');
+    assert.equal(promptCalls[0][0].name, 'timezone');
+    const timezoneChoices = await promptCalls[0][0].source('utc');
     assert.deepEqual(
-      promptCalls[1][0].choices.map(choice => choice.value),
-      ['America/Mexico_City']
+      timezoneChoices.map(choice => choice.value),
+      ['Etc/UTC']
     );
-    assert.equal(promptCalls[2][0].name, 'name');
-    assert.deepEqual(modelState.addCalls, [{timezone: 'America/Mexico_City', name: 'CDMX'}]);
+    assert.equal(promptCalls[1][0].name, 'name');
+    assert.deepEqual(modelState.addCalls, [{timezone: 'Etc/UTC', name: 'CDMX'}]);
   } finally {
     Intl.supportedValuesOf = originalSupportedValuesOf;
   }
@@ -352,6 +383,101 @@ test('clock --remove por posición mantiene fast path', {concurrency: false}, ()
   assert.deepEqual(promptCalls, []);
   assert.deepEqual(modelState.removeCalls, [2]);
   assert.match(logs[0], /The clock "2" has been removed\./);
+});
+
+test('clock --priority reordena relojes guardados y show refleja el nuevo orden', {concurrency: false}, async () => {
+  const {Clocks, modelState, logs, promptCalls} = loadClocksWithStubs({
+    savedClocks: [
+      {name: 'CDMX', timezone: 'America/Mexico_City'},
+      {name: 'Madrid', timezone: 'Europe/Madrid'},
+      {name: 'UTC', timezone: 'Etc/UTC'}
+    ],
+    priorityMoves: [
+      {fromPosition: 3, toPosition: 1}
+    ]
+  });
+
+  await withIntlDateTimeFormatStub({
+    'America/Mexico_City': '10:15:20',
+    'Europe/Madrid': '17:15:20',
+    'Etc/UTC': '16:15:20'
+  }, async () => {
+    await Clocks.priority();
+  });
+
+  assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].type, 'clock-priority');
+  assert.deepEqual(
+    promptCalls[0][0].clocks.map(clock => clock.name),
+    ['CDMX', 'Madrid', 'UTC']
+  );
+  assert.deepEqual(modelState.moveCalls, [{fromPosition: 3, toPosition: 1}]);
+  assert.deepEqual(modelState.clocks.map(clock => clock.name), ['UTC', 'CDMX', 'Madrid']);
+  assert.deepEqual(logs, [
+    `1 ${'16:15:20'.cyan.bold} - ${'UTC'.white} ${'(Etc/UTC)'.gray}`,
+    `2 ${'10:15:20'.cyan.bold} - ${'CDMX'.white} ${'(America/Mexico_City)'.gray}`,
+    `3 ${'17:15:20'.cyan.bold} - ${'Madrid'.white} ${'(Europe/Madrid)'.gray}`
+  ]);
+});
+
+test('clock priority prompt devuelve el origen navegado antes de arrastrar', {concurrency: false}, () => {
+  const priorityPrompt = require(priorityPromptModulePath);
+  const clocks = [
+    {name: 'CDMX', timezone: 'America/Mexico_City'},
+    {name: 'Madrid', timezone: 'Europe/Madrid'},
+    {name: 'UTC', timezone: 'Etc/UTC'}
+  ];
+  let state = priorityPrompt.createState({clocks});
+
+  ['down', 'down', 'space', 'up', 'up', 'space', 'enter'].forEach(key => {
+    state = priorityPrompt.reducePriorityPrompt(state, key);
+  });
+
+  assert.deepEqual(state.clocks.map(clock => clock.name), ['UTC', 'CDMX', 'Madrid']);
+  assert.equal(state.status, 'confirmed');
+  assert.equal(state.dragging, false);
+  assert.deepEqual(state.pendingMove, {fromPosition: 3, toPosition: 1});
+});
+
+test('clock actions enruta opts.priority antes del show por defecto', {concurrency: false}, async () => {
+  const events = [];
+  const {Clocks, modelState} = loadClocksWithStubs({
+    events,
+    savedClocks: [
+      {name: 'CDMX', timezone: 'America/Mexico_City'},
+      {name: 'UTC', timezone: 'Etc/UTC'}
+    ],
+    priorityMoves: [
+      {fromPosition: 2, toPosition: 1}
+    ]
+  });
+
+  await Clocks.actions([], {priority: true});
+
+  assert.deepEqual(modelState.moveCalls, [{fromPosition: 2, toPosition: 1}]);
+  assert.deepEqual(events, ['log.pointerSmall', 'log.pointerSmall']);
+});
+
+test('clock --priority no intenta reordenar cuando hay menos de dos relojes', {concurrency: false}, async () => {
+  const {Clocks, modelState, logs, promptCalls} = loadClocksWithStubs({
+    savedClocks: [
+      {name: 'CDMX', timezone: 'America/Mexico_City'}
+    ],
+    priorityMoves: [
+      {fromPosition: 1, toPosition: 1}
+    ]
+  });
+
+  await withIntlDateTimeFormatStub({
+    'America/Mexico_City': '10:15:20'
+  }, async () => {
+    await Clocks.priority();
+  });
+
+  assert.deepEqual(promptCalls, []);
+  assert.deepEqual(modelState.moveCalls, []);
+  assert.match(logs[0], /at least two clocks/i);
+  assert.match(logs[1], /CDMX/);
 });
 
 test('clock show lista todos los relojes con hora antes del nombre y timezone', {concurrency: false}, async () => {

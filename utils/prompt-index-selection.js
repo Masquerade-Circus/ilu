@@ -18,6 +18,16 @@ function getChoices(items, getChoiceName) {
     }));
 }
 
+function filterChoices(choices, search) {
+    let normalizedSearch = String(search || '').trim().toLowerCase();
+
+    if (normalizedSearch.length === 0) {
+        return choices;
+    }
+
+    return choices.filter(choice => choice.name.toLowerCase().includes(normalizedSearch));
+}
+
 async function selectOne(items, {message, emptyMessage, getChoiceName}) {
     if (!ensureItems(items, emptyMessage)) {
         return;
@@ -25,10 +35,12 @@ async function selectOne(items, {message, emptyMessage, getChoiceName}) {
 
     let answers = await inquirer.prompt([
         {
-            type: 'select',
+            type: 'search',
             name: 'index',
             message,
-            choices: getChoices(items, getChoiceName)
+            source(search) {
+                return filterChoices(getChoices(items, getChoiceName), search);
+            }
         }
     ]);
 

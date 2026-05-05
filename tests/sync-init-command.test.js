@@ -67,17 +67,34 @@ function loadCommandsWithStubs(overrides = {}) {
             retry: async () => {},
             notifyLocalMutation: async () => {}
           };
-        }
-      };
-    }
-
-    if (request === './ilu-adapter') {
-      return overrides.adapter || {
-        getSourceRoot() {
-          return '/tmp/source';
         },
-        listTrackedEntries() {
-          return ['todos.json'];
+        createSyncRuntimeAdvanced(options) {
+          calls.push({kind: 'createSyncRuntimeAdvanced', options});
+          return {
+            getSyncStatus() {
+              return {status: 'healthy'};
+            },
+            retry: async () => {},
+            notifyLocalMutation: async () => {}
+          };
+        },
+        createBootstrapBackend({branch, remoteUrl}) {
+          return {
+            inspectBootstrap(args) {
+              calls.push({kind: 'inspectBootstrap', args, branch, remoteUrl});
+              return {localHasData: false, remoteHasHistory: false};
+            }
+          };
+        },
+        getBootstrapContext() {
+          return {
+            sourceRoot: '/tmp/source',
+            ignorePatterns: ['.config/**']
+          };
+        },
+        initializeSyncState(state) {
+          calls.push({kind: 'initializeSyncState', state});
+          return state;
         },
         getSyncConfig() {
           return {
@@ -92,30 +109,16 @@ function loadCommandsWithStubs(overrides = {}) {
       };
     }
 
+    if (request === './ilu-adapter') {
+      throw new Error('commands.js should not import ilu-adapter directly');
+    }
+
     if (request === './state-store') {
-      return overrides.stateStore || {
-        defaultState() {
-          return {enabled: false, status: 'disabled'};
-        },
-        loadState() {
-          return {status: 'disabled'};
-        },
-        saveState(state) {
-          calls.push(state);
-          return state;
-        }
-      };
+      throw new Error('commands.js should not import state-store directly');
     }
 
     if (request === './git-cli-backend') {
-      return overrides.gitBackend || {
-        createGitCliBackend() {
-          return {
-            ensureReady() {},
-            getStatus() { return ''; }
-          };
-        }
-      };
+      throw new Error('commands.js should not import git-cli-backend directly');
     }
 
     return originalLoad.apply(this, arguments);
@@ -150,16 +153,152 @@ test('sync init en este test no escribe config real en disco', async () => {
 
 test('sync init aborta si local y remoto ya tienen historia', async () => {
   const {commands} = loadCommandsWithStubs({
-    gitBackend: {
-      createGitCliBackend() {
+    syncIndex: {
+      createSyncRuntime() {
+        return {
+          getSyncStatus() {
+            return {status: 'healthy'};
+          },
+          retry: async () => {},
+          notifyLocalMutation: async () => {}
+        };
+      },
+      createBootstrapBackend() {
         return {
           inspectBootstrap() {
             return {localHasData: true, remoteHasHistory: true};
           }
+        };
+      },
+      getBootstrapContext() {
+        return {
+          sourceRoot: '/tmp/source',
+          ignorePatterns: ['.config/**']
+        };
+      },
+      initializeSyncState(state) {
+        return state;
+      },
+      getSyncConfig() {
+        return {
+          enabled: false,
+          remoteUrl: null,
+          branch: 'main',
+          autoSync: true,
+          autoPull: true,
+          autoPush: true
         };
       }
     }
   });
 
   await assert.rejects(() => commands.init([], {remote: '/tmp/remote.git'}), /avoid overwriting data/i);
+});
+
+test('sync init inspecciona bootstrap usando source root e ignore patterns del consumer', async () => {
+  let inspectArgs = null;
+
+  const {commands} = loadCommandsWithStubs({
+    syncIndex: {
+      createSyncRuntime() {
+        return {
+          getSyncStatus() {
+            return {status: 'healthy'};
+          },
+          retry: async () => {},
+          notifyLocalMutation: async () => {}
+        };
+      },
+      createBootstrapBackend() {
+        return {
+          inspectBootstrap(args) {
+            inspectArgs = args;
+            return {localHasData: false, remoteHasHistory: false};
+          }
+        };
+      },
+      getBootstrapContext() {
+        return {
+          sourceRoot: '/tmp/consumer-source',
+          ignorePatterns: ['.config/**', '.cache/**']
+        };
+      },
+      initializeSyncState(state) {
+        return state;
+      },
+      getSyncConfig() {
+        return {
+          enabled: false,
+          remoteUrl: null,
+          branch: 'main',
+          autoSync: true,
+          autoPull: true,
+          autoPush: true
+        };
+      }
+    }
+  });
+
+  await commands.init([], {remote: '/tmp/remote.git'});
+
+  assert.deepEqual(inspectArgs, {
+    sourceRoot: '/tmp/consumer-source',
+    ignorePatterns: ['.config/**', '.cache/**']
+  });
+});
+
+test('sync init usa runtime avanzado explícito para publicar datos locales iniciales', async () => {
+  const calls = [];
+
+  const {commands} = loadCommandsWithStubs({
+    syncIndex: {
+      createSyncRuntime() {
+        throw new Error('init should not use the default runtime path for bootstrap publishing');
+      },
+      createSyncRuntimeAdvanced(options) {
+        calls.push({kind: 'createSyncRuntimeAdvanced', options});
+        return {
+          async retry(context) {
+            calls.push({kind: 'retry', context});
+          },
+          getSyncStatus() {
+            return {status: 'healthy'};
+          }
+        };
+      },
+      createBootstrapBackend() {
+        return {
+          inspectBootstrap() {
+            return {localHasData: true, remoteHasHistory: false};
+          }
+        };
+      },
+      getBootstrapContext() {
+        return {
+          sourceRoot: '/tmp/consumer-source',
+          ignorePatterns: ['.config/**']
+        };
+      },
+      initializeSyncState(state) {
+        return state;
+      },
+      getSyncConfig() {
+        return {
+          enabled: false,
+          remoteUrl: null,
+          branch: 'main',
+          autoSync: true,
+          autoPull: true,
+          autoPush: true
+        };
+      }
+    }
+  });
+
+  await commands.init([], {remote: '/tmp/remote.git'});
+
+   assert.equal(calls[0]?.kind, 'createSyncRuntimeAdvanced');
+   assert.equal(calls[0].options.backend.inspectBootstrap().localHasData, true);
+   assert.equal(calls[0].options.config.remoteUrl, '/tmp/remote.git');
+   assert.deepEqual(calls[1], {kind: 'retry', context: {reason: 'init'}});
 });

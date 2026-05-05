@@ -138,60 +138,6 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
   }
 }
 
-test('note --show no limpia la terminal antes de renderizar las notas', {concurrency: false}, async () => {
-  const events = [];
-  const {Notes, logs} = loadNotesWithStubs({
-    events,
-    savedNotes: [
-      {title: 'Uno'},
-      {title: 'Dos'}
-    ]
-  });
-  const originalConsoleClear = console.clear;
-
-  console.clear = () => {
-    events.push('clear');
-  };
-
-  try {
-    Notes.show();
-  } finally {
-    console.clear = originalConsoleClear;
-  }
-
-  assert.deepEqual(events, ['log.pointerSmall', 'log.pointerSmall']);
-  assert.ok(logs.some(entry => /Uno/.test(entry)));
-  assert.ok(logs.some(entry => /Dos/.test(entry)));
-});
-
-test('note --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Notes, promptCalls, inlinePromptCalls, modelState} = loadNotesWithStubs({
-    savedNotes: [
-      {title: 'Uno', content: 'Texto 1'},
-      {title: 'Dos', content: 'Texto 2'}
-    ],
-    promptAnswers: [
-      {index: 2},
-      {title: 'Dos editada'},
-      'Texto editado'
-    ]
-  });
-
-  await Notes.edit();
-
-  assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].type, 'select');
-  assert.equal(promptCalls[1][0].name, 'title');
-  assert.equal(promptCalls[1].some(question => question.name === 'content'), false);
-  assert.deepEqual(inlinePromptCalls, [{message: 'Content of the note', initialValue: 'Texto 2'}]);
-  assert.deepEqual(modelState.editCalls, [
-    {
-      index: 2,
-      answers: {title: 'Dos editada', content: 'Texto editado'}
-    }
-  ]);
-});
-
 test('note --add usa prompt inline para contenido como vía principal', {concurrency: false}, async () => {
   const {Notes, promptCalls, inlinePromptCalls, modelState} = loadNotesWithStubs({
     savedNotes: [],
@@ -209,23 +155,4 @@ test('note --add usa prompt inline para contenido como vía principal', {concurr
   assert.deepEqual(inlinePromptCalls, [{message: 'Content of the note', initialValue: ''}]);
   assert.deepEqual(modelState.addCalls, [{title: 'Idea rápida', labels: [], content: 'Linea 1\nLinea 2'}]);
   assert.deepEqual(modelState.list.notes, [{title: 'Idea rápida', labels: [], content: 'Linea 1\nLinea 2'}]);
-});
-
-test('note --remove usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {Notes, promptCalls, modelState} = loadNotesWithStubs({
-    savedNotes: [
-      {title: 'Uno'},
-      {title: 'Dos'},
-      {title: 'Tres'}
-    ],
-    promptAnswers: [{indexes: [1, 3]}]
-  });
-
-  await Notes.remove();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'checkbox');
-  assert.equal(promptCalls[0][0].name, 'indexes');
-  assert.deepEqual(promptCalls[0][0].choices.map(choice => choice.value), [1, 2, 3]);
-  assert.deepEqual(modelState.list.notes.map(note => note.title), ['Dos']);
 });

@@ -123,6 +123,10 @@ test('configureProgram registra los comandos principales del CLI', () => {
   assert.equal(commands[0].alias, 't');
   assert.equal(commands[1].alias, 'n');
   assert.equal(commands[2].alias, 'bd');
+  assert.equal(
+    commands[2].options.find(option => option.flags === '-m, --move').description,
+    'Move selected cards interactively'
+  );
   assert.equal(commands[9].alias, 'b');
   assert.equal(commands[10].alias, 'c');
   assert.equal(commands[11].alias, undefined);
@@ -297,5 +301,33 @@ test('configureProgram normaliza aliases raros de board management y preserva pr
     {args: [], opts: {addBoard: true}},
     {args: [], opts: {editBoard: true}},
     {args: [], opts: {removeBoard: true}}
+  ]);
+});
+
+test('configureProgram registra clock --priority y -p', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const clockCalls = [];
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {Board: {actions: async () => {}}, BoardLists: {actions: async () => {}}},
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async (args, opts) => clockCalls.push({args, opts})},
+    Tts: {action: async () => {}, voiceAction: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'clock', '--priority']);
+  await program.parseAsync(['node', 'ilu', 'clock', '-p']);
+
+  assert.deepEqual(clockCalls, [
+    {args: [], opts: {priority: true}},
+    {args: [], opts: {priority: true}}
   ]);
 });

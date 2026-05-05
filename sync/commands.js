@@ -1,10 +1,7 @@
 let fs = require('node:fs');
 let localPaths = require('../utils/local-paths');
 let configStore = require('../utils/config-store');
-let {createSyncRuntime} = require('./index');
-let adapter = require('./ilu-adapter');
-let stateStore = require('./state-store');
-let {createGitCliBackend} = require('./git-cli-backend');
+let sync = require('./index');
 
 function ensureSyncDir() {
     fs.mkdirSync(localPaths.syncDirPath(), {recursive: true});
@@ -22,18 +19,11 @@ async function init(args, options = {}) {
         throw new Error('A remote URL is required for sync init');
     }
 
-    let backend = createGitCliBackend({
-        repoPath: adapter.getSourceRoot(),
-        branch,
-        remote: 'origin',
-        remoteUrl
-    });
+    let backend = sync.createBootstrapBackend({branch, remoteUrl});
+    let bootstrapContext = sync.getBootstrapContext();
 
     let bootstrap = typeof backend.inspectBootstrap === 'function'
-        ? backend.inspectBootstrap({
-            sourceRoot: adapter.getSourceRoot(),
-            entries: adapter.listTrackedEntries()
-        })
+        ? backend.inspectBootstrap(bootstrapContext)
         : {localHasData: false, remoteHasHistory: false};
 
     if (bootstrap.localHasData && bootstrap.remoteHasHistory) {
@@ -51,8 +41,7 @@ async function init(args, options = {}) {
         }
     });
 
-    let nextState = stateStore.saveState({
-        ...stateStore.defaultState(),
+    let nextState = sync.initializeSyncState({
         enabled: true,
         status: bootstrap.localHasData || bootstrap.remoteHasHistory ? 'pending_remote' : 'healthy'
     });
@@ -61,11 +50,22 @@ async function init(args, options = {}) {
         backend.ensureReady();
         backend.fetch();
         backend.adoptRemote();
-        nextState = stateStore.saveState({...nextState, status: 'healthy', hasPendingRemote: false});
+        nextState = sync.initializeSyncState({...nextState, status: 'healthy', hasPendingRemote: false});
     }
 
     if (bootstrap.localHasData && !bootstrap.remoteHasHistory) {
-        let runtime = createSyncRuntime({backend});
+        let bootstrapConfig = sync.getSyncConfig();
+        let runtime = sync.createSyncRuntimeAdvanced({
+            config: {
+                ...bootstrapConfig,
+                enabled: true,
+                remoteUrl,
+                branch
+            },
+            sourceRoot: bootstrapContext.sourceRoot,
+            ignorePatterns: bootstrapContext.ignorePatterns,
+            backend
+        });
         await runtime.retry({reason: 'init'});
     }
 
@@ -73,7 +73,7 @@ async function init(args, options = {}) {
 }
 
 async function status() {
-    let currentStatus = createSyncRuntime().getSyncStatus();
+    let currentStatus = sync.createSyncRuntime().getSyncStatus();
     console.log(`Sync: ${currentStatus.status}`);
     if (currentStatus.hasPendingRemote) {
         console.log('Pending remote sync: yes');
@@ -85,15 +85,15 @@ async function status() {
 }
 
 async function retry() {
-    let runtime = createSyncRuntime();
+    let runtime = sync.createSyncRuntime();
     await runtime.retry({reason: 'manual'});
     return runtime.getSyncStatus();
 }
 
 async function enable() {
-    let config = adapter.getSyncConfig();
+    let config = sync.getSyncConfig();
     saveConfig({sync: {...config, enabled: true}});
-    let runtime = createSyncRuntime();
+    let runtime = sync.createSyncRuntime();
     if (typeof runtime.enable === 'function') {
         await runtime.enable();
     }
@@ -101,15 +101,13 @@ async function enable() {
 }
 
 async function disable() {
-    let config = adapter.getSyncConfig();
+    let config = sync.getSyncConfig();
     saveConfig({sync: {...config, enabled: false}});
-    let runtime = createSyncRuntime();
+    let runtime = sync.createSyncRuntime();
     if (typeof runtime.disable === 'function') {
         await runtime.disable();
-        return runtime.getSyncStatus();
     }
-    let next = stateStore.saveState({...stateStore.loadState(), enabled: false, status: 'disabled'});
-    return next;
+    return runtime.getSyncStatus();
 }
 
 module.exports = {

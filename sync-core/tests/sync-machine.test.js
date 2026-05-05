@@ -4,8 +4,8 @@ const path = require('node:path');
 
 const {invoke} = require('x-robot');
 
-const repoRoot = path.resolve(__dirname, '..');
-const machineModulePath = path.join(repoRoot, 'sync', 'machine.js');
+const repoRoot = path.resolve(__dirname, '..', '..');
+const machineModulePath = path.join(repoRoot, 'sync-core', 'machine.js');
 
 function createMachine(context = {}) {
   delete require.cache[require.resolve(machineModulePath)];
@@ -21,8 +21,10 @@ test('sync machine starts in disabled by default', () => {
 test('sync machine transitions healthy -> pending_remote -> syncing -> healthy', async () => {
   const machine = createMachine({enabled: true, status: 'healthy'});
 
-  invoke(machine, 'LOCAL_PERSISTED', {domain: 'todos', action: 'save'});
+  await invoke(machine, 'LOCAL_PERSISTED', {domain: 'todos', action: 'save'});
   assert.equal(machine.current, 'pending_remote');
+  assert.equal(machine.context.hasPendingRemote, true);
+  assert.equal(machine.context.lastSyncReason, 'save');
 
   await invoke(machine, 'SYNC_REQUESTED', {runSyncPipeline: async () => {}});
   assert.equal(machine.current, 'healthy');
@@ -42,13 +44,14 @@ test('sync machine transitions syncing failures to degraded states', async () =>
   assert.equal(conflictMachine.current, 'conflict');
 });
 
-test('sync machine can disable and re-enable with configured context', () => {
+test('sync machine can disable and re-enable with configured context', async () => {
   const machine = createMachine({enabled: true, status: 'healthy'});
 
-  invoke(machine, 'DISABLE');
+  await invoke(machine, 'DISABLE');
   assert.equal(machine.current, 'disabled');
+  assert.equal(machine.context.enabled, false);
 
-  invoke(machine, 'ENABLE');
+  await invoke(machine, 'ENABLE');
   assert.equal(machine.current, 'healthy');
 });
 

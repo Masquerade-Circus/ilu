@@ -22,17 +22,12 @@ function loadAdapterWithHome(tempHome) {
   };
 }
 
-test('ilu adapter resolves source root and tracked entries under ~/.ilu', () => {
+test('ilu adapter resolves source root and ignore patterns under ~/.ilu', () => {
   return withTempHome(tempHome => {
     const {adapter, restore} = loadAdapterWithHome(tempHome);
     try {
       assert.equal(adapter.getSourceRoot(), path.join(tempHome, '.ilu'));
-      assert.deepEqual(adapter.listTrackedEntries(), [
-        'todos.json',
-        'notes.json',
-        'boards.json',
-        'clocks.json'
-      ]);
+      assert.deepEqual(adapter.getIgnorePatterns(), ['.config/**']);
     } finally {
       restore();
     }
@@ -56,6 +51,26 @@ test('ilu adapter exposes normalized sync config and commit message builder', ()
       restore();
     }
   }, {prefix: 'ilu-sync-adapter-config-'});
+});
+
+test('ilu adapter expone solo el contrato vigente del consumer', () => {
+  return withTempHome(tempHome => {
+    const {adapter, restore} = loadAdapterWithHome(tempHome);
+    try {
+      assert.equal(typeof adapter.getSourceRoot, 'function');
+      assert.equal(typeof adapter.getIgnorePatterns, 'function');
+      assert.equal(typeof adapter.getSyncConfig, 'function');
+      assert.equal(typeof adapter.buildCommitMessage, 'function');
+      assert.equal('backend' in adapter, false);
+      assert.equal('stateStore' in adapter, false);
+      assert.equal('logger' in adapter, false);
+      assert.equal('now' in adapter, false);
+      assert.equal('listTrackedEntries' in adapter, false);
+      assert.equal('getStateStore' in adapter, false);
+    } finally {
+      restore();
+    }
+  }, {prefix: 'ilu-sync-adapter-surface-'});
 });
 
 test('ilu adapter ignora compatibilidad legacy y solo lee sync-config.json en .config', () => {

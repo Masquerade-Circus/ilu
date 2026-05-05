@@ -1,13 +1,12 @@
 const readline = require('node:readline');
 
-function cloneCards(cards = []) {
-  return cards.map(card => ({...card}));
+function cloneClocks(clocks = []) {
+  return clocks.map(clock => ({...clock}));
 }
 
-function createState({columnTitle, cards, selectedPosition}) {
+function createState({clocks, selectedPosition}) {
   return {
-    columnTitle,
-    cards: cloneCards(cards),
+    clocks: cloneClocks(clocks),
     cursorIndex: Math.max(0, (selectedPosition || 1) - 1),
     originalIndex: Math.max(0, (selectedPosition || 1) - 1),
     dragging: false,
@@ -16,12 +15,12 @@ function createState({columnTitle, cards, selectedPosition}) {
   };
 }
 
-function swapCards(cards, leftIndex, rightIndex) {
-  const nextCards = cloneCards(cards);
-  const temporary = nextCards[leftIndex];
-  nextCards[leftIndex] = nextCards[rightIndex];
-  nextCards[rightIndex] = temporary;
-  return nextCards;
+function swapClocks(clocks, leftIndex, rightIndex) {
+  const nextClocks = cloneClocks(clocks);
+  const temporary = nextClocks[leftIndex];
+  nextClocks[leftIndex] = nextClocks[rightIndex];
+  nextClocks[rightIndex] = temporary;
+  return nextClocks;
 }
 
 function updatePendingMove(state) {
@@ -67,7 +66,7 @@ function reducePriorityPrompt(state, key) {
   const delta = key === 'up' ? -1 : 1;
   const nextCursorIndex = state.cursorIndex + delta;
 
-  if (nextCursorIndex < 0 || nextCursorIndex >= state.cards.length) {
+  if (nextCursorIndex < 0 || nextCursorIndex >= state.clocks.length) {
     return state;
   }
 
@@ -75,11 +74,9 @@ function reducePriorityPrompt(state, key) {
     return {...state, cursorIndex: nextCursorIndex};
   }
 
-  const cards = swapCards(state.cards, state.cursorIndex, nextCursorIndex);
-
   return {
     ...state,
-    cards,
+    clocks: swapClocks(state.clocks, state.cursorIndex, nextCursorIndex),
     cursorIndex: nextCursorIndex,
     pendingMove: {
       fromPosition: state.originalIndex + 1,
@@ -88,7 +85,7 @@ function reducePriorityPrompt(state, key) {
   };
 }
 
-function getCardPrefix(state, index) {
+function getClockPrefix(state, index) {
   const isCursor = state.cursorIndex === index;
   const isDragging = state.dragging && isCursor;
 
@@ -109,10 +106,10 @@ function render(state) {
     : 'Space toma/suelta · ↑/↓ navega o reordena · Enter confirma · Esc cancela';
 
   return [
-    `Reorder card priority in ${state.columnTitle}`,
+    'Reorder clock priority',
     instructions,
     '',
-    ...state.cards.map((card, index) => `${getCardPrefix(state, index)} ${index + 1}. ${card.title}`)
+    ...state.clocks.map((clock, index) => `${getClockPrefix(state, index)} ${index + 1}. ${clock.name} (${clock.timezone})`)
   ].join('\n');
 }
 
@@ -136,11 +133,7 @@ function mapKey(_, key = {}) {
     return 'escape';
   }
 
-  if (key.name === 'space') {
-    return 'space';
-  }
-
-  if (sequence === ' ') {
+  if (key.name === 'space' || sequence === ' ') {
     return 'space';
   }
 
@@ -155,13 +148,13 @@ function mapKey(_, key = {}) {
   return null;
 }
 
-async function promptBoardPriority({columnTitle, cards, selectedPosition, input = process.stdin, output = process.stdout} = {}) {
+async function promptClockPriority({clocks, input = process.stdin, output = process.stdout} = {}) {
   if (!input || !input.isTTY) {
     failInteractivePrompt('This command requires an interactive terminal (TTY). Piped or non-interactive stdin is not supported.');
   }
 
   return new Promise(resolve => {
-    let state = createState({columnTitle, cards, selectedPosition});
+    let state = createState({clocks});
     const wasRaw = typeof input.isRaw === 'boolean' ? input.isRaw : false;
 
     function cleanup() {
@@ -233,7 +226,7 @@ async function promptBoardPriority({columnTitle, cards, selectedPosition, input 
   });
 }
 
-module.exports = Object.assign(promptBoardPriority, {
+module.exports = Object.assign(promptClockPriority, {
   createState,
   reducePriorityPrompt,
   render

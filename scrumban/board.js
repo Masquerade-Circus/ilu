@@ -34,6 +34,16 @@ function getCards(board) {
     return cards;
 }
 
+function filterChoices(choices, search) {
+    let normalizedSearch = String(search || '').trim().toLowerCase();
+
+    if (normalizedSearch.length === 0) {
+        return choices;
+    }
+
+    return choices.filter(choice => choice.name.toLowerCase().includes(normalizedSearch));
+}
+
 async function selectCard(message, multiple = false) {
     let board = getCurrentBoard();
     let cards = getCards(board);
@@ -46,10 +56,13 @@ async function selectCard(message, multiple = false) {
 
     let answers = await inquirer.prompt([
         {
-            type: multiple ? 'checkbox' : 'select',
+            type: multiple ? 'checkbox' : 'search',
             name: multiple ? 'cardKeys' : 'cardKey',
             message,
-            choices: cards,
+            choices: multiple ? cards : undefined,
+            source: multiple ? undefined : function source(search) {
+                return filterChoices(cards, search);
+            },
             validate(value) {
                 if (!multiple) {
                     return true;
@@ -76,12 +89,16 @@ function getCardByKey(cardKey) {
 }
 
 async function selectColumn(message, columns) {
+    let choices = columns.map(column => ({name: column.title, value: column.index}));
     let answers = await inquirer.prompt([
         {
-            type: 'select',
+            type: 'search',
             name: 'columnIndex',
             message,
-            choices: columns.map(column => ({name: column.title, value: column.index}))
+            choices,
+            source(search) {
+                return filterChoices(choices, search);
+            }
         }
     ]);
 
@@ -89,17 +106,21 @@ async function selectColumn(message, columns) {
 }
 
 async function selectColumnsTarget(columns) {
+    let choices = [
+        ...columns.map(column => ({name: column.title, value: `column:${column.index}`})),
+        {name: '+ Add column', value: 'add-column'},
+        {name: '↺ Reset to simple default', value: 'reset-simple-default'},
+        {name: 'Cancel', value: 'cancel'}
+    ];
     let answers = await inquirer.prompt([
         {
-            type: 'select',
+            type: 'search',
             name: 'selection',
             message: 'Select a column to manage',
-            choices: [
-                ...columns.map(column => ({name: column.title, value: `column:${column.index}`})),
-                {name: '+ Add column', value: 'add-column'},
-                {name: '↺ Reset to simple default', value: 'reset-simple-default'},
-                {name: 'Cancel', value: 'cancel'}
-            ]
+            choices,
+            source(search) {
+                return filterChoices(choices, search);
+            }
         }
     ]);
 
@@ -176,6 +197,29 @@ function isWipLimitReachedError(error) {
     return error && /WIP limit/i.test(error.message || '');
 }
 
+function sortCardMoves(cardKeys) {
+    return cardKeys
+        .map(parseCardKey)
+        .sort((left, right) => {
+            if (left.columnIndex !== right.columnIndex) {
+                return left.columnIndex - right.columnIndex;
+            }
+
+            return left.position - right.position;
+        });
+}
+
+function canMoveAllCardsToColumn(board, moves, targetColumnIndex) {
+    let targetColumn = board.columns[targetColumnIndex - 1];
+
+    if (!targetColumn || !targetColumn.wipLimit) {
+        return true;
+    }
+
+    let incomingCards = moves.filter(move => move.columnIndex !== targetColumnIndex).length;
+    return targetColumn.cards.length + incomingCards <= targetColumn.wipLimit;
+}
+
 let Board = {
     getCurrent: getCurrentBoard,
     async add() {
@@ -216,24 +260,36 @@ let Board = {
     },
     async move() {
         let board = getCurrentBoard();
-        let cardKey = await selectCard('Select a card to move.');
-        let {columnIndex, position} = parseCardKey(cardKey);
+        let cardKeys = await selectCard('Select cards to move.', true);
+        let columnChoices = board.columns.map((column, index) => ({name: column.title, value: index + 1}));
         let answers = await inquirer.prompt([
             {
-                type: 'select',
+                type: 'search',
                 name: 'columnIndex',
                 message: 'Select the destination column',
-                choices: board.columns.map((column, index) => ({name: column.title, value: index + 1}))
+                choices: columnChoices,
+                source(search) {
+                    return filterChoices(columnChoices, search);
+                }
             }
         ]);
 
         let targetColumn = board.columns[answers.columnIndex - 1];
+        let moves = sortCardMoves(cardKeys);
+
+        if (!canMoveAllCardsToColumn(board, moves, answers.columnIndex)) {
+            log.info('Cannot move these cards because the destination column would exceed its WIP limit.'.blue, 'blue');
+            await Board.showWithActions();
+            return;
+        }
+
         try {
-            Model.cards.move({
-                fromColumn: columnIndex,
-                fromPosition: position,
-                toColumn: answers.columnIndex,
-                toPosition: targetColumn.cards.length + 1
+            Model.cards.moveMany({
+                cards: moves.map(move => ({
+                    fromColumn: move.columnIndex,
+                    fromPosition: move.position
+                })),
+                toColumn: answers.columnIndex
             });
         } catch (error) {
             if (!isWipLimitReachedError(error)) {

@@ -110,6 +110,9 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
               return moveImpl(payload, modelState);
             }
             modelState.moveCalls.push(payload);
+          },
+          moveMany(payload) {
+            modelState.moveCalls.push(payload);
           }
         },
         columns: {
@@ -184,7 +187,7 @@ test('board --add creates a card in the default column', {concurrency: false}, a
   ]);
 });
 
-test('board --move uses prompt-first selection for card and destination column', {concurrency: false}, async () => {
+test('board --move uses multi-select for one card and destination column search', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     board: createBoardState({
       columns: [
@@ -195,7 +198,7 @@ test('board --move uses prompt-first selection for card and destination column',
       ]
     }),
     promptAnswers: [
-      {cardKey: '1:1'},
+      {cardKeys: ['1:1']},
       {columnIndex: 3}
     ]
   });
@@ -203,14 +206,123 @@ test('board --move uses prompt-first selection for card and destination column',
   await Board.move();
 
   assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].name, 'cardKey');
+  assert.equal(promptCalls[0][0].type, 'checkbox');
+  assert.equal(promptCalls[0][0].name, 'cardKeys');
+  assert.equal(promptCalls[1][0].type, 'search');
   assert.equal(promptCalls[1][0].name, 'columnIndex');
   assert.deepEqual(modelState.moveCalls, [
-    {fromColumn: 1, fromPosition: 1, toColumn: 3, toPosition: 1}
+    {cards: [{fromColumn: 1, fromPosition: 1}], toColumn: 3}
   ]);
 });
 
-test('board --move shows a clear message when destination column already reached its WIP limit', {concurrency: false}, async () => {
+test('board --move can move several selected cards to the destination column', {concurrency: false}, async () => {
+  const {Board, modelState} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {title: 'Backlog', wipLimit: null, cards: [{title: 'One', description: '', position: 1}]},
+        {title: 'Ready', wipLimit: null, cards: [{title: 'Two', description: '', position: 1}]},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {cardKeys: ['1:1', '2:1']},
+      {columnIndex: 3}
+    ]
+  });
+
+  await Board.move();
+
+  assert.deepEqual(modelState.moveCalls, [
+    {cards: [{fromColumn: 1, fromPosition: 1}, {fromColumn: 2, fromPosition: 1}], toColumn: 3}
+  ]);
+});
+
+test('board --move sends several cards from the same column in visual order', {concurrency: false}, async () => {
+  const {Board, modelState} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {
+          title: 'Backlog',
+          wipLimit: null,
+          cards: [
+            {title: 'One', description: '', position: 1},
+            {title: 'Two', description: '', position: 2},
+            {title: 'Three', description: '', position: 3}
+          ]
+        },
+        {title: 'Ready', wipLimit: null, cards: []},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {cardKeys: ['1:1', '1:3']},
+      {columnIndex: 2}
+    ]
+  });
+
+  await Board.move();
+
+  assert.deepEqual(modelState.moveCalls, [
+    {cards: [{fromColumn: 1, fromPosition: 1}, {fromColumn: 1, fromPosition: 3}], toColumn: 2}
+  ]);
+});
+
+test('board --move delegates one batch move when individual moves would auto-pull unselected cards', {concurrency: false}, async () => {
+  const {Board, modelState} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {
+          title: 'Backlog',
+          wipLimit: null,
+          cards: [
+            {title: 'A', description: '', position: 1},
+            {title: 'B', description: '', position: 2},
+            {title: 'C', description: '', position: 3}
+          ]
+        },
+        {title: 'Ready', wipLimit: null, cards: []},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {cardKeys: ['1:1', '1:3']},
+      {columnIndex: 3}
+    ]
+  });
+
+  await Board.move();
+
+  assert.deepEqual(modelState.moveCalls, [
+    {cards: [{fromColumn: 1, fromPosition: 1}, {fromColumn: 1, fromPosition: 3}], toColumn: 3}
+  ]);
+});
+
+test('board --move does not move any selected cards when destination WIP cannot fit all incoming cards', {concurrency: false}, async () => {
+  const {Board, logs, modelState} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {title: 'Backlog', wipLimit: null, cards: [{title: 'One', description: '', position: 1}, {title: 'Two', description: '', position: 2}]},
+        {title: 'Ready', wipLimit: 2, cards: [{title: 'Existing', description: '', position: 1}]},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [
+      {cardKeys: ['1:1', '1:2']},
+      {columnIndex: 2}
+    ]
+  });
+
+  await Board.move();
+
+  assert.deepEqual(modelState.moveCalls, []);
+  assert.ok(logs.some(entry => /WIP limit|cannot move/i.test(entry)));
+});
+
+test('board --move prevalidates WIP and shows a clear message when destination column already reached its WIP limit', {concurrency: false}, async () => {
   const {Board, logs, promptCalls, modelState} = loadBoardWithStubs({
     board: createBoardState({
       columns: [
@@ -221,22 +333,43 @@ test('board --move shows a clear message when destination column already reached
       ]
     }),
     promptAnswers: [
-      {cardKey: '1:1'},
+      {cardKeys: ['1:1']},
       {columnIndex: 2}
-    ],
-    moveImpl(payload, state) {
-      state.moveCalls.push(payload);
-      throw new Error('Cannot move a card into a column that is already at its WIP limit');
-    }
+    ]
   });
 
   await assert.doesNotReject(() => Board.move());
 
   assert.equal(promptCalls.length, 2);
-  assert.deepEqual(modelState.moveCalls, [
-    {fromColumn: 1, fromPosition: 1, toColumn: 2, toPosition: 2}
+  assert.deepEqual(modelState.moveCalls, []);
+  assert.ok(logs.some(entry => /WIP limit|l[ií]mite WIP/i.test(entry)));
+});
+
+test('board --details uses a searchable card selector', {concurrency: false}, async () => {
+  const {Board, promptCalls} = loadBoardWithStubs({
+    board: createBoardState({
+      columns: [
+        {title: 'Backlog', wipLimit: null, cards: [{title: 'Write docs', description: '', position: 1}]},
+        {title: 'Ready', wipLimit: null, cards: [{title: 'Fix Login', description: '', position: 1}]},
+        {title: 'In Progress', wipLimit: null, cards: []},
+        {title: 'Done', wipLimit: null, cards: []}
+      ]
+    }),
+    promptAnswers: [{cardKey: '2:1'}]
+  });
+
+  await Board.details();
+
+  assert.equal(promptCalls[0][0].type, 'search');
+  assert.deepEqual(promptCalls[0][0].source('login'), [
+    {
+      name: '[Ready] 1 Fix Login',
+      value: '2:1',
+      columnIndex: 2,
+      position: 1,
+      card: {title: 'Fix Login', description: '', position: 1}
+    }
   ]);
-  assert.ok(logs.some(entry => /reached its WIP limit|l[ií]mite WIP/i.test(entry)));
 });
 
 test('board --priority selecciona columna primero y reordena dentro de esa misma columna usando prompt custom', {concurrency: false}, async () => {
@@ -267,6 +400,7 @@ test('board --priority selecciona columna primero y reordena dentro de esa misma
   await Board.priority();
 
   assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.equal(promptCalls[0][0].name, 'columnIndex');
   assert.equal(priorityPromptCalls.length, 1);
   assert.deepEqual(priorityPromptCalls[0], {
@@ -305,6 +439,7 @@ test('board --priority no abre reorder cuando la columna elegida tiene menos de 
   await Board.priority();
 
   assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.equal(promptCalls[0][0].name, 'columnIndex');
   assert.equal(priorityPromptCalls.length, 0);
   assert.deepEqual(modelState.moveCalls, []);
@@ -321,6 +456,7 @@ test('board --columns empieza seleccionando columna y acciones globales especial
   await Board.columns();
 
   assert.equal(promptCalls.length, 1);
+  assert.equal(promptCalls[0][0].type, 'search');
   assert.equal(promptCalls[0][0].name, 'selection');
   assert.deepEqual(
     promptCalls[0][0].choices.map(choice => ({name: choice.name, value: choice.value})),

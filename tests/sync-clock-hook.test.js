@@ -5,14 +5,22 @@ const Module = require('node:module');
 
 const repoRoot = path.resolve(__dirname, '..');
 const modelModulePath = path.join(repoRoot, 'clocks', 'model.js');
+const hooksModulePath = path.join(repoRoot, 'sync', 'ilu-hooks.js');
+const syncIndexModulePath = path.join(repoRoot, 'sync', 'index.js');
 
 function loadClocksModel(events) {
   const originalLoad = Module._load;
   let content = [];
+  const state = {syncIndexLoadCount: 0};
 
   delete require.cache[require.resolve(modelModulePath)];
+  delete require.cache[require.resolve(hooksModulePath)];
+  delete require.cache[require.resolve(syncIndexModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
+    if (/sync-core/.test(request)) {
+      throw new Error(`Unexpected sync-core import: ${request}`);
+    }
     if (request === 'node:fs') {
       return {
         mkdirSync() {},
@@ -23,9 +31,12 @@ function loadClocksModel(events) {
         }
       };
     }
-    if (request === '../sync/ilu-hooks') {
-      return async (context) => {
-        events.push(context);
+    if (request === './index' && parent && parent.filename === hooksModulePath) {
+      state.syncIndexLoadCount += 1;
+      return {
+        notifyLocalMutation: async (context) => {
+          events.push(context);
+        }
       };
     }
     if (request === '../utils/local-paths') {
@@ -36,23 +47,38 @@ function loadClocksModel(events) {
     return originalLoad.apply(this, arguments);
   };
 
-  try {
-    return require(modelModulePath);
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(modelModulePath)];
-  }
+  return {
+    Model: require(modelModulePath),
+    state,
+    restore() {
+      Module._load = originalLoad;
+      delete require.cache[require.resolve(modelModulePath)];
+      delete require.cache[require.resolve(hooksModulePath)];
+      delete require.cache[require.resolve(syncIndexModulePath)];
+    }
+  };
 }
 
-test('clock model notifies sync after writes', async () => {
+test('clock model routes persistence notifications through consumer hooks lazily', async () => {
   const events = [];
-  const Model = loadClocksModel(events);
+  const {Model, state, restore} = loadClocksModel(events);
 
-  Model.add({name: 'UTC', timezone: 'UTC'});
-  Model.remove(1);
-  Model.remove([]);
+  try {
+    assert.equal(state.syncIndexLoadCount, 0);
 
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(events.length >= 3, true);
-  assert.equal(events.every(event => event.domain === 'clocks'), true);
+    Model.add({name: 'UTC', timezone: 'UTC'});
+    Model.remove(1);
+    Model.remove([]);
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(state.syncIndexLoadCount, 3);
+    assert.deepEqual(events, [
+      {domain: 'clocks', action: 'save'},
+      {domain: 'clocks', action: 'save'},
+      {domain: 'clocks', action: 'save'}
+    ]);
+  } finally {
+    restore();
+  }
 });

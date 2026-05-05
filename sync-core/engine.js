@@ -1,15 +1,30 @@
 let {createSyncMachine, invoke} = require('./machine');
-let {classifyGitError} = require('./git-cli-backend');
+let {classifyGitError} = require('./contracts');
+let {normalizeRuntimeOptions} = require('./runtime-options');
+let {resolveRuntimeDependencies} = require('./defaults');
 
 function isSyncConfigMisconfigured(config = {}) {
     return config.enabled === true && !config.remoteUrl;
 }
 
 function normalizeState(config, storedState = {}) {
+    let isMisconfigured = isSyncConfigMisconfigured(config);
     let status = storedState.status;
 
-    if (status === 'misconfigured' && !isSyncConfigMisconfigured(config)) {
+    if (isMisconfigured) {
+        status = 'misconfigured';
+    }
+
+    if (status === 'misconfigured' && !isMisconfigured) {
         status = config.enabled ? 'healthy' : 'disabled';
+    }
+
+    if (status === 'disabled' && config.enabled) {
+        status = 'healthy';
+    }
+
+    if (status === 'healthy' && !config.enabled) {
+        status = 'disabled';
     }
 
     let hasPendingRemote = storedState.hasPendingRemote === true;
@@ -37,12 +52,20 @@ function normalizeState(config, storedState = {}) {
     };
 }
 
-function createSyncRuntime({adapter, stateStore, backend} = {}) {
-    if (!adapter || !stateStore || !backend) {
-        throw new Error('Sync runtime requires adapter, stateStore and backend');
-    }
+function createSyncRuntime(options = {}) {
+    let normalized = resolveRuntimeDependencies(normalizeRuntimeOptions(options));
+    return createSyncRuntimeFromResolvedOptions(normalized);
+}
 
-    let config = adapter.getSyncConfig();
+function createSyncRuntimeFromResolvedOptions(normalized) {
+    let {
+        config,
+        sourceRoot,
+        ignorePatterns,
+        buildCommitMessage,
+        stateStore,
+        backend
+    } = normalized;
     let storedState = stateStore.loadState();
     let persisted = normalizeState(config, storedState);
     let syncMachine = createSyncMachine(persisted);
@@ -71,18 +94,24 @@ function createSyncRuntime({adapter, stateStore, backend} = {}) {
         try {
             backend.ensureReady();
             backend.syncWorkingTree({
-                sourceRoot: adapter.getSourceRoot(),
-                entries: adapter.listTrackedEntries()
+                sourceRoot,
+                ignorePatterns
             });
 
             if (!backend.hasChanges()) {
                 return {kind: 'ok'};
             }
 
-            backend.commit(adapter.buildCommitMessage(context), {entries: adapter.listTrackedEntries()});
-            await backend.fetch();
-            await backend.integrate();
-            await backend.push();
+            backend.commit(buildCommitMessage(context));
+
+            if (config.autoPull !== false) {
+                await backend.fetch();
+                await backend.integrate();
+            }
+
+            if (config.autoPush !== false) {
+                await backend.push();
+            }
             return {kind: 'ok'};
         } catch (error) {
             let classified = typeof backend.classifyGitError === 'function'
@@ -157,5 +186,6 @@ function createSyncRuntime({adapter, stateStore, backend} = {}) {
 }
 
 module.exports = {
-    createSyncRuntime
+    createSyncRuntime,
+    createSyncRuntimeFromResolvedOptions
 };

@@ -3,6 +3,10 @@ let path = require('node:path');
 let localPaths = require('../utils/local-paths');
 let notifySync = require('../sync/ilu-hooks');
 
+function afterPersist(action) {
+    notifySync({domain: 'clocks', action});
+}
+
 function getFilePath() {
     return localPaths.dbFilePath('clocks');
 }
@@ -24,7 +28,7 @@ function read() {
 function write(clocks) {
     ensureStorageDir();
     fs.writeFileSync(getFilePath(), JSON.stringify(clocks, null, 2), 'utf8');
-    notifySync({domain: 'clocks', action: 'save'});
+    afterPersist('save');
     return clocks;
 }
 
@@ -65,5 +69,16 @@ module.exports = {
         }
 
         return write([]);
+    },
+    move({fromPosition, toPosition}) {
+        let clocks = read();
+        let [clock] = clocks.splice(fromPosition - 1, 1);
+
+        if (!clock) {
+            return clocks;
+        }
+
+        clocks.splice(toPosition - 1, 0, clock);
+        return write(clocks);
     }
 };

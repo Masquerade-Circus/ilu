@@ -1,6 +1,7 @@
 let fs = require('node:fs');
 let path = require('node:path');
 let localPaths = require('../utils/local-paths');
+let {createFileStateStore} = require('../sync-core/state/file-store');
 
 function defaultState() {
     return {
@@ -18,38 +19,35 @@ function defaultState() {
     };
 }
 
-function ensureSyncDir() {
-    fs.mkdirSync(localPaths.syncDirPath(), {recursive: true});
-}
-
 function getStateFilePath() {
     return localPaths.syncStateFilePath();
 }
 
+function createStateStore() {
+    return createFileStateStore({
+        defaultState,
+        getStateFilePath,
+        fileSystem: fs,
+        pathModule: path
+    });
+}
+
+let fileStateStore = createStateStore();
+
+function ensureSyncDir() {
+    return fileStateStore.ensureStateDir();
+}
+
 function loadState() {
-    let file = getStateFilePath();
-
-    if (!fs.existsSync(file)) {
-        return defaultState();
-    }
-
-    return {
-        ...defaultState(),
-        ...JSON.parse(fs.readFileSync(file, 'utf8'))
-    };
+    return fileStateStore.loadState();
 }
 
 function saveState(state) {
-    ensureSyncDir();
-    let nextState = {
-        ...defaultState(),
-        ...state
-    };
-    fs.writeFileSync(getStateFilePath(), JSON.stringify(nextState, null, 2), 'utf8');
-    return nextState;
+    return fileStateStore.saveState(state);
 }
 
 module.exports = {
+    createStateStore,
     defaultState,
     ensureSyncDir,
     getStateFilePath,

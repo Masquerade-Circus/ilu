@@ -10,6 +10,10 @@ let DEFAULT_COLUMNS = [
 
 let DEFAULT_COLUMN_ID = DEFAULT_COLUMNS[0].id;
 
+function afterPersist(action) {
+    notifySync({domain: 'boards', action});
+}
+
 function sanitizeColumnId(value) {
     return String(value || '')
         .trim()
@@ -136,7 +140,7 @@ let Model = {
         validateDefaultColumn(board);
         normalizeColumns(board);
         let saved = Model.collection.update(board);
-        notifySync({domain: 'boards', action: 'save'});
+        afterPersist('save');
         return saved;
     },
     add(item) {
@@ -163,13 +167,13 @@ let Model = {
     remove(item) {
         if (!item) {
             Model.collection.find().forEach(current => Model.collection.remove(current));
-            notifySync({domain: 'boards', action: 'remove'});
+            afterPersist('remove');
             return;
         }
 
         Model.collection.remove(item);
         Model.updateIndexes();
-        notifySync({domain: 'boards', action: 'remove'});
+        afterPersist('remove');
     },
     updateIndexes() {
         Model.find().forEach((item, index) => {
@@ -198,7 +202,7 @@ let Model = {
         validateDefaultColumn(current);
         normalizeColumns(current);
         let saved = Model.collection.update(current);
-        notifySync({domain: 'boards', action: 'use'});
+        afterPersist('use');
         return saved;
     }
 };
@@ -319,6 +323,70 @@ Model.cards = {
             .forEach(position => {
                 column.cards.splice(position - 1, 1);
             });
+        return Model.save(current);
+    },
+    moveMany({cards, toColumn}) {
+        let current = Model.getCurrent();
+        let targetColumn = getColumn(current, toColumn);
+        let seenSelections = new Set();
+        let selections = [...cards]
+            .filter(card => {
+                let key = `${card.fromColumn}:${card.fromPosition}`;
+
+                if (seenSelections.has(key)) {
+                    return false;
+                }
+
+                seenSelections.add(key);
+                return true;
+            })
+            .map(card => ({
+                fromColumn: card.fromColumn,
+                fromPosition: card.fromPosition,
+                column: getColumn(current, card.fromColumn)
+            }))
+            .filter(selection => selection.column && selection.column.cards[selection.fromPosition - 1]);
+        let incomingSelections = selections.filter(selection => selection.fromColumn !== toColumn);
+
+        if (targetColumn.wipLimit !== null && targetColumn.cards.length + incomingSelections.length > targetColumn.wipLimit) {
+            throw new Error('Cannot move cards into a column that would exceed its WIP limit');
+        }
+
+        let selectedIncomingCards = incomingSelections
+            .sort((left, right) => {
+                if (left.fromColumn !== right.fromColumn) {
+                    return left.fromColumn - right.fromColumn;
+                }
+
+                return left.fromPosition - right.fromPosition;
+            })
+            .map(selection => selection.column.cards[selection.fromPosition - 1]);
+
+        let groupedPositions = incomingSelections.reduce((acc, selection) => {
+            if (!acc[selection.fromColumn]) {
+                acc[selection.fromColumn] = [];
+            }
+
+            acc[selection.fromColumn].push(selection.fromPosition);
+            return acc;
+        }, {});
+
+        Object.keys(groupedPositions)
+            .map(value => parseInt(value, 10))
+            .sort((left, right) => left - right)
+            .forEach(columnIndex => {
+                let column = getColumn(current, columnIndex);
+                groupedPositions[columnIndex]
+                    .sort((left, right) => right - left)
+                    .forEach(position => {
+                        column.cards.splice(position - 1, 1);
+                    });
+            });
+
+        selectedIncomingCards.forEach(card => {
+            targetColumn.cards.push(card);
+        });
+
         return Model.save(current);
     },
     move({fromColumn, fromPosition, toColumn, toPosition}) {

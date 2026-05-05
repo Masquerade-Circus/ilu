@@ -5,6 +5,8 @@ const Module = require('node:module');
 
 const repoRoot = path.resolve(__dirname, '..');
 const factoryModulePath = path.join(repoRoot, 'utils', 'create-list-model.js');
+const hooksModulePath = path.join(repoRoot, 'sync', 'ilu-hooks.js');
+const syncIndexModulePath = path.join(repoRoot, 'sync', 'index.js');
 
 function createCollection() {
   const items = [];
@@ -41,16 +43,25 @@ function createCollection() {
 function loadFactory(events) {
   const originalLoad = Module._load;
   const fakeCollection = createCollection();
+  const state = {syncIndexLoadCount: 0};
 
   delete require.cache[require.resolve(factoryModulePath)];
+  delete require.cache[require.resolve(hooksModulePath)];
+  delete require.cache[require.resolve(syncIndexModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
+    if (/sync-core/.test(request)) {
+      throw new Error(`Unexpected sync-core import: ${request}`);
+    }
     if (request === './load-db') {
       return () => ({getCollection() { return fakeCollection; }});
     }
-    if (request === '../sync/ilu-hooks') {
-      return async (context) => {
-        events.push(context);
+    if (request === './index' && parent && parent.filename === hooksModulePath) {
+      state.syncIndexLoadCount += 1;
+      return {
+        notifyLocalMutation: async (context) => {
+          events.push(context);
+        }
       };
     }
     if (request === 'lodash/isUndefined') {
@@ -62,26 +73,44 @@ function loadFactory(events) {
     return originalLoad.apply(this, arguments);
   };
 
-  try {
-    return require(factoryModulePath);
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(factoryModulePath)];
-  }
+  return {
+    createListModel: require(factoryModulePath),
+    state,
+    restore() {
+      Module._load = originalLoad;
+      delete require.cache[require.resolve(factoryModulePath)];
+      delete require.cache[require.resolve(hooksModulePath)];
+      delete require.cache[require.resolve(syncIndexModulePath)];
+    }
+  };
 }
 
-test('list model notifies sync after persistence mutations', async () => {
+test('list model routes persistence notifications through consumer hooks lazily', async () => {
   const events = [];
-  const createListModel = loadFactory(events);
-  const Model = createListModel({dbName: 'todos', collectionName: 'todos', itemKey: 'tasks', itemHasCheck: true});
+  const {createListModel, state, restore} = loadFactory(events);
 
-  Model.add({title: 'Lista', description: ''});
-  Model.tasks.add({title: 'Uno'});
-  Model.tasks.check([0]);
-  Model.tasks.edit(1, {title: 'Dos'});
-  Model.tasks.remove(1);
+  try {
+    const Model = createListModel({dbName: 'todos', collectionName: 'todos', itemKey: 'tasks', itemHasCheck: true});
 
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(events.length >= 5, true);
-  assert.equal(events.every(event => event.domain === 'todos'), true);
+    assert.equal(state.syncIndexLoadCount, 0);
+
+    Model.add({title: 'Lista', description: ''});
+    Model.tasks.add({title: 'Uno'});
+    Model.tasks.check([0]);
+    Model.tasks.edit(1, {title: 'Dos'});
+    Model.tasks.remove(1);
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(state.syncIndexLoadCount, 5);
+    assert.deepEqual(events, [
+      {domain: 'todos', action: 'use'},
+      {domain: 'todos', action: 'save'},
+      {domain: 'todos', action: 'save'},
+      {domain: 'todos', action: 'save'},
+      {domain: 'todos', action: 'save'}
+    ]);
+  } finally {
+    restore();
+  }
 });
