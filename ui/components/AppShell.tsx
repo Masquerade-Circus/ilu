@@ -1,0 +1,40 @@
+import { Box, Fixed, Row, Screen, Text } from "@valyrianjs/terminal";
+import type { AppShellOptions } from "../types";
+
+export function createAppShell(options: AppShellOptions): JSX.Element {
+  const {
+    activePanelNodes,
+    actionBar,
+    boardActionBar,
+    children = [],
+    footerText,
+    footerSegments,
+    footerStyle,
+    panelHeight,
+    panelStyle,
+    topNav,
+    width
+  } = options;
+
+  return (
+    <Screen title="">
+      {topNav}
+      <Box width={width} height={panelHeight} style={panelStyle}>
+        {activePanelNodes}
+      </Box>
+      {actionBar ?? boardActionBar}
+      <Fixed position="bottom" size={1}>
+        {Array.isArray(footerSegments) && footerSegments.length > 0 ? (
+          <Row separator="  ">
+            {footerSegments.map((segment, index) => (
+              <Text key={`footer-${index}`} style={segment.style ?? footerStyle}>{segment.text}</Text>
+            ))}
+          </Row>
+        ) : (
+          <Text style={footerStyle}>{footerText}</Text>
+        )}
+      </Fixed>
+      {children}
+    </Screen>
+  );
+}

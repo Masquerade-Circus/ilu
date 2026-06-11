@@ -118,21 +118,22 @@ test('configureProgram registra los comandos principales del CLI', () => {
 
   assert.deepEqual(
     commands.map(command => command.name),
-    ['todo', 'note', 'board', 'sync', 'sync init', 'sync status', 'sync retry', 'sync enable', 'sync disable', 'babel', 'clock', 'tts', 'tts voice']
+    ['ui', 'todo', 'note', 'board', 'sync', 'sync init', 'sync status', 'sync retry', 'sync enable', 'sync disable', 'babel', 'clock', 'tts', 'tts voice']
   );
-  assert.equal(commands[0].alias, 't');
-  assert.equal(commands[1].alias, 'n');
-  assert.equal(commands[2].alias, 'bd');
+  assert.equal(commands[0].alias, undefined);
+  assert.equal(commands[1].alias, 't');
+  assert.equal(commands[2].alias, 'n');
+  assert.equal(commands[3].alias, 'bd');
   assert.equal(
-    commands[2].options.find(option => option.flags === '-m, --move').description,
+    commands[3].options.find(option => option.flags === '-m, --move').description,
     'Move selected cards interactively'
   );
-  assert.equal(commands[9].alias, 'b');
-  assert.equal(commands[10].alias, 'c');
-  assert.equal(commands[11].alias, undefined);
-  assert.equal(commands[9].arguments[0].signature, '<text...>');
-  assert.equal(commands[11].arguments[0].signature, '<inputFile>');
-  assert.equal(commands[11].arguments[1].signature, '<outputFile>');
+  assert.equal(commands[10].alias, 'b');
+  assert.equal(commands[11].alias, 'c');
+  assert.equal(commands[12].alias, undefined);
+  assert.equal(commands[10].arguments[0].signature, '<text...>');
+  assert.equal(commands[12].arguments[0].signature, '<inputFile>');
+  assert.equal(commands[12].arguments[1].signature, '<outputFile>');
 });
 
 test('configureProgram parsea tts con archivos sin requerir voice', async () => {
@@ -330,4 +331,30 @@ test('configureProgram registra clock --priority y -p', async () => {
     {args: [], opts: {priority: true}},
     {args: [], opts: {priority: true}}
   ]);
+});
+
+
+test('configureProgram registra ui y ejecuta Ui.action', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath);
+  const calls = [];
+
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {Board: {actions: async () => {}}, BoardLists: {actions: async () => {}}},
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}},
+    Tts: {action: async () => {}, voiceAction: async () => {}},
+    Ui: {action: async (args, opts) => calls.push({args, opts})}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'ui']);
+
+  assert.deepEqual(calls, [{args: [], opts: {}}]);
 });

@@ -7,9 +7,17 @@ function isSyncConfigMisconfigured(config = {}) {
     return config.enabled === true && !config.remoteUrl;
 }
 
+function isTransientPersistedStatus(status) {
+    return status === 'syncing' || status === 'route_after_sync';
+}
+
 function normalizeState(config, storedState = {}) {
     let isMisconfigured = isSyncConfigMisconfigured(config);
     let status = storedState.status;
+
+    if (isTransientPersistedStatus(status)) {
+        status = config.enabled ? 'pending_remote' : 'disabled';
+    }
 
     if (isMisconfigured) {
         status = 'misconfigured';
@@ -167,7 +175,7 @@ function createSyncRuntimeFromResolvedOptions(normalized) {
             return persistCurrentState();
         },
         async retry(context = {}) {
-            let transitionName = syncMachine.current === 'degraded_network' || syncMachine.current === 'degraded_auth' || syncMachine.current === 'pending_remote'
+            let transitionName = syncMachine.current === 'degraded_network' || syncMachine.current === 'degraded_auth' || syncMachine.current === 'failed' || syncMachine.current === 'pending_remote'
                 ? 'RETRY'
                 : 'SYNC_REQUESTED';
 

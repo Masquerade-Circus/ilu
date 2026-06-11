@@ -1,0 +1,219 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+
+const repoRoot = path.resolve(__dirname, '..');
+process.env.TSX_TSCONFIG_PATH = path.join(repoRoot, 'tsconfig.ui.json');
+require('tsx/cjs');
+
+const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
+
+function stripAnsi(output) {
+  return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+function visibleLines(output) {
+  return stripAnsi(output).split(/\r?\n/);
+}
+
+function baseSnapshot(overrides = {}) {
+  return {
+    todo: {title: 'Today', items: [], remaining: 0},
+    notes: {title: 'Notes list', items: [], remaining: 0},
+    board: {title: 'Board view', columns: [], totalCards: 0},
+    clocks: {items: [], remaining: 0},
+    ...overrides
+  };
+}
+
+function createSyncActions(calls) {
+  return {
+    status() {
+      calls.push(['status']);
+      return {ok: true, label: 'Pending sync', details: ['Status: Pending sync', 'Pending sync: yes']};
+    },
+    retry() {
+      calls.push(['retry']);
+      return {ok: true, label: 'Synced', details: ['Status: Synced']};
+    },
+    enable() {
+      calls.push(['enable']);
+      return {ok: true, label: 'Synced', details: ['Status: Synced']};
+    },
+    disable() {
+      calls.push(['disable']);
+      return {ok: true, label: 'Sync off', details: ['Status: Sync off']};
+    },
+    init(values) {
+      calls.push(['init', values]);
+      return {ok: true, label: 'Synced', details: ['Status: Synced']};
+    }
+  };
+}
+
+test('Sync app opens from top nav and shows detailed status', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+
+  const output = session.output();
+  const lines = visibleLines(output);
+  const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line));
+
+  assert.deepEqual(calls, [['status']]);
+  assert.equal(session.state().activeTab, 'Sync');
+  assert.ok(navLine, 'expected global top nav');
+  assert.match(navLine, /Sync/);
+  assert.match(output, /Sync/);
+  assert.match(output, /Status: Pending sync/);
+  assert.match(output, /Retry sync/);
+  assert.match(output, /Enable sync/);
+  assert.match(output, /Disable sync/);
+  assert.match(output, /Set up sync/);
+  assert.equal(lines.filter(line => line.length > 80).length, 0);
+  session.destroy();
+});
+
+test('Sync retry updates visible status through the utility command path', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-retry');
+
+  assert.deepEqual(calls, [['status'], ['retry']]);
+  assert.match(session.output(), /Status: Synced/);
+  assert.doesNotMatch(session.output(), /stack|\/home|token|secret/i);
+  session.destroy();
+});
+
+
+
+test('Sync setup overlay pins setup actions to the overlay bottom', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-setup');
+
+  const lines = visibleLines(session.output());
+  const actionRow = lines.findIndex(line => /Confirm setup/.test(line) && /Set up sync/.test(line) && /Cancel/.test(line));
+
+  assert.notEqual(actionRow, -1, `expected Sync setup actions:\n${lines.join('\n')}`);
+  assert.equal(actionRow, 20, `Sync setup actions must render on the last internal overlay row:\n${lines.join('\n')}`);
+  assert.equal(lines.filter(line => line.length > 80).length, 0);
+  session.destroy();
+});
+
+test('Sync init form requires explicit confirmation and keeps test remote under repo tmp', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-setup');
+
+  assert.equal(session.state().utilities.activeOverlay, 'sync-init');
+  assert.match(session.output(), /Remote URL/);
+  assert.match(session.output(), /Branch/);
+  assert.match(session.output(), /Start sync with this remote and branch\?/);
+  assert.match(session.output(), /If this device and the remote already contain data,/);
+  assert.match(session.output(), /setup may stop to protect your files\./);
+
+  session.click('sync-init-start');
+
+  assert.deepEqual(calls, [['status']]);
+  assert.match(session.output(), /Remote URL is required\./);
+
+  session.focus('sync-init-remote');
+  session.dispatchText('./tmp/sync-ui-remote.git');
+  session.click('sync-init-confirm');
+  session.click('sync-init-start');
+
+  assert.deepEqual(calls.at(-1), ['init', {remoteUrl: './tmp/sync-ui-remote.git', branch: 'main', confirmed: true}]);
+  assert.equal(session.state().utilities.activeOverlay, null);
+  assert.match(session.output(), /Status: Synced/);
+  assert.doesNotMatch(session.output(), /api key|secret|provider|stack|\/home/i);
+  session.destroy();
+});
+
+test('Esc keeps Sync app open when no secondary overlay is active', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.dispatchKey('ESCAPE');
+
+  assert.equal(session.state().utilities.activeOverlay, null);
+  assert.equal(session.state().running, true);
+  assert.match(session.output(), /Retry sync/);
+  session.destroy();
+});
+
+
+test('Sync enable and disable update status through visible utility controls', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-enable');
+  assert.deepEqual(calls, [['status'], ['enable']]);
+  assert.match(session.output(), /Status: Synced/);
+
+  session.click('sync-disable');
+  assert.deepEqual(calls, [['status'], ['enable'], ['disable']]);
+  assert.match(session.output(), /Status: Sync off/);
+  session.destroy();
+});
+
+test('Sync utility prevents duplicate operation while a command is pending', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  let resolveRetry = null;
+  const syncActions = {
+    status() {
+      calls.push(['status']);
+      return {ok: true, label: 'Pending sync', details: ['Status: Pending sync']};
+    },
+    retry() {
+      calls.push(['retry']);
+      return new Promise(resolve => {
+        resolveRetry = () => resolve({ok: true, label: 'Synced', details: ['Status: Synced']});
+      });
+    },
+    enable() {
+      calls.push(['enable']);
+      return {ok: true, label: 'Synced', details: ['Status: Synced']};
+    },
+    disable() {
+      calls.push(['disable']);
+      return {ok: true, label: 'Sync off', details: ['Status: Sync off']};
+    },
+    init(values) {
+      calls.push(['init', values]);
+      return {ok: true, label: 'Synced', details: ['Status: Synced']};
+    }
+  };
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions});
+
+  session.click('tab-sync');
+  session.click('sync-retry');
+  session.click('sync-retry');
+
+  assert.deepEqual(calls, [['status'], ['retry']]);
+  assert.equal(session.state().utilities.sync.operation, 'retry');
+  assert.match(session.output(), /Pending sync/);
+
+  resolveRetry();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(session.state().utilities.sync.operation, null);
+  assert.match(session.output(), /Status: Synced/);
+  session.destroy();
+});

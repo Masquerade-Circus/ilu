@@ -25,7 +25,7 @@
 - `sync-core` seguirá siendo reusable dentro del repo, pero la API pública principal será la nueva firma plana ya decidida.
 - El backend por default seguirá siendo el backend Git CLI existente.
 - El state store por default seguirá siendo un file store local, pero parametrizado desde datos de la API plana en vez de exigirse como dependencia pública.
-- La compatibilidad legacy, si se deja, será temporal, privada y solo para facilitar una migración en dos pasos.
+- La compatibilidad anterior, si se deja, será temporal, privada y solo para facilitar una migración en dos pasos.
 
 **Definition of done de este refactor**
 - `createSyncRuntime()` acepta la firma plana acordada.
@@ -39,7 +39,7 @@
 
 ## Secuencia mínima recomendada
 
-1. Introducir pruebas del nuevo contrato plano sin borrar todavía la ruta legacy.
+1. Introducir pruebas del nuevo contrato plano sin borrar todavía la ruta anterior.
 2. Extraer dentro de `sync-core` una capa pequeña de normalización/composición de opciones.
 3. Hacer que `createSyncRuntime()` use esa composición interna y siga funcionando con el runtime actual.
 4. Migrar `sync/index.js` para consumir la API plana.
@@ -65,7 +65,7 @@ Aplicar Red -> Green -> Refactor en este orden:
    - luego se migra `sync/index.js`.
 
 4. **Compatibilidad temporal**
-   - primero fallan tests que confirman que el shape legacy todavía entra por una ruta privada de compatibilidad;
+   - primero fallan tests que confirman que el shape anterior todavía entra por una ruta privada de compatibilidad;
    - luego se añade el adaptador transitorio.
 
 5. **Integración y docs**
@@ -147,14 +147,14 @@ Expected: FAIL en los tests nuevos y PASS en el resto existente.
 - Modify: `tests/sync-engine.test.js`
 
 **Objetivo**
-Separar de `engine.js` la decisión “API plana nueva vs shape legacy temporal” para que el runtime quede limpio.
+Separar de `engine.js` la decisión “API plana nueva vs shape anterior temporal” para que el runtime quede limpio.
 
 **Step 1: Write the failing test**
 
 Agregar pruebas para dos rutas:
 
 1. **Ruta principal plana**: normaliza opciones y produce dependencias internas resolubles.
-2. **Compatibilidad temporal legacy**: si entra `{adapter, stateStore, backend}`, sigue funcionando solo como shim privado.
+2. **Compatibilidad temporal anterior**: si entra `{adapter, stateStore, backend}`, sigue funcionando solo como shim privado.
 
 Ejemplo mínimo de compatibilidad temporal:
 
@@ -176,8 +176,8 @@ Expected: FAIL mientras no exista la capa de normalización.
 **Step 3: Write minimal implementation**
 
 Crear una unidad interna responsable de:
-- detectar shape legacy (`adapter` o `stateStore` o `backend` presentes);
-- convertir shape legacy al contrato interno común;
+- detectar shape anterior (`adapter` o `stateStore` o `backend` presentes);
+- convertir shape anterior al contrato interno común;
 - validar la firma plana;
 - aplicar defaults de campos opcionales (`branch`, `autoSync`, `autoPull`, `autoPush`, `ignorePatterns`, `buildCommitMessage`);
 - producir un objeto interno único que `engine.js` consuma.
@@ -215,7 +215,7 @@ Run:
 node --test tests/sync-engine.test.js
 ```
 
-Expected: PASS para ruta plana y ruta legacy temporal.
+Expected: PASS para ruta plana y ruta anterior temporal.
 
 **Success criteria**
 - `engine.js` deja de depender conceptualmente de `adapter` como superficie pública.
@@ -462,7 +462,7 @@ Expected: FAIL en el primer punto donde el CLI todavía dependa del wiring anter
 
 Recomendación mínima:
 - mantener `createBootstrapBackend()` en `sync/index.js` mientras `sync/commands.js` lo necesite para `init`;
-- permitir que `sync.createSyncRuntime({backend})` sobreviva **solo** como compatibilidad temporal interna del consumer, implementada encima del shim legacy del core;
+- permitir que `sync.createSyncRuntime({backend})` sobreviva **solo** como compatibilidad temporal interna del consumer, implementada encima del shim anterior del core;
 - una vez estabilizado el refactor, mover `init` a usar una ruta más explícita de bootstrap separada del runtime principal si sigue siendo necesario.
 
 **Step 4: Run test to verify it passes**
@@ -496,7 +496,7 @@ Exponer extensibilidad avanzada sin contaminar `createSyncRuntime()`.
 **Fase posterior al refactor principal**, no al inicio. Debe entrar cuando ya se cumplan estas condiciones:
 - la API plana ya está consumida por `ilu`;
 - los defaults internos ya están centralizados;
-- la compatibilidad temporal legacy ya existe o ya no hace falta;
+- la compatibilidad temporal anterior ya existe o ya no hace falta;
 - la separación entre ruta normal y ruta avanzada ya se puede expresar sin mezclar responsabilidades.
 
 **Step 1: Write the failing test**
@@ -592,7 +592,7 @@ const runtime = createSyncRuntime({
 });
 ```
 
-Documentar la compatibilidad legacy solo si todavía sigue viva internamente, pero como nota de migración, no como contrato principal.
+Documentar la compatibilidad anterior solo si todavía sigue viva internamente, pero como nota de migración, no como contrato principal.
 
 **Step 3: Final verification run**
 
@@ -635,7 +635,7 @@ Expected: PASS.
 ### 2) Secuencia mínima de refactor
 
 1. Congelar tests de la firma plana.
-2. Añadir normalización interna + shim legacy privado.
+2. Añadir normalización interna + shim anterior privado.
 3. Mover defaults de `stateStore` y `backend` dentro del core.
 4. Adaptar `engine.js` al contrato interno plano.
 5. Migrar `sync/index.js` al nuevo camino principal.
@@ -679,7 +679,7 @@ Orden recomendado:
 ## Riesgos residuales a vigilar
 
 - Que el default `stateStore` termine guardándose en una ruta que accidentalmente entre al snapshot remoto.
-- Que `sync init` dependa más de la composición legacy de lo que hoy aparenta.
+- Que `sync init` dependa más de la composición anterior de lo que hoy aparenta.
 - Que algunos tests del consumer sigan asumiendo inyección explícita de `backend/stateStore` y oculten regresiones del nuevo camino principal.
 - Que la compatibilidad temporal se quede viva demasiado tiempo y vuelva ambigua la frontera pública.
 

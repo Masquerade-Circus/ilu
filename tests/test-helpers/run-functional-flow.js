@@ -23,10 +23,8 @@ const promptAnswersByFlow = {
     {action: 'exit'}
   ],
   clock: [
-    {search: 'mexico'},
     {timezone: 'America/Mexico_City'},
     {name: 'CDMX'},
-    {search: 'madrid'},
     {timezone: 'Europe/Madrid'},
     {name: 'Madrid'},
     {indexes: [1]}

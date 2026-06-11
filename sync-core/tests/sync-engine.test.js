@@ -857,7 +857,7 @@ test('sync advanced runtime shares runtime semantics with the main API while usi
   assert.equal(runtime.getSyncStatus().status, 'healthy');
 });
 
-test('sync advanced runtime test harness no longer exposes legacy top-level keys', () => {
+test('sync advanced runtime test harness no longer exposes old top-level keys', () => {
   const harness = createHarness();
 
   assert.deepEqual(Object.keys(harness).sort(), [
@@ -983,6 +983,27 @@ test('sync engine maps backend failures to degraded state and persists pending r
   assert.equal(status.lastErrorKind, 'network');
 });
 
+test('sync engine accepts a local mutation after a failed sync with valid setup', async () => {
+  const harness = createHarness({
+    persistedState: {
+      enabled: true,
+      status: 'failed',
+      hasPendingRemote: true,
+      retryCount: 1,
+      lastErrorKind: 'unknown',
+      lastErrorMessage: 'provider failed',
+      lastSyncReason: 'save'
+    }
+  });
+  const runtime = createAdvancedRuntimeFromHarness(harness);
+
+  await assert.doesNotReject(runtime.notifyLocalMutation({domain: 'todos', action: 'save-again'}));
+
+  assert.equal(runtime.getSyncStatus().status, 'healthy');
+  assert.equal(harness.persistedState.status, 'healthy');
+  assert.equal(harness.persistedState.hasPendingRemote, false);
+});
+
 test('sync engine coalesces repeated mutation calls while syncing', async () => {
   let release;
   const harness = createHarness({
@@ -1013,6 +1034,26 @@ test('sync engine coalesces repeated mutation calls while syncing', async () => 
   await Promise.all([first, second]);
 
   assert.equal(runtime.getSyncStatus().status, 'healthy');
+});
+
+test('sync engine rehydrates stale syncing state as pending remote and syncs next mutation', async () => {
+  const harness = createHarness({
+    persistedState: {
+      enabled: true,
+      status: 'syncing',
+      hasPendingRemote: true,
+      retryCount: 0,
+      lastErrorKind: null,
+      lastErrorMessage: null
+    }
+  });
+  const runtime = createAdvancedRuntimeFromHarness(harness);
+
+  await runtime.notifyLocalMutation({domain: 'boards', action: 'add-card'});
+
+  assert.equal(runtime.getSyncStatus().status, 'healthy');
+  assert.equal(harness.persistedState.status, 'healthy');
+  assert.equal(harness.persistedState.hasPendingRemote, false);
 });
 
 test('sync engine retry uses retry transition for degraded states and preserves pending flag on boot', async () => {

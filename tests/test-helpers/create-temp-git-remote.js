@@ -1,7 +1,9 @@
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const TEST_TMP_ROOT = path.join(REPO_ROOT, 'tmp');
 
 function git(args, options = {}) {
   return execFileSync('git', args, {
@@ -18,7 +20,8 @@ function git(args, options = {}) {
 }
 
 function createTempGitRemote({seedFiles = null, branch = 'main'} = {}) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-remote-'));
+  fs.mkdirSync(TEST_TMP_ROOT, {recursive: true});
+  const tempRoot = fs.mkdtempSync(path.join(TEST_TMP_ROOT, 'ilu-sync-remote-'));
   const remotePath = path.join(tempRoot, 'remote.git');
 
   git(['init', '--bare', '--initial-branch', branch, remotePath]);

@@ -46,6 +46,7 @@ Available commands:
 
 | Command | Alias | Purpose |
 | --- | --- | --- |
+| `ui` | — | Open the terminal workspace preview |
 | `todo` | `t` | Manage tasks and todo lists |
 | `note` | `n` | Manage notes and note lists |
 | `board` | `bd` | Manage cards and boards |
@@ -55,6 +56,14 @@ Available commands:
 | `tts` | — | Convert `.txt` or `.md` files to audio |
 
 Most resource commands default to their show/list behavior when run without flags.
+
+## Terminal UI development
+
+The terminal UI slice uses `@valyrianjs/terminal` with `valyrian.js`. The complete local documentation for the terminal library is available after `npm install` at:
+
+```text
+node_modules/@valyrianjs/terminal/llms-full.txt
+```
 
 ## Commands overview
 

@@ -45,6 +45,10 @@ function isConflictOutcome(ctx) {
     return ctx.syncOutcome === 'conflict';
 }
 
+function isFailedOutcome(ctx) {
+    return ctx.syncOutcome === 'config' || ctx.syncOutcome === 'unknown';
+}
+
 async function runSync(ctx, payload = {}) {
     let runner = payload.runSyncPipeline;
 
@@ -133,7 +137,8 @@ function createSyncMachine(config = {}) {
             immediate('degraded_network', guard(isNetworkOutcome)),
             immediate('degraded_auth', guard(isAuthOutcome)),
             immediate('conflict', guard(isConflictOutcome)),
-            immediate('misconfigured')
+            immediate('failed', guard(isFailedOutcome)),
+            immediate('failed')
         ),
         state(
             'degraded_network',
@@ -154,6 +159,18 @@ function createSyncMachine(config = {}) {
             transition('CONFLICT_RESOLVED', 'pending_remote', exit(ctx => {
                 ctx.syncOutcome = null;
             })),
+            transition('DISABLE', 'disabled', exit(ctx => {
+                ctx.enabled = false;
+            }))
+        ),
+        state(
+            'failed',
+            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx, payload = {}) => {
+                ctx.hasPendingRemote = true;
+                ctx.lastSyncReason = payload.action || null;
+            })),
+            transition('SYNC_REQUESTED', 'syncing', guard(hasPendingRemote)),
+            transition('RETRY', 'syncing', guard(hasPendingRemote)),
             transition('DISABLE', 'disabled', exit(ctx => {
                 ctx.enabled = false;
             }))

@@ -1,6 +1,6 @@
 let {createGitCliBackend: createCoreGitCliBackend, classifyGitError} = require('../sync-core/backends/git-cli');
 
-function normalizeLegacyIgnorePattern(pattern) {
+function normalizeIgnorePattern(pattern) {
     if (typeof pattern !== 'string') {
         return null;
     }
@@ -22,7 +22,7 @@ function createGitCliBackend(options = {}) {
     let ignorePatterns = [
         '.config/',
         ...(options.ignorePatterns || [])
-    ].map(normalizeLegacyIgnorePattern).filter(Boolean);
+    ].map(normalizeIgnorePattern).filter(Boolean);
 
     return createCoreGitCliBackend({
         ...options

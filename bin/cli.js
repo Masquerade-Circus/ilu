@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+let path = require('node:path');
 let {Command} = require('commander');
 let pkg = require('../package.json');
 // TODO use https://github.com/sindresorhus/terminal-link to parse content and convert links
@@ -8,6 +9,13 @@ let configureProgram = require('./configure-cli');
 
 function lazyAction(load, select) {
     return async (...args) => select(load())(...args);
+}
+
+function loadUiApp() {
+    process.env.TSX_TSCONFIG_PATH = path.join(__dirname, '..', 'tsconfig.ui.json');
+    require('tsx/cjs');
+
+    return require('../ui/app.tsx');
 }
 
 let Todos = {
@@ -54,6 +62,10 @@ let Tts = {
     voiceAction: lazyAction(() => require('../tts'), (module) => module.voiceAction)
 };
 
+let Ui = {
+    action: lazyAction(loadUiApp, (module) => module.action)
+};
+
 let program = new Command();
 
 configureProgram(program, {
@@ -64,7 +76,8 @@ configureProgram(program, {
     Sync,
     Translate,
     Clocks,
-    Tts
+    Tts,
+    Ui
 });
 
 program.parse(process.argv);

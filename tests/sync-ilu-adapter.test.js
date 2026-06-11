@@ -73,16 +73,16 @@ test('ilu adapter expone solo el contrato vigente del consumer', () => {
   }, {prefix: 'ilu-sync-adapter-surface-'});
 });
 
-test('ilu adapter ignora compatibilidad legacy y solo lee sync-config.json en .config', () => {
+test('ilu adapter ignora compatibilidad anterior y solo lee sync-config.json en .config', () => {
   return withTempHome(tempHome => {
-    const legacyConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
+    const oldConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
     const currentConfigFile = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
-    fs.mkdirSync(path.dirname(legacyConfigFile), {recursive: true});
+    fs.mkdirSync(path.dirname(oldConfigFile), {recursive: true});
     fs.mkdirSync(path.dirname(currentConfigFile), {recursive: true});
-    fs.writeFileSync(legacyConfigFile, JSON.stringify({
+    fs.writeFileSync(oldConfigFile, JSON.stringify({
       enabled: true,
-      remoteUrl: '/tmp/legacy.git',
-      branch: 'legacy',
+      remoteUrl: '/tmp/old.git',
+      branch: 'old',
     autoSync: false,
     autoPull: false,
     autoPush: false
@@ -109,5 +109,5 @@ test('ilu adapter ignora compatibilidad legacy y solo lee sync-config.json en .c
     } finally {
       restore();
     }
-  }, {prefix: 'ilu-sync-adapter-legacy-'});
+  }, {prefix: 'ilu-sync-adapter-old-'});
 });

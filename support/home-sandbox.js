@@ -1,8 +1,9 @@
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
-const REAL_HOME = path.resolve(os.userInfo().homedir);
+const REAL_HOME = path.resolve(require('node:os').userInfo().homedir);
+const REPO_ROOT = path.resolve(__dirname, '..');
+const TEST_TMP_ROOT = path.join(REPO_ROOT, 'tmp');
 
 function setTestHome(tempHome) {
   const resolvedTempHome = path.resolve(tempHome);
@@ -26,7 +27,8 @@ function setTestHome(tempHome) {
 
 async function withTempHome(run, options = {}) {
   const prefix = options.prefix || 'ilu-test-home-';
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(TEST_TMP_ROOT, {recursive: true});
+  const tempHome = fs.mkdtempSync(path.join(TEST_TMP_ROOT, prefix));
   const restoreHome = setTestHome(tempHome);
 
   try {

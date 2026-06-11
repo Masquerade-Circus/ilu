@@ -30,6 +30,9 @@ function configureProgram(program, deps) {
     Tts = {
       action: async () => {},
       voiceAction: async () => {}
+    },
+    Ui = {
+      action: async () => {}
     }
   } = deps;
 
@@ -146,6 +149,11 @@ function configureProgram(program, deps) {
     .name('ilu')
     .version(pkg.version)
     .description('Cli tools for productivity');
+
+  program
+    .command('ui')
+    .description('Open the ilu terminal workspace preview')
+    .action(createActionAdapter(Ui.action));
 
   program
     .command('todo')

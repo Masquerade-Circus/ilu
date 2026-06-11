@@ -247,7 +247,7 @@ test('sync wrapper merges default .config/ ignore with extra ignorePatterns from
   }
 });
 
-test('sync wrapper ignores legacy ignoredEntries compatibility input', () => {
+test('sync wrapper ignores old ignoredEntries compatibility input', () => {
   const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-ignore-'));
   const backend = loadBackendWithExecStub(() => '');
 

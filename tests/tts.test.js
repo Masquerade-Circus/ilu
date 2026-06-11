@@ -240,20 +240,20 @@ test('tts voice sin argumento usa prompt select compatible, muestra voces soport
   }
 });
 
-test('tts ignora config legacy y sync-config, cae a alloy y pide API key nueva', async () => {
+test('tts ignora config anterior y sync-config, cae a alloy y pide API key nueva', async () => {
   delete require.cache[require.resolve(ttsModulePath)];
 
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-no-legacy-'));
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-no-old-'));
   const restoreHome = withTestHome(tempHome);
   const inputFile = path.join(tempHome, 'chapter.md');
   const outputFile = path.join(tempHome, 'chapter.mp3');
-  const legacyConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
+  const oldConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
   const currentSyncConfigFile = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
 
-  fs.mkdirSync(path.dirname(legacyConfigFile), {recursive: true});
+  fs.mkdirSync(path.dirname(oldConfigFile), {recursive: true});
   fs.mkdirSync(path.dirname(currentSyncConfigFile), {recursive: true});
   fs.writeFileSync(inputFile, '# Hola', 'utf8');
-  fs.writeFileSync(legacyConfigFile, JSON.stringify({tts: {apiKey: 'sk-legacy', voice: 'nova'}}, null, 2), 'utf8');
+  fs.writeFileSync(oldConfigFile, JSON.stringify({tts: {apiKey: 'sk-old', voice: 'nova'}}, null, 2), 'utf8');
   fs.writeFileSync(currentSyncConfigFile, JSON.stringify({enabled: true, remoteUrl: '/tmp/remote.git'}), 'utf8');
 
   const promptCalls = [];
@@ -276,7 +276,7 @@ test('tts ignora config legacy y sync-config, cae a alloy y pide API key nueva',
                 openAiCalls.push(payload);
                 return {
                   async arrayBuffer() {
-                    return Buffer.from('LEGACY_FREE');
+                    return Buffer.from('SYNC_FREE');
                   }
                 };
               }
