@@ -99,6 +99,23 @@ test('utility launcher actions are removed because utility apps live in top nav'
   session.destroy();
 });
 
+test('top nav leaves one visual row before the active panel', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
+  const output = session.output();
+  session.destroy();
+
+  const lines = visibleLines(output);
+  const navIndex = lines.findIndex(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
+
+  assert.ok(navIndex >= 0, `expected global top nav:
+${lines.join('\n')}`);
+  assert.equal(lines[navIndex + 1]?.trim(), '', `expected one blank visual row below top nav:
+${lines.join('\n')}`);
+  assert.ok(normalizeRenderedLines(lines).length <= 24, 'layout must stay within 24 rows');
+  assert.equal(lines.filter(line => line.length > 80).length, 0);
+});
+
 test('board action bar keeps board actions without utility launcher noise', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: baseSnapshot()});
@@ -232,6 +249,58 @@ test('Board, Todo details, and utility overlays fill the 80x24 surface without o
   utilitySession.destroy();
 });
 
+
+
+test('Board overlays keep the base board panel mounted by default', () => {
+  const {createBoardMainView, createInitialBoardState} = require('../ui/pages/board/MainView.tsx');
+  const board = {
+    id: 'launch',
+    title: 'Launch board',
+    totalCards: 1,
+    boards: [{id: 'launch', title: 'Launch board', current: true}],
+    columns: [{index: 1, title: 'Backlog', count: 1, cards: [{title: 'Write tests', description: '', position: 1}], remaining: 0}],
+    remainingColumns: 0
+  };
+  const overlays = [
+    'add-card',
+    'card-action-error',
+    'card-details',
+    'edit-card',
+    'move-card',
+    'priority-card',
+    'remove-card-confirm',
+    'column-details',
+    'add-column',
+    'rename-column',
+    'add-board',
+    'rename-board',
+    'remove-board-confirm',
+    'set-wip-limit',
+    'reset-columns-confirm'
+  ].map((overlay) => ({
+    name: overlay,
+    state: createInitialBoardState({
+      overlay,
+      selectedBoardId: 'launch',
+      selectedCard: {columnIndex: 1, position: 1},
+      selectedColumnIndex: 1
+    })
+  }));
+
+  for (const overlay of overlays) {
+    const view = createBoardMainView({
+      board,
+      state: overlay.state,
+      isActive: true,
+      width: 80,
+      panelHeight: 17,
+      boardActions: {},
+      refreshSnapshot: () => {}
+    });
+
+    assert.ok(view.activePanelNodes.length > 1, `${overlay.name} must keep board selector and columns mounted`);
+  }
+});
 
 test('Todo details overlay pins its action row to the internal bottom nav row', async () => {
   const Ui = require(uiModulePath);
@@ -500,11 +569,28 @@ test('AppOverlay pins bottomNav to the internal bottom row with tall content', (
   assert.equal(lines.filter(line => line.length > 80).length, 0, 'AppOverlay bottomNav contract must not overdraw 80 columns');
 });
 
-test('shared overlay props keep the 10 percent margin contract by default', () => {
+test('shared overlay props keep the 10 percent margin contract and modal defaults', () => {
   const {createOverlayProps} = require('../ui/components/Overlay.tsx');
 
   assert.deepEqual(createOverlayProps().margin, {x: '10%', y: '10%'});
-  assert.deepEqual(createOverlayProps({trapFocus: true}).margin, {x: '10%', y: '10%'});
+  assert.equal(createOverlayProps().trapFocus, true);
+  assert.equal(createOverlayProps().backdrop, true);
+  assert.deepEqual(createOverlayProps({trapFocus: false, backdrop: false}).margin, {x: '10%', y: '10%'});
+  assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).trapFocus, false);
+  assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).backdrop, false);
+});
+
+test('Board keeps real controls under overlays and no longer ships passive render mode', () => {
+  const boardMainSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'MainView.tsx'), 'utf8');
+  const boardColumnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
+  const typesSource = fs.readFileSync(path.join(repoRoot, 'ui', 'types.ts'), 'utf8');
+
+  assert.doesNotMatch(typesSource, /passive\?: boolean/);
+  assert.doesNotMatch(boardMainSource, /passive/);
+  assert.doesNotMatch(boardColumnSource, /passive/);
+  assert.match(boardColumnSource, /<Box height=\{boardHeight\} style=\{BOARD_COLUMN_STYLE\}>/);
+  assert.match(boardColumnSource, /<Button[\s\S]*?id=\{`board-column-header-\$\{columnIndex\}`\}/);
+  assert.match(boardColumnSource, /<List[\s\S]*?id=\{`board-card-list-\$\{columnIndex\}`\}/);
 });
 
 

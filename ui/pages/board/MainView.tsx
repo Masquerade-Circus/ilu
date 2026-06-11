@@ -266,9 +266,7 @@ export function createInitialBoardState(overrides: Partial<BoardRuntimeState> | 
     removeCardArmedUntil: positiveInteger(source.removeCardArmedUntil) ? source.removeCardArmedUntil : 0,
     removeCardArmedSelection: normalizeSelection(source.removeCardArmedSelection),
     removeColumnArmedUntil: positiveInteger(source.removeColumnArmedUntil) ? source.removeColumnArmedUntil : 0,
-    removeColumnArmedIndex: positiveInteger(source.removeColumnArmedIndex) ? source.removeColumnArmedIndex : null,
-    suppressBoardCardDoublePressUntil: positiveInteger(source.suppressBoardCardDoublePressUntil) ? source.suppressBoardCardDoublePressUntil : 0,
-    suppressBoardCardDoublePressSelection: normalizeSelection(source.suppressBoardCardDoublePressSelection)
+    removeColumnArmedIndex: positiveInteger(source.removeColumnArmedIndex) ? source.removeColumnArmedIndex : null
   };
 
   normalizeBoardRuntimeState(state);
@@ -291,8 +289,6 @@ export function normalizeBoardRuntimeState(state: BoardRuntimeState): void {
   state.removeCardArmedSelection = normalizeSelection(state.removeCardArmedSelection);
   state.removeColumnArmedUntil = positiveInteger(state.removeColumnArmedUntil) ? state.removeColumnArmedUntil : 0;
   state.removeColumnArmedIndex = positiveInteger(state.removeColumnArmedIndex) ? state.removeColumnArmedIndex : null;
-  state.suppressBoardCardDoublePressUntil = positiveInteger(state.suppressBoardCardDoublePressUntil) ? state.suppressBoardCardDoublePressUntil : 0;
-  state.suppressBoardCardDoublePressSelection = normalizeSelection(state.suppressBoardCardDoublePressSelection);
 
   if (typeof state.overlay !== "string" || !isBoardOverlayState(state.overlay)) {
     state.overlay = null;
@@ -391,12 +387,7 @@ export function clearBoardUiOverlay(state: BoardRuntimeState): void {
   closeBoardOverlay(state);
 }
 
-export function closeBoardOverlay(state: BoardRuntimeState, options: { suppressStaleBoardCardDoublePress?: boolean } = {}): void {
-  const shouldSuppressStaleBoardCardDoublePress = options.suppressStaleBoardCardDoublePress !== false;
-  const staleBoardCardDoublePressSelection = shouldSuppressStaleBoardCardDoublePress && state.overlay === "card-details"
-    ? normalizeSelection(state.suppressBoardCardDoublePressSelection)
-    : null;
-
+export function closeBoardOverlay(state: BoardRuntimeState): void {
   state.overlay = null;
   state.addCard = normalizeAddCardState();
   state.editCard = normalizeCardFormState();
@@ -411,8 +402,6 @@ export function closeBoardOverlay(state: BoardRuntimeState, options: { suppressS
   state.removeCardArmedSelection = null;
   state.removeColumnArmedUntil = 0;
   state.removeColumnArmedIndex = null;
-  state.suppressBoardCardDoublePressUntil = staleBoardCardDoublePressSelection !== null ? Date.now() + 500 : 0;
-  state.suppressBoardCardDoublePressSelection = staleBoardCardDoublePressSelection;
 }
 
 function wrappedTerminalText(value: string, width: number): string {
@@ -953,11 +942,12 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return;
     }
 
+    const nextSelection = { columnIndex: details.columnIndex, position: details.position };
+
     clearRemoveCardArming();
     clearRemoveColumnArming();
-    state.selectedCard = { columnIndex: details.columnIndex, position: details.position };
+    state.selectedCard = nextSelection;
     state.selectedColumnIndex = details.columnIndex;
-    state.suppressBoardCardDoublePressSelection = { columnIndex: details.columnIndex, position: details.position };
     state.overlay = "card-details";
     state.pendingFocus = "board-card-details-scroll";
   }
@@ -1198,7 +1188,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
             {createButton("board-card-move", "Move", openMoveCard)}
             {createButton("board-card-priority", "Priority", openPriorityCard)}
             {createButton("board-card-remove", removeIsArmed ? "Delete card" : "Remove", armOrRemoveSelectedCard, removeIsArmed ? "error" : undefined)}
-            {createButton("board-details-close", "Close", () => closeBoardOverlay(state, { suppressStaleBoardCardDoublePress: false }))}
+            {createButton("board-details-close", "Close", () => closeBoardOverlay(state))}
           </View>
         ]}
       />
@@ -1831,11 +1821,10 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     );
   }
 
-  const activePanelNodes = state.overlay === null
-    ? renderBoardNodes(board, state, { width, panelHeight, openCardDetails, openColumnDetails, switchBoard })
-    : state.overlay === "boards-menu"
-      ? [boardManagerPanel()]
-      : [<Text></Text>];
+  const boardPanelNodes = renderBoardNodes(board, state, { width, panelHeight, openCardDetails, openColumnDetails, switchBoard });
+  const activePanelNodes = state.overlay === "boards-menu"
+    ? [boardManagerPanel()]
+    : boardPanelNodes;
 
   return {
     activePanelNodes,

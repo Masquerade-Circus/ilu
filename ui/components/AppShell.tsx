@@ -1,6 +1,8 @@
 import { Box, Fixed, Row, Screen, Text } from "@valyrianjs/terminal";
 import type { AppShellOptions } from "../types";
 
+const TOP_NAV_BOTTOM_MARGIN_ROWS = 1;
+
 export function createAppShell(options: AppShellOptions): JSX.Element {
   const {
     activePanelNodes,
@@ -19,6 +21,7 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
   return (
     <Screen title="">
       {topNav}
+      {TOP_NAV_BOTTOM_MARGIN_ROWS > 0 ? <Text>{""}</Text> : null}
       <Box width={width} height={panelHeight} style={panelStyle}>
         {activePanelNodes}
       </Box>

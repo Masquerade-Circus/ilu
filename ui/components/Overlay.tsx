@@ -24,8 +24,10 @@ export type AppOverlayProps = Partial<TerminalOverlayProps> & OverlaySurfaceOpti
 export function createOverlayProps(props: Partial<TerminalOverlayProps> = {}): TerminalOverlayProps {
   const style: TerminalStyleValue = props.style ?? OVERLAY_STYLE;
   const margin = props.margin ?? { x: "10%", y: "10%" };
+  const trapFocus = props.trapFocus ?? true;
+  const backdrop = props.backdrop ?? true;
 
-  return { ...props, margin, style };
+  return { ...props, margin, style, trapFocus, backdrop };
 }
 
 export function overlayInnerDimension(total: number): number {

@@ -84,6 +84,27 @@ test('Translate app opens from top nav and renders approved copy', async () => {
 });
 
 
+
+test('Translate utility renders actions in the bottom action area', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions()});
+
+  try {
+    session.click('tab-translate');
+
+    const lines = visibleLines(session.output());
+    const actionRow = lines.findIndex(line => /Translate/.test(line) && /Copy result/.test(line));
+
+    assert.equal(actionRow, 22, `Translate actions must render in the fixed action area:
+${lines.join('\n')}`);
+    assert.equal(lines.slice(2, 22).some(line => /Copy result/.test(line)), false, `Translate panel body must stay for inputs, status, errors, and results:
+${lines.join('\n')}`);
+    assert.equal(lines.filter(line => line.length > 80).length, 0);
+  } finally {
+    session.destroy();
+  }
+});
+
 test('Translate utility clears stale translation when inputs change or translation fails', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
@@ -277,6 +298,37 @@ test('TTS utility handles missing credentials without API-key input and uses app
 });
 
 
+
+
+test('TTS utility renders actions in the bottom action area', async () => {
+  const Ui = require(uiModulePath);
+  const ttsActions = {
+    voices: ['alloy', 'nova'],
+    getDefaultVoice: () => 'alloy',
+    async createAudio() {
+      return {ok: true, outputFile: './tmp/unused.mp3', message: 'Audio ready.'};
+    },
+    async setDefaultVoice(values) {
+      return {ok: true, voice: values.voice};
+    }
+  };
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(), ttsActions});
+
+  try {
+    session.click('tab-speech');
+
+    const lines = visibleLines(session.output());
+    const actionRow = lines.findIndex(line => /Start conversion/.test(line) && /Choose voice/.test(line));
+
+    assert.equal(actionRow, 22, `TTS actions must render in the fixed action area:
+${lines.join('\n')}`);
+    assert.equal(lines.slice(2, 22).some(line => /Start conversion|Choose voice/.test(line)), false, `TTS panel body must stay for inputs, status, errors, and voice state:
+${lines.join('\n')}`);
+    assert.equal(lines.filter(line => line.length > 80).length, 0);
+  } finally {
+    session.destroy();
+  }
+});
 
 test('TTS voice overlay pins Cancel to the overlay bottom', async () => {
   const Ui = require(uiModulePath);

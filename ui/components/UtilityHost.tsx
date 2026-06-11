@@ -1,5 +1,6 @@
 import { Editor, FocusScope, Input, List, ScrollView, Text, View } from "@valyrianjs/terminal";
 import type { TerminalEditorChangeEventPayload, TerminalInputChangeEventPayload, TerminalListPressEventPayload } from "@valyrianjs/terminal";
+import { createActionBar } from "./ActionBar";
 import { createButton } from "./Button";
 import { AppOverlay, overlayInnerDimension } from "./Overlay";
 import type {
@@ -409,19 +410,43 @@ function createSyncContent(state: UtilityRuntimeState, syncActions: SyncActions,
         {state.sync.details.map(detail => <Text>{detail}</Text>)}
         {busy ? <Text>Pending sync</Text> : <Text></Text>}
       </ScrollView>
-      <View direction="row" gap={1}>
-        {createButton("sync-retry", "Retry sync", () => runSyncOperation(state, "retry", () => syncActions.retry(), onComplete))}
-        {createButton("sync-enable", "Enable sync", () => runSyncOperation(state, "enable", () => syncActions.enable(), onComplete))}
-        {createButton("sync-disable", "Disable sync", () => runSyncOperation(state, "disable", () => syncActions.disable(), onComplete))}
-      </View>
-      <View direction="row" gap={1}>
-        {createButton("sync-setup", "Set up sync", () => {
-          resetInitForm(state);
-          state.activeOverlay = "sync-init";
-        })}
-      </View>
     </FocusScope>
   );
+}
+
+export function createSyncActionBar(state: UtilityRuntimeState, syncActions: SyncActions, onComplete?: RequestRender): OptionalTerminalChild {
+  return createActionBar({
+    actions: [
+      createButton("sync-retry", "Retry sync", () => runSyncOperation(state, "retry", () => syncActions.retry(), onComplete)),
+      createButton("sync-enable", "Enable sync", () => runSyncOperation(state, "enable", () => syncActions.enable(), onComplete)),
+      createButton("sync-disable", "Disable sync", () => runSyncOperation(state, "disable", () => syncActions.disable(), onComplete)),
+      createButton("sync-setup", "Set up sync", () => {
+        resetInitForm(state);
+        state.activeOverlay = "sync-init";
+      })
+    ]
+  });
+}
+
+export function createTranslateActionBar(state: UtilityRuntimeState, babelActions: BabelActions, onComplete?: RequestRender): OptionalTerminalChild {
+  return createActionBar({
+    actions: [
+      createButton("translate-start", "Translate", () => runTranslate(state, babelActions, onComplete)),
+      createButton("translate-copy", "Copy result", () => copyTranslation(state, babelActions, onComplete))
+    ]
+  });
+}
+
+export function createTtsActionBar(state: UtilityRuntimeState, ttsActions: TtsActions, onComplete?: RequestRender): OptionalTerminalChild {
+  return createActionBar({
+    actions: [
+      createButton("tts-start", "Start conversion", () => runTtsConversion(state, ttsActions, onComplete)),
+      createButton("tts-choose-voice", "Choose voice", () => {
+        updateTtsVoices(state, ttsActions);
+        state.activeOverlay = "tts-voice";
+      })
+    ]
+  });
 }
 
 function createSyncInitOverlay(state: UtilityRuntimeState, syncActions: SyncActions, layout: UtilityOverlayLayout, onComplete?: RequestRender): OptionalTerminalChild {
@@ -566,11 +591,6 @@ function createTranslateContent(state: UtilityRuntimeState, babelActions: BabelA
               }}
             />
           </View>
-          <View direction="row" gap={1}>
-            {createButton("translate-start", "Translate", () => runTranslate(state, babelActions, onComplete))}
-            {createButton("translate-copy", "Copy result", () => copyTranslation(state, babelActions, onComplete))}
-
-          </View>
           <ScrollView id="translate-result-scroll" height={6}>
             <Text>Translation</Text>
             <Text>{state.babel.translation || ""}</Text>
@@ -614,14 +634,6 @@ function createTtsContent(state: UtilityRuntimeState, ttsActions: TtsActions, on
           />
           <Text>Voice</Text>
           <Text>{state.tts.voice}</Text>
-          <View direction="row" gap={1}>
-            {createButton("tts-start", "Start conversion", () => runTtsConversion(state, ttsActions, onComplete))}
-            {createButton("tts-choose-voice", "Choose voice", () => {
-              updateTtsVoices(state, ttsActions);
-              state.activeOverlay = "tts-voice";
-            })}
-
-          </View>
     </FocusScope>
   );
 }

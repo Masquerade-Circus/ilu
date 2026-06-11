@@ -76,6 +76,31 @@ test('Sync app opens from top nav and shows detailed status', async () => {
   session.destroy();
 });
 
+
+test('Sync app renders action controls in the bottom action area', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  try {
+    session.click('tab-sync');
+
+    const lines = visibleLines(session.output());
+    const actionRow = lines.findIndex(line => /Retry sync/.test(line) && /Enable sync/.test(line) && /Disable sync/.test(line));
+    const setupRow = lines.findIndex(line => /Set up sync/.test(line));
+
+    assert.equal(actionRow, 22, `Sync primary actions must render in the fixed action area:
+${lines.join('\n')}`);
+    assert.equal(setupRow, 22, `Sync setup action must share the fixed action area:
+${lines.join('\n')}`);
+    assert.equal(lines.slice(2, 22).some(line => /Retry sync|Enable sync|Disable sync|Set up sync/.test(line)), false, `Sync panel body must stay for status/content only:
+${lines.join('\n')}`);
+    assert.equal(lines.filter(line => line.length > 80).length, 0);
+  } finally {
+    session.destroy();
+  }
+});
+
 test('Sync retry updates visible status through the utility command path', async () => {
   const Ui = require(uiModulePath);
   const calls = [];

@@ -1,6 +1,6 @@
 import { Box, Button, List, View } from "@valyrianjs/terminal";
 import type { TerminalListChangeEventPayload, TerminalListPressEventPayload } from "@valyrianjs/terminal";
-import type { BoardCard, BoardCardListItem, BoardColumn, BoardRuntimeState, Selection } from "../../types";
+import type { BoardCardListItem, BoardColumn, BoardRuntimeState, Selection } from "../../types";
 import { UI_COLORS } from "../../theme";
 import { positiveInteger } from "./BoardCard";
 
@@ -22,10 +22,6 @@ const BOARD_COLUMN_HEADER_ACTIVE_STYLE = Object.freeze({
   border: { bottom: true, style: "solid", color: UI_COLORS.borderActive },
   padding: { left: 0, right: 0 }
 });
-const BOARD_CARD_LIST_STYLE = Object.freeze({ color: UI_COLORS.text });
-const BOARD_CARD_LIST_ACTIVE_STYLE = Object.freeze({ color: UI_COLORS.textStrong });
-const BOARD_CARD_DOUBLE_PRESS_WINDOW_MS = 500;
-const boardCardPressState = new WeakMap<BoardRuntimeState, { selection: Selection; expiresAt: number }>();
 
 function visibleLength(value: unknown): number {
   return String(value).length;
@@ -118,56 +114,37 @@ function renderBoardCardListItem(card: BoardCardListItem, cardOffset: number, co
   return isSelected ? `› ${title}` : `• ${title}`;
 }
 
-function clearStaleDoublePressSuppress(state: BoardRuntimeState): void {
-  state.suppressBoardCardDoublePressUntil = 0;
-  state.suppressBoardCardDoublePressSelection = null;
-}
+type BoardCardListEvent = TerminalListChangeEventPayload<BoardCardListItem> | TerminalListPressEventPayload<BoardCardListItem>;
 
-function sameSelection(left: Selection | null | undefined, right: Selection): boolean {
-  return Boolean(
-    left
-      && positiveInteger(left.columnIndex)
-      && positiveInteger(left.position)
-      && left.columnIndex === right.columnIndex
-      && left.position === right.position
-  );
-}
+function selectionFromListEvent(columnIndex: number, event: BoardCardListEvent): Selection {
+  const key = event.key;
 
-function shouldIgnoreStaleDoublePress(state: BoardRuntimeState, selection: Selection): boolean {
-  const suppressUntil = typeof state.suppressBoardCardDoublePressUntil === "number" ? state.suppressBoardCardDoublePressUntil : 0;
+  if (typeof key === "string") {
+    const match = key.match(/^(\d+):(\d+)$/);
 
-  if (suppressUntil <= 0) {
-    return false;
+    if (match) {
+      const keyColumnIndex = Number(match[1]);
+      const position = Number(match[2]);
+
+      if (keyColumnIndex === columnIndex && positiveInteger(position)) {
+        return { columnIndex, position };
+      }
+    }
   }
 
-  if (Date.now() > suppressUntil) {
-    clearStaleDoublePressSuppress(state);
-    return false;
-  }
-
-  const shouldIgnore = sameSelection(state.suppressBoardCardDoublePressSelection, selection);
-
-  if (shouldIgnore) {
-    clearStaleDoublePressSuppress(state);
-  }
-
-  return shouldIgnore;
+  return selectionFromCard(columnIndex, event.value, event.index);
 }
 
-function activateCardDetails(
+function selectCardFromListEvent(
   state: BoardRuntimeState,
-  selection: Selection,
-  openCardDetails?: (selection: Selection) => void
-): void {
-  boardCardPressState.delete(state);
+  event: BoardCardListEvent,
+  columnIndex: number
+): Selection {
+  const selection = selectionFromListEvent(columnIndex, event);
 
-  if (shouldIgnoreStaleDoublePress(state, selection)) {
-    return;
-  }
-
-  if (typeof openCardDetails === "function") {
-    openCardDetails(selection);
-  }
+  state.selectedCard = selection;
+  state.selectedColumnIndex = selection.columnIndex;
+  return selection;
 }
 
 function activateCardFromDoublePress(
@@ -176,36 +153,11 @@ function activateCardFromDoublePress(
   columnIndex: number,
   openCardDetails?: (selection: Selection) => void
 ): void {
-  activateCardDetails(state, selectionFromCard(columnIndex, event.value, event.index), openCardDetails);
-}
+  const selection = selectCardFromListEvent(state, event, columnIndex);
 
-function selectCardFromPress(
-  state: BoardRuntimeState,
-  event: TerminalListPressEventPayload<BoardCardListItem>,
-  columnIndex: number,
-  openCardDetails?: (selection: Selection) => void
-): void {
-  const selection = selectionFromCard(columnIndex, event.value, event.index);
-
-  state.selectedCard = selection;
-  state.selectedColumnIndex = selection.columnIndex;
-
-  if (shouldIgnoreStaleDoublePress(state, selection)) {
-    boardCardPressState.delete(state);
-    return;
+  if (typeof openCardDetails === "function") {
+    openCardDetails(selection);
   }
-
-  const lastPress = boardCardPressState.get(state);
-
-  if (lastPress && Date.now() <= lastPress.expiresAt && sameSelection(lastPress.selection, selection)) {
-    activateCardDetails(state, selection, openCardDetails);
-    return;
-  }
-
-  boardCardPressState.set(state, {
-    selection,
-    expiresAt: Date.now() + BOARD_CARD_DOUBLE_PRESS_WINDOW_MS
-  });
 }
 
 export function createBoardColumnNode(
@@ -260,14 +212,12 @@ export function createBoardColumnNode(
           wrap={true}
           itemKey={(item: BoardCardListItem, index: number) => `${columnIndex}:${boardCardPosition(item, index)}`}
           showActive={false}
-          style={BOARD_CARD_LIST_STYLE}
-          styles={{ selected: BOARD_CARD_LIST_ACTIVE_STYLE, current: BOARD_CARD_LIST_ACTIVE_STYLE, hover: BOARD_CARD_LIST_ACTIVE_STYLE }}
           onchange={(event: TerminalListChangeEventPayload<BoardCardListItem>) => {
-            const selection = selectionFromCard(columnIndex, event.value, event.index);
-            state.selectedCard = selection;
-            state.selectedColumnIndex = selection.columnIndex;
+            selectCardFromListEvent(state, event, columnIndex);
           }}
-          onpress={(event: TerminalListPressEventPayload<BoardCardListItem>) => selectCardFromPress(state, event, columnIndex, openCardDetails)}
+          onpress={(event: TerminalListPressEventPayload<BoardCardListItem>) => {
+            selectCardFromListEvent(state, event, columnIndex);
+          }}
           ondoublepress={(event: TerminalListPressEventPayload<BoardCardListItem>) => activateCardFromDoublePress(state, event, columnIndex, openCardDetails)}
           renderItem={(item: BoardCardListItem, index: number) => renderBoardCardListItem(item, index, columnIndex, state.selectedCard)}
         />

@@ -113,6 +113,9 @@ const { createTopNav }: typeof import("./components/TopNav") = require("./compon
 const {
   closeUtilityOverlay,
   createInitialUtilityState,
+  createSyncActionBar,
+  createTranslateActionBar,
+  createTtsActionBar,
   createUtilityOverlay,
   createUtilityPanel,
   prepareUtilityApp
@@ -200,6 +203,7 @@ function normalizeSyncStatus(value: unknown): SyncStatusState {
 }
 
 const overlayFocusSignatures = new WeakMap<AppRuntimeState, string>();
+const trackedFocusIds = new WeakMap<AppRuntimeState, string>();
 
 function closeAllOverlays(state: AppRuntimeState): void {
   state.overlay = null;
@@ -619,6 +623,14 @@ function createApp(
       activePageOverlays = boardView.overlays;
     } else {
       activePanelNodes = createUtilityPanel(state.activeTab, state.utilities, syncActions, babelActions, ttsActions, requestRender);
+
+      if (state.activeTab === "Sync") {
+        actionBar = createSyncActionBar(state.utilities, syncActions, requestRender);
+      } else if (state.activeTab === "Translate") {
+        actionBar = createTranslateActionBar(state.utilities, babelActions, requestRender);
+      } else if (state.activeTab === "Speech") {
+        actionBar = createTtsActionBar(state.utilities, ttsActions, requestRender);
+      }
     }
     const activeUtilityOverlay = state.activeTab === "Sync" || state.activeTab === "Translate" || state.activeTab === "Speech"
       ? createUtilityOverlay(state.utilities, syncActions, babelActions, ttsActions, { width: currentWidth(), rows: currentRows() }, requestRender)
@@ -781,6 +793,8 @@ function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeSta
     if (focused) {
       state.board.pendingFocus = null;
       overlayFocusSignatures.set(state, overlayFocusSignature(state));
+      trackedFocusIds.set(state, explicitPendingFocus);
+      session.update();
     }
 
     return focused;
@@ -799,7 +813,14 @@ function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeSta
     return false;
   }
 
-  return session.focus(initialFocusId);
+  const focused = session.focus(initialFocusId);
+
+  if (focused) {
+    trackedFocusIds.set(state, initialFocusId);
+    session.update();
+  }
+
+  return focused;
 }
 
 function isTerminalElementNode(node: TerminalNode): node is TerminalElementNode {
@@ -920,12 +941,17 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     },
     focus(id) {
       const focused = activeSession.focus(id);
+
+      if (focused) {
+        trackedFocusIds.set(state, id);
+      }
+
       activeSession.update();
       return focused;
     },
     focusedId() {
       const focused = findFocusedNode(activeSession.tree());
-      return focused && focused.props ? focused.props.id : null;
+      return focused && focused.props ? focused.props.id : trackedFocusIds.get(state) || null;
     },
     output() {
       return activeSession.output();
@@ -956,6 +982,10 @@ function updateLayoutFromStdout(layout: RuntimeLayout, stdout: TerminalOutputStr
   }
 
   layout.cols = stdout.columns;
+
+  if (positiveInteger(stdout.rows)) {
+    layout.rows = stdout.rows;
+  }
 
   if (layout.lockPanelHeight === true) {
     return;

@@ -82,8 +82,6 @@ export interface BoardRuntimeState {
   removeCardArmedSelection: Selection | null;
   removeColumnArmedUntil: number;
   removeColumnArmedIndex: number | null;
-  suppressBoardCardDoublePressUntil: number;
-  suppressBoardCardDoublePressSelection: Selection | null;
 }
 
 export type UtilityOverlayId = "sync-init" | "tts-voice" | null;
