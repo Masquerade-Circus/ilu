@@ -24,6 +24,7 @@ import type {
 import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
 import { AppOverlay } from "../../components/Overlay";
+import { emptyStateText, errorStateText } from "../../components/StateText";
 
 const { searchTimezoneChoices }: { searchTimezoneChoices: (search?: unknown) => TimezoneChoice[] } = require("../../clock-actions");
 
@@ -193,20 +194,7 @@ function closeClockOverlay(state: ClockRuntimeState): boolean {
   return true;
 }
 
-export function handleClockCommand(command: TerminalCommand, state: ClockRuntimeState, isActive: boolean, _context?: TerminalCommandContext): boolean {
-  if (isActive !== true) {
-    return false;
-  }
-
-  if (command.id === "ilu.escape" || command.id === "ilu.cancel") {
-    return closeClockOverlay(state);
-  }
-
-  return false;
-}
-
-export function createClocksMainView(options: ClockMainViewOptions): ClockMainViewResult {
-  const { clocks, state, isActive, clockActions, refreshSnapshot, utilityActions = [] } = options;
+export function prepareClockViewState(clocks: ClockSnapshot, state: ClockRuntimeState): void {
   const items = Array.isArray(clocks.items) ? clocks.items : [];
   const positions = itemPositions(items);
   const normalizedSelectedPosition = normalizeSelectedClockPosition(items, state.selectedClockPosition);
@@ -222,7 +210,23 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
   if (removePositionsChanged) {
     state.removeClockPositions = normalizedRemovePositions;
   }
+}
 
+export function handleClockCommand(command: TerminalCommand, state: ClockRuntimeState, isActive: boolean, _context?: TerminalCommandContext): boolean {
+  if (isActive !== true) {
+    return false;
+  }
+
+  if (command.id === "ilu.escape" || command.id === "ilu.cancel") {
+    return closeClockOverlay(state);
+  }
+
+  return false;
+}
+
+export function createClocksMainView(options: ClockMainViewOptions): ClockMainViewResult {
+  const { clocks, state, isActive, clockActions, refreshSnapshot, utilityActions = [] } = options;
+  const items = Array.isArray(clocks.items) ? clocks.items : [];
   const activeClock = selectedClock(items, state);
 
   function close(): void {
@@ -319,11 +323,11 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
 
   function clockRows(): JSX.Element[] {
     if (typeof clocks.error === "string" && clocks.error.length > 0) {
-      return [<Text>{clocks.error}</Text>];
+      return [errorStateText(clocks.error)];
     }
 
     if (items.length === 0) {
-      return [<Text>No clocks yet. Add a clock to see it here.</Text>];
+      return [emptyStateText("No clocks yet. Add a clock to see it here.")];
     }
 
     return [

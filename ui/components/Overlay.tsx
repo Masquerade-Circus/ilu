@@ -30,13 +30,6 @@ export function createOverlayProps(props: Partial<TerminalOverlayProps> = {}): T
   return { ...props, margin, style, trapFocus, backdrop };
 }
 
-export function overlayInnerDimension(total: number): number {
-  const safeTotal = Number.isInteger(total) && total > 0 ? total : 1;
-  const margin = Math.round(safeTotal * 0.1);
-
-  return Math.max(1, safeTotal - margin * 2);
-}
-
 export function createOverlaySurface(...children: Array<JSX.Element | null>): JSX.Element {
   return createOverlaySurfaceFrame({}, ...children);
 }

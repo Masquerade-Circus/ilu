@@ -127,27 +127,31 @@ const {
   createBoardMainView,
   createInitialBoardState,
   getBoardPendingFocus,
-  handleBoardCommand
+  handleBoardCommand,
+  openBoardAddCardModal
 }: typeof import("./pages/board/MainView") = require("./pages/board/MainView.tsx");
 const {
   createClocksMainView,
   createInitialClockState,
   handleClockCommand,
-  renderClockNodes
+  renderClockNodes,
+  prepareClockViewState
 }: typeof import("./pages/clocks/MainView") = require("./pages/clocks/MainView.tsx");
 const {
   createInitialNotesState,
   createNotesKeyBindings,
   createNotesMainView,
   handleNotesCommand,
-  renderNotesNodes
+  renderNotesNodes,
+  prepareNotesViewState
 }: typeof import("./pages/notes/MainView") = require("./pages/notes/MainView.tsx");
 const {
   createInitialTodoState,
   createTodoKeyBindings,
   createTodoMainView,
   handleTodoCommand,
-  renderTodoNodes
+  renderTodoNodes,
+  prepareTodoViewState
 }: typeof import("./pages/todos/MainView") = require("./pages/todos/MainView.tsx");
 
 const TABS = Object.freeze(["Todo", "Notes", "Board", "Clocks", "Sync", "Translate", "Speech"] as const);
@@ -181,6 +185,14 @@ function createTerminalTheme(terminal: TerminalRuntimeModule): TerminalTheme {
         selected: { color: UI_COLORS.textStrong },
         current: { color: UI_COLORS.textStrong },
         hover: { color: UI_COLORS.textStrong }
+      },
+      text: {
+        empty: { color: UI_COLORS.muted },
+        error: { color: UI_COLORS.textStrong, background: UI_COLORS.danger },
+        loading: { color: UI_COLORS.borderActive },
+        muted: { color: UI_COLORS.muted },
+        warning: { color: UI_COLORS.warning },
+        success: { color: UI_COLORS.success }
       }
     },
     spans: {
@@ -644,10 +656,8 @@ function createApp(
       footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus),
       footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus),
       panelHeight: currentPanelHeight(),
-      panelStyle: state.activeTab === "Board" && state.board.overlay === "boards-menu"
-        ? { color: UI_COLORS.text, padding: { left: 1, right: 1 } }
-        : PANEL_STYLE,
-      topNav: createTopNav(state, TABS, { onSelect: selectTab }),
+      panelStyle: PANEL_STYLE,
+      topNav: createTopNav(state, TABS, { onSelect: selectTab, width: currentWidth() }),
       width: currentWidth()
     });
   }
@@ -847,6 +857,29 @@ function findFocusedNode(nodes: TerminalNode[]): TerminalElementNode | null {
   return null;
 }
 
+
+function prepareActivePageState(state: AppRuntimeState, snapshot: UiSnapshot): void {
+  if (state.activeTab === "Todo") {
+    prepareTodoViewState(snapshot.todo, state.todo);
+    return;
+  }
+
+  if (state.activeTab === "Notes") {
+    prepareNotesViewState(snapshot.notes, state.notesState);
+    return;
+  }
+
+  if (state.activeTab === "Clocks") {
+    prepareClockViewState(snapshot.clocks, state.clocksState);
+  }
+}
+
+function prepareActiveUtilityApp(state: AppRuntimeState, actions: SessionActions, requestRender?: () => void): void {
+  const syncActions = actions.syncActions || createSyncActions();
+  const ttsActions = actions.ttsActions || createTtsActions();
+  prepareUtilityApp(state.utilities, state.activeTab, syncActions, ttsActions, requestRender);
+}
+
 function createSessionActions(options: AppOptions, snapshotRef: SnapshotRef, requestRender?: () => void): SessionActions {
   return {
     boardActions: options.boardActions || createBoardActions(),
@@ -868,7 +901,10 @@ async function renderSmoke(options: AppOptions = {}): Promise<string> {
   const cols = options.cols || 80;
   const rows = options.rows || 24;
   const layout = resolveLayoutOptions({ cols, rows, panelHeight: options.panelHeight });
-  const app = createApp(runtime, state, snapshotRef, layout, createSessionActions(options, snapshotRef));
+  const sessionActions = createSessionActions(options, snapshotRef);
+  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveUtilityApp(state, sessionActions);
+  const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const session = runtime.terminal.mountTerminal(app, { runtime: "headless", cols, rows, theme: createTerminalTheme(runtime.terminal) });
   const output = session.output();
   session.destroy();
@@ -888,9 +924,14 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     }
   };
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
+  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24, panelHeight: options.panelHeight });
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const keymap = createKeymap(state, () => {
+    prepareActivePageState(state, snapshotRef.current);
+    prepareActiveUtilityApp(state, sessionActions, requestRender);
+
     if (session) {
       applyPendingFocus(session, state);
 
@@ -928,6 +969,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   return {
     dispatchKey(key) {
       const output = activeSession.dispatchKey(key);
+      prepareActivePageState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
@@ -936,6 +978,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       for (const char of String(value)) {
         output = activeSession.dispatchKey(char);
       }
+      prepareActivePageState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
@@ -961,11 +1004,20 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     },
     click(id) {
       const output = activeSession.click(id);
+
+      if (output === activeSession.output() && !hasActiveOverlay(state) && handleHeadlessChromeClick(id, state)) {
+        activeSession.update();
+      }
+
+      prepareActivePageState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
-      return output;
+      return activeSession.output();
     },
     clickAt(x, y) {
-      return activeSession.clickAt(x, y);
+      const output = activeSession.clickAt(x, y);
+      prepareActivePageState(state, snapshotRef.current);
+      applyPendingFocus(activeSession, state);
+      return output;
     },
     state() {
       return { ...state, todo: { ...state.todo }, notesState: { ...state.notesState }, board: { ...state.board }, clocksState: { ...state.clocksState }, utilities: { ...state.utilities, sync: { ...state.utilities.sync, initForm: { ...state.utilities.sync.initForm }, details: [...state.utilities.sync.details] }, babel: { ...state.utilities.babel, dictionaryEntries: [...state.utilities.babel.dictionaryEntries] }, tts: { ...state.utilities.tts, voices: [...state.utilities.tts.voices] } } };
@@ -974,6 +1026,49 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return (activeSession.destroy as () => void | Promise<void>)();
     }
   };
+}
+
+function hasActiveOverlay(state: AppRuntimeState): boolean {
+  return Boolean(
+    state.overlay ||
+    state.todo.overlay ||
+    state.notesState.overlay ||
+    state.clocksState.overlay ||
+    state.board.overlay ||
+    state.utilities.activeOverlay
+  );
+}
+
+function handleHeadlessChromeClick(id: string, state: AppRuntimeState): boolean {
+  const tabMatch = id.match(/^tab-(todo|notes|board|clocks|sync|translate|speech)$/);
+
+  if (tabMatch) {
+    const tab = tabMatch[1];
+    const tabById: Record<string, Tab> = {
+      todo: "Todo",
+      notes: "Notes",
+      board: "Board",
+      clocks: "Clocks",
+      sync: "Sync",
+      translate: "Translate",
+      speech: "Speech"
+    };
+    const nextTab = tabById[tab];
+
+    if (nextTab) {
+      closeAllOverlays(state);
+      state.activeTab = nextTab;
+      state.board.pendingFocus = nextTab === "Board" ? getBoardPendingFocus(state.board) : null;
+      return true;
+    }
+  }
+
+  if (id === "board-add-card" && state.activeTab === "Board") {
+    openBoardAddCardModal(state.board);
+    return true;
+  }
+
+  return false;
 }
 
 function updateLayoutFromStdout(layout: RuntimeLayout, stdout: TerminalOutputStream | undefined): void {
@@ -1001,6 +1096,7 @@ function enableLayoutResize(session: TerminalSession, stdout: TerminalOutputStre
     return session;
   }
 
+  const addResizeListener = stdout.on.bind(stdout);
   const removeResizeListener = typeof stdout.off === "function" ? stdout.off.bind(stdout) : stdout.removeListener && stdout.removeListener.bind(stdout);
 
   if (typeof removeResizeListener !== "function") {
@@ -1010,7 +1106,7 @@ function enableLayoutResize(session: TerminalSession, stdout: TerminalOutputStre
   const onResize = () => updateLayoutFromStdout(layout, stdout);
   const destroySession = session.destroy.bind(session);
 
-  stdout.on("resize", onResize);
+  addResizeListener("resize", onResize);
 
   session.destroy = () => {
     removeResizeListener("resize", onResize);
@@ -1034,10 +1130,14 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     }
   };
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
+  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ ...options, stdout });
   layout.lockPanelHeight = positiveInteger(options.panelHeight);
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const keymap = createKeymap(state, () => {
+    prepareActiveUtilityApp(state, sessionActions, requestRender);
+
     if (session) {
       applyPendingFocus(session, state);
 

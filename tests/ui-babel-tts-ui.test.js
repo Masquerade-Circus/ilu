@@ -390,6 +390,38 @@ ${lines.join('\n')}`);
   session.destroy();
 });
 
+test('TTS voice overlay render does not refresh or rewrite voice state', () => {
+  const {renderTerminal, Screen} = require('@valyrianjs/terminal');
+  const {createUtilityOverlay} = require('../ui/components/UtilityHost.tsx');
+  const state = {
+    activeOverlay: 'tts-voice',
+    sync: {label: 'Not set up', details: ['Status: Not set up'], error: '', operation: null, statusLoaded: false, initForm: {remoteUrl: '', branch: 'main', confirmed: false, error: ''}},
+    babel: {text: '', source: 'auto', target: 'en', translation: '', dictionaryEntries: [], error: '', message: '', operation: null, inputVersion: 0},
+    tts: {inputFile: '', outputFile: '', voice: 'alloy', voices: ['alloy'], error: '', message: '', operation: null}
+  };
+  const ttsActions = {
+    voices: ['nova'],
+    getDefaultVoice() {
+      throw new Error('render must not request default TTS voice');
+    },
+    async createAudio() {
+      return {ok: true, outputFile: './tmp/unused.mp3', message: 'Audio ready.'};
+    },
+    async setDefaultVoice(values) {
+      return {ok: true, voice: values.voice};
+    }
+  };
+  const syncActions = createSyncActions();
+  const babelActions = {translate: async () => ({ok: false, error: 'no'}), copyResult: async () => ({ok: false, error: 'no'})};
+
+  const output = renderTerminal(Screen({}, [createUtilityOverlay(state, syncActions, babelActions, ttsActions, {width: 80, rows: 24})]), {cols: 80, rows: 24});
+
+  assert.match(output, /Choose voice/);
+  assert.deepEqual(state.tts.voices, ['alloy']);
+  assert.equal(state.tts.voice, 'alloy');
+});
+
+
 test('TTS utility can choose default voice and display audio progress/result through injected adapter', async () => {
   const Ui = require(uiModulePath);
   const calls = [];

@@ -234,6 +234,7 @@ export interface BoardLayout {
   openCardDetails?: (selection: Selection) => void;
   openColumnDetails?: (columnIndex: number) => void;
   switchBoard?: (id: BoardId) => void;
+  openBoardDetails?: (id: BoardId) => void;
 }
 
 export type BoardCardListItem = BoardCard | string | null | undefined;
@@ -320,7 +321,7 @@ export interface BoardActionHandlers {
   openAddCard: () => void;
   openAddColumn: () => void;
   openResetColumnsConfirm: () => void;
-  openBoardsMenu: () => void;
+  openAddBoard: () => void;
 }
 
 export interface FooterSegment {

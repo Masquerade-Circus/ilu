@@ -4,53 +4,6 @@ export function positiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) > 0;
 }
 
-export function wrapText(value: unknown, width: number): string[] {
-  const text = String(value).replace(/\s+/g, " ").trim();
-
-  if (text.length === 0) {
-    return [""];
-  }
-
-  if (!positiveInteger(width)) {
-    return [text];
-  }
-
-  const lines: string[] = [];
-  let current = "";
-
-  for (const word of text.split(" ")) {
-    if (word.length > width) {
-      if (current.length > 0) {
-        lines.push(current);
-        current = "";
-      }
-
-      for (let index = 0; index < word.length; index += width) {
-        lines.push(word.slice(index, index + width));
-      }
-      continue;
-    }
-
-    const next = current.length > 0 ? `${current} ${word}` : word;
-
-    if (next.length <= width) {
-      current = next;
-      continue;
-    }
-
-    if (current.length > 0) {
-      lines.push(current);
-    }
-    current = word;
-  }
-
-  if (current.length > 0) {
-    lines.push(current);
-  }
-
-  return lines.length > 0 ? lines : [""];
-}
-
 export function normalizeBoardCard(card: BoardCard | string | null | undefined): BoardCard | null {
   if (typeof card === "string") {
     return { title: card, description: "" };

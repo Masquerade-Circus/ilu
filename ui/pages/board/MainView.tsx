@@ -38,7 +38,8 @@ import type {
 } from "../../types";
 import { createButton } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
-import { AppOverlay, overlayInnerDimension } from "../../components/Overlay";
+import { AppOverlay } from "../../components/Overlay";
+import { emptyStateText, errorStateText } from "../../components/StateText";
 import {
   CARD_DETAILS_HEADING_STYLE,
   CARD_DETAILS_SURFACE_STYLE,
@@ -48,7 +49,7 @@ import {
 } from "../../theme";
 import { getBoardCard, getBoardColumn, positiveInteger } from "./BoardCard";
 import { createBoardActionBar } from "./BoardActionBar";
-import { createBoardColumnNode, splitColumnWidths } from "./BoardColumn";
+import { createBoardColumnNode } from "./BoardColumn";
 
 export const BOARD_DESCRIPTION_EDITOR_IDS = Object.freeze(["board-add-description", "board-edit-description", "board-add-board-description", "board-rename-board-description"] as const);
 
@@ -74,7 +75,7 @@ const BOARD_OVERLAY_STATES = Object.freeze([
   "column-details",
   "add-column",
   "rename-column",
-  "boards-menu",
+  "board-details",
   "add-board",
   "rename-board",
   "remove-board-confirm",
@@ -113,14 +114,6 @@ export function boardSwitchElementId(board: BoardSummary, index: number): string
   return rawId.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || `board-${index + 1}`;
 }
 
-export function boardManagerItemKey(board: BoardSummary, index: number): string {
-  if (typeof board.id === "string" || typeof board.id === "number") {
-    return `board:${typeof board.id}:${String(board.id)}`;
-  }
-
-  return `board:position:${index + 1}`;
-}
-
 function boardSelectorItems(board: BoardSnapshot): BoardSummary[] {
   if (Array.isArray(board.boards) && board.boards.length > 0) {
     return board.boards;
@@ -145,12 +138,16 @@ function createColumnDetailsButton(id: string, label: string, onpress: () => voi
   );
 }
 
-function renderBoardSelector(board: BoardSnapshot, switchBoard?: (id: BoardId) => void): JSX.Element {
+type BoardSelectorHandlers = {
+  switchBoard?: (id: BoardId) => void;
+  openBoardDetails?: (id: BoardId) => void;
+};
+
+function renderBoardSelector(board: BoardSnapshot, handlers: BoardSelectorHandlers = {}): JSX.Element {
   const boards = boardSelectorItems(board);
 
   return (
     <View direction="row" gap={1}>
-      <Text>Boards</Text>
       {boards.map((item, index) => {
         const id = boardSwitchElementId(item, index);
         const label = typeof item.title === "string" && item.title.trim().length > 0 ? item.title.trim() : "Untitled board";
@@ -164,8 +161,13 @@ function renderBoardSelector(board: BoardSnapshot, switchBoard?: (id: BoardId) =
             styles={{ selected: "button.focus", focus: "button.focus", hover: "button.hover" }}
             state={active ? "selected" : undefined}
             onpress={() => {
-              if (typeof switchBoard === "function" && (typeof item.id === "string" || typeof item.id === "number")) {
-                switchBoard(item.id);
+              if (typeof handlers.switchBoard === "function" && (typeof item.id === "string" || typeof item.id === "number")) {
+                handlers.switchBoard(item.id);
+              }
+            }}
+            ondoublepress={() => {
+              if (typeof handlers.openBoardDetails === "function" && (typeof item.id === "string" || typeof item.id === "number")) {
+                handlers.openBoardDetails(item.id);
               }
             }}
           />
@@ -314,7 +316,9 @@ export function createBoardKeyBindings(): TerminalKeyBinding[] {
     { key: "ENTER", command: { id: "ilu.board-card-list-enter" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "SPACE", command: { id: "ilu.board-card-list-space" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "LEFT", command: { id: "ilu.column-left" }, scope: "global", when: { focusedTag: "terminal-list" } },
-    { key: "RIGHT", command: { id: "ilu.column-right" }, scope: "global", when: { focusedTag: "terminal-list" } }
+    { key: "RIGHT", command: { id: "ilu.column-right" }, scope: "global", when: { focusedTag: "terminal-list" } },
+    { key: "LEFT", command: { id: "ilu.board-column-header-left" }, scope: "global", when: { focusedTag: "terminal-button" } },
+    { key: "RIGHT", command: { id: "ilu.board-column-header-right" }, scope: "global", when: { focusedTag: "terminal-button" } }
   ];
 }
 
@@ -325,6 +329,18 @@ function boardCardListHasKeyFocus(context: TerminalCommandContext | null | undef
 function focusedBoardColumnIndex(context: TerminalCommandContext | null | undefined): number | null {
   const focusedId = typeof context?.focusedId === "string" ? context.focusedId : "";
   const match = focusedId.match(/^board-card-list-(\d+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const columnIndex = Number(match[1]);
+  return positiveInteger(columnIndex) ? columnIndex : null;
+}
+
+function focusedBoardColumnHeaderIndex(context: TerminalCommandContext | null | undefined): number | null {
+  const focusedId = typeof context?.focusedId === "string" ? context.focusedId : "";
+  const match = focusedId.match(/^board-column-header-(\d+)$/);
 
   if (!match) {
     return null;
@@ -469,8 +485,8 @@ function sameSelection(left: Selection | null | undefined, right: Selection | nu
   return Boolean(left && right && left.columnIndex === right.columnIndex && left.position === right.position);
 }
 
-export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive = true): boolean {
-  if (command.id !== "ilu.column-left" && command.id !== "ilu.column-right") {
+export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive = true, context?: TerminalCommandContext): boolean {
+  if (command.id !== "ilu.column-left" && command.id !== "ilu.column-right" && command.id !== "ilu.board-column-header-left" && command.id !== "ilu.board-column-header-right") {
     return false;
   }
 
@@ -479,6 +495,43 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
   }
 
   const columns = boardColumnsFromSnapshot(snapshotRef);
+
+  if (command.id === "ilu.board-column-header-left" || command.id === "ilu.board-column-header-right") {
+    const columnIndex = focusedBoardColumnHeaderIndex(context);
+
+    if (columns.length === 0 || columnIndex === null) {
+      return false;
+    }
+
+    const toColumn = command.id === "ilu.board-column-header-left" ? columnIndex - 1 : columnIndex + 1;
+
+    if (toColumn < 1 || toColumn > columns.length) {
+      return true;
+    }
+
+    const moveColumn = command.id === "ilu.board-column-header-left" ? boardActions.moveColumnLeft : boardActions.moveColumnRight;
+
+    if (typeof moveColumn !== "function") {
+      state.actionError = "Column could not be moved. Try again.";
+      state.overlay = "card-action-error";
+      return true;
+    }
+
+    const result = safeActionResult(moveColumn({ columnIndex }), "Column could not be moved. Try again.");
+
+    if (!result.ok) {
+      state.actionError = result.error || "Column could not be moved. Try again.";
+      state.overlay = "card-action-error";
+      return true;
+    }
+
+    snapshotRef.refresh("board");
+    state.selectedColumnIndex = toColumn;
+    state.selectedCard = null;
+    state.pendingFocus = `board-column-header-${toColumn}`;
+    return true;
+  }
+
   const selection = state.selectedCard;
 
   if (columns.length === 0 || !selection || !positiveInteger(selection.columnIndex) || !positiveInteger(selection.position)) {
@@ -551,18 +604,18 @@ export function handleBoardCommand(
     return isActive && state.overlay === null && openFocusedBoardCardDetails(state, snapshotRef, context);
   }
 
-  return handleBoardColumnKeyCommand(command, state, snapshotRef, boardActions, isActive);
+  return handleBoardColumnKeyCommand(command, state, snapshotRef, boardActions, isActive, context);
 }
 
 export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState, layout: BoardLayout): JSX.Element[] {
   if (typeof board.error === "string" && board.error.length > 0) {
-    return [<Text>{board.error}</Text>];
+    return [errorStateText(board.error)];
   }
 
-  const nodes: JSX.Element[] = [renderBoardSelector(board, layout.switchBoard)];
+  const nodes: JSX.Element[] = [renderBoardSelector(board, { switchBoard: layout.switchBoard, openBoardDetails: layout.openBoardDetails })];
 
   if (!Array.isArray(board.columns) || board.columns.length === 0) {
-    nodes.push(<Text>No columns yet. Add a column to get started.</Text>);
+    nodes.push(emptyStateText("No columns yet. Add a column to get started."));
     return nodes;
   }
 
@@ -570,14 +623,12 @@ export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState,
   const gap = 0;
   const boardWidth = Math.max(1, layout.width - 2);
   const boardHeight = Math.max(1, layout.panelHeight - 1);
-  const columnWidths = splitColumnWidths(boardWidth, columns.length, gap);
+  const columnWidth = Math.max(1, Math.floor(boardWidth / columns.length));
   const columnNodes = columns.map((column, columnOffset) => {
-    const columnWidth = columnWidths[columnOffset] ?? Math.max(1, Math.floor(boardWidth / columns.length));
-
     return createBoardColumnNode(column, columnOffset, columnWidth, boardHeight, state, layout.openCardDetails, layout.openColumnDetails);
   });
 
-  nodes.push(<Split width={boardWidth} height={boardHeight} direction="row" gap={gap}>{columnNodes}</Split>);
+  nodes.push(<Split width={boardWidth} height={boardHeight} direction="row" gap={gap} sizes={columns.map(() => "1fr")}>{columnNodes}</Split>);
 
   return nodes;
 }
@@ -623,7 +674,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
   }
 
 
-  function currentBoards(): BoardSummary[] {
+  function currentBoardSummaries(): BoardSummary[] {
     return Array.isArray(currentBoard().boards) ? currentBoard().boards || [] : [];
   }
 
@@ -632,11 +683,11 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return null;
     }
 
-    return currentBoards().find((item) => item.id === id) || null;
+    return currentBoardSummaries().find((item) => item.id === id) || null;
   }
 
   function currentBoardSummary(): BoardSummary | null {
-    const boards = currentBoards();
+    const boards = currentBoardSummaries();
     const current = boards.find((item) => item.current === true);
 
     if (current) {
@@ -670,11 +721,18 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     state.selectedBoardId = id;
   }
 
-  function openBoardsMenu(): void {
-    const current = currentBoardSummary();
-    state.selectedBoardId = current ? current.id : null;
-    state.overlay = "boards-menu";
-    state.pendingFocus = "board-manager-list";
+  function openBoardDetails(id: BoardId): void {
+    const board = boardById(id);
+
+    if (!board) {
+      state.actionError = "Choose a board first.";
+      state.overlay = "card-action-error";
+      return;
+    }
+
+    state.selectedBoardId = id;
+    state.overlay = "board-details";
+    state.pendingFocus = "board-board-details-scroll";
   }
 
   function openAddBoard(): void {
@@ -1078,12 +1136,18 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
   }
 
 
-  function boardOverlayWidth(): number {
-    return overlayInnerDimension(width);
+  function boardOverlayContentHeight(): number {
+    return Math.max(1, panelHeight + BOARD_SHELL_FIXED_ROWS - 4);
   }
 
-  function boardOverlayHeight(): number {
-    return overlayInnerDimension(panelHeight + BOARD_SHELL_FIXED_ROWS);
+  function boardOverlayContentWidth(): number {
+    const horizontalMargin = Math.round(width * 0.1) * 2;
+
+    return Math.max(1, width - horizontalMargin);
+  }
+
+  function boardOverlayEditorHeight(): number {
+    return Math.max(4, boardOverlayContentHeight() - 5);
   }
 
 
@@ -1098,8 +1162,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       <EditOverlay
         heading="Add card"
         error={form.error}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()}
         titleLabel="Title"
         titleInputId="board-add-title"
         titleValue={form.title}
@@ -1110,7 +1172,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorId="board-add-description"
         editorValue={form.description}
         editorPlaceholder="Optional description"
-        editorHeight={Math.max(4, boardOverlayHeight() - 9)}
+        editorHeight={boardOverlayEditorHeight()}
         editorStyle="editor.base"
         editorFocusStyle="editor.focus"
         primaryActionId="board-add-save"
@@ -1139,8 +1201,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{state.actionError || "Action could not be completed."}</Text>
         
         ]}
@@ -1162,17 +1223,15 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     const selection = { columnIndex: details.columnIndex, position: details.position };
     const removeIsArmed = cardRemoveIsArmed(selection);
-    const heading = wrappedTerminalText(`${details.column.title} | ${details.title}`, cardDetailsHeadingWidth(boardOverlayWidth()));
+    const heading = wrappedTerminalText(`${details.column.title} | ${details.title}`, cardDetailsHeadingWidth(boardOverlayContentWidth()));
 
     return (
       <AppOverlay
         trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()}
         surfaceStyle={CARD_DETAILS_SURFACE_STYLE}
         content={
           <FocusScope>
-            <ScrollView id="board-card-details-scroll" height={Math.max(1, boardOverlayHeight() - 5)}>
+            <ScrollView id="board-card-details-scroll" height={Math.max(1, boardOverlayContentHeight() - 1)}>
               <Pane style={CARD_DETAILS_HEADING_STYLE}>
                 <Text>{heading}</Text>
               </Pane>
@@ -1230,8 +1289,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       <EditOverlay
         heading="Edit card"
         error={form.error}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()}
         titleLabel="Title"
         titleInputId="board-edit-title"
         titleValue={form.title}
@@ -1242,7 +1299,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorId="board-edit-description"
         editorValue={form.description}
         editorPlaceholder="Optional description"
-        editorHeight={Math.max(4, boardOverlayHeight() - 9)}
+        editorHeight={boardOverlayEditorHeight()}
         editorStyle="editor.base"
         editorFocusStyle="editor.focus"
         primaryActionId="board-edit-save"
@@ -1278,8 +1335,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{`Move "${details.title}" to:`}</Text>,
           ...((current.columns || []).map((column: BoardColumn, offset: number) => createButton(`board-move-to-${offset + 1}`, column.title || "Untitled column", () => {
             const toColumn = offset + 1;
@@ -1318,8 +1374,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{`Change priority for "${details.title}"`}</Text>,
           canMoveUp ? createButton("board-priority-up", "Move up", () => {
             applyBoardResult(boardActions.prioritizeCard({
@@ -1343,71 +1398,40 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
   }
 
 
-  function boardManagerPanel(): JSX.Element {
-    const boards = currentBoards();
-    const selectedId = selectedBoardId();
-    const availableListRows = Math.max(1, panelHeight - 1);
-    const listHeight = Math.max(1, Math.min(8, availableListRows, boards.length || 1));
+  function boardDetailsOverlay(): JSX.Element | null {
+    if (state.overlay !== "board-details") {
+      return null;
+    }
+
+    const board = selectedBoardSummary();
+
+    if (!board) {
+      return null;
+    }
 
     return (
-      <FocusScope>
-        <Text>Boards</Text>
-        {boards.length > 0 ? (
-          <List
-            id="board-manager-list"
-            items={boards}
-            itemKey={(item: BoardSummary, index: number) => boardManagerItemKey(item, index)}
-            virtualized={true}
-            height={listHeight}
-            wrap={true}
-            onpress={(event: TerminalListPressEventPayload<BoardSummary>) => {
-              setBoardTarget(event.value.id);
-            }}
-            onchange={(event: TerminalListChangeEventPayload<BoardSummary>) => {
-              setBoardTarget(event.value.id);
-            }}
-          >
-            {(item: BoardSummary) => {
-              const currentLabel = item.current === true ? " current" : "";
-              const marker = item.id === selectedId ? "›" : "•";
-              return `${marker} ${item.title}${currentLabel}`;
-            }}
-          </List>
-        ) : (
-          <Text>No boards yet.</Text>
-        )}
-      </FocusScope>
-    );
-  }
-
-  function boardManagerActionBar(): JSX.Element {
-    return (
-      <View direction="row" gap={1}>
-        {createButton("board-add-board", "Add board", openAddBoard)}
-        {createButton("board-rename-board", "Rename", () => {
-          const boardId = selectedBoardId();
-
-          if (boardId === null) {
-            state.actionError = "Choose a board first.";
-            state.overlay = "card-action-error";
-            return;
-          }
-
-          openRenameBoard(boardId);
-        })}
-        {createButton("board-delete-board", "Delete board", () => {
-          const boardId = selectedBoardId();
-
-          if (boardId === null) {
-            state.actionError = "Choose a board first.";
-            state.overlay = "card-action-error";
-            return;
-          }
-
-          openRemoveBoard(boardId);
-        })}
-        {createButton("board-boards-close", "Close", () => closeBoardOverlay(state))}
-      </View>
+      <AppOverlay
+        trapFocus={true}
+        surfaceStyle={CARD_DETAILS_SURFACE_STYLE}
+        content={
+          <FocusScope>
+            <ScrollView id="board-board-details-scroll" height={Math.max(1, boardOverlayContentHeight() - 1)}>
+              <Pane style={CARD_DETAILS_HEADING_STYLE}>
+                <Text>{wrappedTerminalText(`Board: ${board.title}`, cardDetailsHeadingWidth(boardOverlayContentWidth()))}</Text>
+              </Pane>
+              {board.description ? <Text>{board.description}</Text> : null}
+            </ScrollView>
+          </FocusScope>
+        }
+        bottomNav={[
+          <Text></Text>,
+          <View direction="row" gap={1}>
+            {createButton("board-rename-board", "Rename", () => openRenameBoard(board.id))}
+            {createButton("board-delete-board", "Delete board", () => openRemoveBoard(board.id), "error")}
+            {createButton("board-board-details-close", "Close", () => closeBoardOverlay(state))}
+          </View>
+        ]}
+      />
     );
   }
 
@@ -1420,8 +1444,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <FocusScope>
             <Text>Add board</Text>
             <Text>Title</Text>
@@ -1441,7 +1464,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
               id="board-add-board-description"
               value={form.description}
               placeholder="Optional description"
-              height={Math.max(4, boardOverlayHeight() - 9)}
+              height={boardOverlayEditorHeight()}
               style="editor.base"
               styles={{ focus: "editor.focus" }}
               oninput={(event: TerminalEditorChangeEventPayload) => {
@@ -1473,8 +1496,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <FocusScope>
             <Text>Rename board</Text>
             <Text>Title</Text>
@@ -1494,7 +1516,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
               id="board-rename-board-description"
               value={form.description}
               placeholder="Optional description"
-              height={Math.max(4, boardOverlayHeight() - 9)}
+              height={boardOverlayEditorHeight()}
               style="editor.base"
               styles={{ focus: "editor.focus" }}
               oninput={(event: TerminalEditorChangeEventPayload) => {
@@ -1530,8 +1552,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{`Delete board "${board.title}"? This cannot be undone.`}</Text>
         
         ]}
@@ -1559,8 +1580,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     if (!hasColumns) {
       return (
         <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
             <Text>Columns</Text>,
             <Text>No columns yet.</Text>
           
@@ -1575,8 +1595,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     }
 
     const selectedColumnDetails = column;
-    const canMoveLeft = index > 1;
-    const canMoveRight = index < columns.length;
     const count = selectedColumnDetails.count || (Array.isArray(selectedColumnDetails.cards) ? selectedColumnDetails.cards.length : 0);
     const removeIsArmed = columnRemoveIsArmed(index);
 
@@ -1606,8 +1624,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{`Column: ${selectedColumnDetails.title}`}</Text>,
           removeIsArmed ? <Text state="warning">Select Delete column to confirm.</Text> : null
         ]}
@@ -1616,12 +1633,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
             {createColumnDetailsButton("board-rename-column", "Rename", openRenameColumn)}
             {createColumnDetailsButton("board-set-wip-limit", "WIP", openSetWipLimit)}
             {selectedColumnDetails.isDefault === true ? <Text>Current</Text> : createColumnDetailsButton("board-set-default-column", "Default", setSelectedColumnAsDefault)}
-            {canMoveLeft ? createColumnDetailsButton("board-move-column-left", "Left", () => {
-              applyBoardResult(boardActions.moveColumnLeft({ columnIndex: index }), "Column could not be moved. Try again.", { selectedColumnIndex: index - 1 });
-            }) : <Text>Left</Text>}
-            {canMoveRight ? createColumnDetailsButton("board-move-column-right", "Right", () => {
-              applyBoardResult(boardActions.moveColumnRight({ columnIndex: index }), "Column could not be moved. Try again.", { selectedColumnIndex: index + 1 });
-            }) : <Text>Right</Text>}
             {createColumnDetailsButton("board-remove-column", removeIsArmed ? "Delete column" : "Remove column", armOrRemoveSelectedColumn, removeIsArmed ? "error" : undefined)}
             {createColumnDetailsButton("board-column-details-close", "Close", () => closeBoardOverlay(state))}
           </View>
@@ -1639,8 +1650,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <FocusScope>
             <Text>Add column</Text>
             <Input
@@ -1687,8 +1697,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <FocusScope>
             <Text>Rename column</Text>
             <Input
@@ -1736,8 +1745,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <FocusScope>
             <Text>Set WIP limit</Text>
             <Text>{column ? `Column: ${column.title}` : "Choose a column first."}</Text>
@@ -1774,8 +1782,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>Reset columns to the default layout?</Text>,
           <Text>This only works on empty boards.</Text>
         
@@ -1803,8 +1810,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     return (
       <AppOverlay trapFocus={true}
-        width={boardOverlayWidth()}
-        height={boardOverlayHeight()} content={[
+        content={[
           <Text>{`Delete card "${details.title}"?`}</Text>,
           <Text>This cannot be undone.</Text>
         
@@ -1821,21 +1827,16 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     );
   }
 
-  const boardPanelNodes = renderBoardNodes(board, state, { width, panelHeight, openCardDetails, openColumnDetails, switchBoard });
-  const activePanelNodes = state.overlay === "boards-menu"
-    ? [boardManagerPanel()]
-    : boardPanelNodes;
+  const boardPanelNodes = renderBoardNodes(board, state, { width, panelHeight, openCardDetails, openColumnDetails, switchBoard, openBoardDetails });
 
   return {
-    activePanelNodes,
-    actionBar: state.overlay === "boards-menu"
-      ? boardManagerActionBar()
-      : createBoardActionBar(isActive, {
-        openAddCard: () => openBoardAddCardModal(state),
-        openAddColumn,
-        openResetColumnsConfirm,
-        openBoardsMenu
-      }, { extraActions: options.utilityActions }) as JSX.Element | null,
+    activePanelNodes: boardPanelNodes,
+    actionBar: createBoardActionBar(isActive, {
+      openAddCard: () => openBoardAddCardModal(state),
+      openAddColumn,
+      openResetColumnsConfirm,
+      openAddBoard
+    }, { extraActions: options.utilityActions }) as JSX.Element | null,
     overlays: isActive ? [
       addCardOverlay(),
       cardActionErrorOverlay(),
@@ -1843,6 +1844,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       editCardOverlay(),
       moveCardOverlay(),
       priorityCardOverlay(),
+      boardDetailsOverlay(),
       addBoardOverlay(),
       renameBoardOverlay(),
       removeBoardConfirmOverlay(),

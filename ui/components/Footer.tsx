@@ -111,32 +111,8 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
   return [];
 }
 
-function syncStatusLabel(syncStatus: SyncStatusState = "idle"): string {
-  if (syncStatus === "syncing") {
-    return "Syncing...";
-  }
-
-  if (syncStatus === "pending") {
-    return "Sync pending";
-  }
-
-  if (syncStatus === "synced") {
-    return "Synced";
-  }
-
-  if (syncStatus === "failed") {
-    return "Sync failed";
-  }
-
-  if (syncStatus === "setup") {
-    return "Sync setup needed";
-  }
-
-  return "Ready";
-}
-
-function footerHints(_activeTab: string, syncStatus: SyncStatusState = "idle"): string[] {
-  return [syncStatusLabel(syncStatus), "Ctrl+C: Exit"];
+function footerHints(_activeTab: string, _syncStatus: SyncStatusState = "idle"): string[] {
+  return ["Ctrl+C: Exit"];
 }
 
 function footerLeft(activeTab: string, syncStatus: SyncStatusState): string {

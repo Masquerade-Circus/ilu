@@ -17,6 +17,8 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
     topNav,
     width
   } = options;
+  const bottomActionBar = actionBar ?? boardActionBar;
+  const bottomChromeSize = bottomActionBar ? 3 : 1;
 
   return (
     <Screen title="">
@@ -25,8 +27,8 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
       <Box width={width} height={panelHeight} style={panelStyle}>
         {activePanelNodes}
       </Box>
-      {actionBar ?? boardActionBar}
-      <Fixed position="bottom" size={1}>
+      <Fixed position="bottom" size={bottomChromeSize}>
+        {bottomActionBar}
         {Array.isArray(footerSegments) && footerSegments.length > 0 ? (
           <Row separator="  ">
             {footerSegments.map((segment, index) => (

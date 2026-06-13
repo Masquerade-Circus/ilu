@@ -209,12 +209,12 @@ test('Clocks priority workflow moves the selected clock through direct action ba
   session.destroy();
 });
 
-test('Clocks overlay closes visually when switching away from Clocks', async () => {
+test('Clocks overlay closes visually when switching away from Clocks by keyboard shortcut', async () => {
   const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot()});
 
   session.click('clock-add-open');
   assert.match(visible(session.output()), /Clock name/);
-  session.click('tab-todo');
+  session.dispatchKey('CTRL_1');
 
   const output = visible(session.output());
   assert.match(output, /Todo/);
@@ -325,4 +325,3 @@ test('Clocks remove workflow normalizes stale selection after removing the selec
   assert.doesNotMatch(output, /Choose a clock first\./);
   session.destroy();
 });
-

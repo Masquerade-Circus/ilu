@@ -19,7 +19,7 @@ export function createBoardActionBar(
       createButton("board-add-card", "Add card", handlers.openAddCard),
       createButton("board-add-column-action", "Add column", handlers.openAddColumn),
       createButton("board-reset-default-columns", "Reset to default layout", handlers.openResetColumnsConfirm),
-      createButton("board-boards", "Boards", handlers.openBoardsMenu),
+      createButton("board-add-board", "Add board", handlers.openAddBoard),
       ...extraActions
     ]
   });

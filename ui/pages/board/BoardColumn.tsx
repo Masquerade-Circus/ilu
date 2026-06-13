@@ -64,18 +64,6 @@ export function formatBoardColumnHeader(column: BoardColumn, width: number): str
   return clipText(`${title} ${counter}`, contentWidth);
 }
 
-export function splitColumnWidths(totalWidth: number, columnCount: number, gap: number): number[] {
-  if (!positiveInteger(totalWidth) || !positiveInteger(columnCount)) {
-    return [];
-  }
-
-  const available = Math.max(columnCount, totalWidth - Math.max(0, gap) * (columnCount - 1));
-  const base = Math.floor(available / columnCount);
-  const remainder = available % columnCount;
-
-  return Array.from({ length: columnCount }, (_, index) => base + (index < remainder ? 1 : 0));
-}
-
 function boardCardTitle(card: BoardCardListItem): string {
   if (typeof card === "object" && card !== null) {
     return typeof card.title === "string" && card.title.length > 0 ? card.title : "Untitled";
@@ -114,40 +102,36 @@ function renderBoardCardListItem(card: BoardCardListItem, cardOffset: number, co
   return isSelected ? `› ${title}` : `• ${title}`;
 }
 
-type BoardCardListEvent = TerminalListChangeEventPayload<BoardCardListItem> | TerminalListPressEventPayload<BoardCardListItem>;
+function boardCardListDisplayItems(cardItems: BoardCardListItem[], columnIndex: number, selectedCard?: Selection | null): BoardCardListItem[] {
+  return cardItems.map((card, cardOffset) => {
+    const displayItem = typeof card === "object" && card !== null
+      ? { ...card }
+      : {};
 
-function selectionFromListEvent(columnIndex: number, event: BoardCardListEvent): Selection {
-  const key = event.key;
-
-  if (typeof key === "string") {
-    const match = key.match(/^(\d+):(\d+)$/);
-
-    if (match) {
-      const keyColumnIndex = Number(match[1]);
-      const position = Number(match[2]);
-
-      if (keyColumnIndex === columnIndex && positiveInteger(position)) {
-        return { columnIndex, position };
+    return {
+      ...displayItem,
+      toString() {
+        return renderBoardCardListItem(card, cardOffset, columnIndex, selectedCard);
       }
-    }
-  }
-
-  return selectionFromCard(columnIndex, event.value, event.index);
+    } as BoardCardListItem;
+  });
 }
+
+type BoardCardListEvent = TerminalListChangeEventPayload<BoardCardListItem> | TerminalListPressEventPayload<BoardCardListItem>;
 
 function selectCardFromListEvent(
   state: BoardRuntimeState,
   event: BoardCardListEvent,
   columnIndex: number
 ): Selection {
-  const selection = selectionFromListEvent(columnIndex, event);
+  const selection = selectionFromCard(columnIndex, event.value, event.index);
 
   state.selectedCard = selection;
   state.selectedColumnIndex = selection.columnIndex;
   return selection;
 }
 
-function activateCardFromDoublePress(
+function activateCardFromListDoublePress(
   state: BoardRuntimeState,
   event: TerminalListPressEventPayload<BoardCardListItem>,
   columnIndex: number,
@@ -173,7 +157,7 @@ export function createBoardColumnNode(
   const columnContentWidth = Math.max(1, columnWidth - 2);
   const headerLabel = formatBoardColumnHeader(column, columnContentWidth);
   const columnContentHeight = Math.max(1, boardHeight - 2);
-  const cardItems = boardCardListItems(column);
+  const cardItems = boardCardListDisplayItems(boardCardListItems(column), columnIndex, state.selectedCard);
   const headerHeight = 2;
   const cardListHeight = Math.max(1, columnContentHeight - headerHeight);
   function selectColumn(): void {
@@ -208,6 +192,7 @@ export function createBoardColumnNode(
           id={`board-card-list-${columnIndex}`}
           items={cardItems}
           virtualized={true}
+          width={columnContentWidth}
           height={cardListHeight}
           wrap={true}
           itemKey={(item: BoardCardListItem, index: number) => `${columnIndex}:${boardCardPosition(item, index)}`}
@@ -218,9 +203,10 @@ export function createBoardColumnNode(
           onpress={(event: TerminalListPressEventPayload<BoardCardListItem>) => {
             selectCardFromListEvent(state, event, columnIndex);
           }}
-          ondoublepress={(event: TerminalListPressEventPayload<BoardCardListItem>) => activateCardFromDoublePress(state, event, columnIndex, openCardDetails)}
-          renderItem={(item: BoardCardListItem, index: number) => renderBoardCardListItem(item, index, columnIndex, state.selectedCard)}
-        />
+          ondoublepress={(event: TerminalListPressEventPayload<BoardCardListItem>) => activateCardFromListDoublePress(state, event, columnIndex, openCardDetails)}
+        >
+          {(card: BoardCardListItem) => String(card)}
+        </List>
       </View>
     </Box>
   );

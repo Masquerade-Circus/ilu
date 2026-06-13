@@ -1,4 +1,4 @@
-import { Fixed, Text, View } from "@valyrianjs/terminal";
+import { Text, View } from "@valyrianjs/terminal";
 import type { OptionalTerminalChild, TerminalChild } from "../types";
 
 type ActionBarOptions = {
@@ -14,11 +14,11 @@ export function createActionBar(options: ActionBarOptions): OptionalTerminalChil
   }
 
   return (
-    <Fixed position="bottom" size={2}>
+    <>
       <Text></Text>
       <View direction="row" gap={1}>
         {actions}
       </View>
-    </Fixed>
+    </>
   ) as TerminalChild;
 }

@@ -29,6 +29,7 @@ import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
+import { emptyStateText, errorStateText } from "../../components/StateText";
 
 const TODO_DESCRIPTION_EDITOR_IDS = Object.freeze(["todo-add-description", "todo-edit-description"] as const);
 const TODO_OVERLAY_STATES = Object.freeze([
@@ -167,7 +168,7 @@ function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | 
   return lists.find((list) => list.id === selectedId) ?? null;
 }
 
-function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRuntimeState): void {
+export function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRuntimeState): void {
   const items = Array.isArray(panel.items) ? panel.items : [];
   const selectedPosition = normalizePosition(state.selectedTaskPosition);
   const firstPosition = items[0] ? itemPosition(items[0], 0) : null;
@@ -214,6 +215,15 @@ function closeTodoOverlay(state: TodoRuntimeState): boolean {
   state.overlay = null;
   state.actionError = "";
   return true;
+}
+
+export function prepareTodoViewState(panel: ListPanel, state: TodoRuntimeState): void {
+  normalizeSelectedTaskPosition(panel, state);
+  const activeList = selectedList(panel, state);
+
+  if (state.selectedListId === null && activeList !== null) {
+    state.selectedListId = activeList.id;
+  }
 }
 
 export function handleTodoCommand(
@@ -266,14 +276,9 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   const { panel, state, isActive, todoActions, refreshSnapshot, utilityActions = [] } = options;
   const items = Array.isArray(panel.items) ? panel.items : [];
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
-  normalizeSelectedTaskPosition(panel, state);
   const activeItem = selectedItem(panel, state);
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
-
-  if (state.selectedListId === null && selectedListId !== null) {
-    state.selectedListId = selectedListId;
-  }
 
   function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
@@ -408,11 +413,11 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
 
   function taskRows(): JSX.Element[] {
     if (typeof panel.error === "string" && panel.error.length > 0) {
-      return [<Text>{panel.error}</Text>];
+      return [errorStateText(panel.error)];
     }
 
     if (items.length === 0) {
-      return [<Text>No tasks yet. Add a task to get started.</Text>];
+      return [emptyStateText("No tasks yet. Add a task to get started.")];
     }
 
     return [

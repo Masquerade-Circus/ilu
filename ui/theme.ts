@@ -12,7 +12,10 @@ export const UI_COLORS = Object.freeze({
   borderActive: "#8ab4f8",
   accent: "#315f9e",
   hover: "#2b3137",
-  danger: "#8f1d2c"
+  danger: "#8f1d2c",
+  success: "#238636",
+  warning: "#d29922",
+  muted: "#8b949e"
 });
 
 export const CONTROL_BUTTON_STYLE: TerminalStyleValue = Object.freeze({

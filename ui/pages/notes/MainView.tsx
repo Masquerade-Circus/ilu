@@ -29,6 +29,7 @@ import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
+import { emptyStateText, errorStateText } from "../../components/StateText";
 
 const NOTE_CONTENT_EDITOR_IDS = Object.freeze(["note-add-content", "note-edit-content"] as const);
 const NOTE_OVERLAY_STATES = Object.freeze([
@@ -159,7 +160,7 @@ function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary |
   return lists.find((list) => list.id === selectedId) ?? null;
 }
 
-function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRuntimeState): void {
+export function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRuntimeState): void {
   const items = Array.isArray(panel.items) ? panel.items : [];
   const selectedPosition = normalizePosition(state.selectedNotePosition);
   const firstPosition = items[0] ? itemPosition(items[0], 0) : null;
@@ -207,6 +208,15 @@ function closeNotesOverlay(state: NotesRuntimeState): boolean {
   return true;
 }
 
+export function prepareNotesViewState(panel: ListPanel, state: NotesRuntimeState): void {
+  normalizeSelectedNotePosition(panel, state);
+  const activeList = selectedList(panel, state);
+
+  if (state.selectedListId === null && activeList !== null) {
+    state.selectedListId = activeList.id;
+  }
+}
+
 export function handleNotesCommand(command: TerminalCommand, state: NotesRuntimeState, isActive: boolean, context?: TerminalCommandContext, panel?: ListPanel): boolean {
   if (isActive !== true) {
     return false;
@@ -236,14 +246,9 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   const { panel, state, isActive, noteActions, refreshSnapshot, utilityActions = [] } = options;
   const items = Array.isArray(panel.items) ? panel.items : [];
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
-  normalizeSelectedNotePosition(panel, state);
   const activeItem = selectedItem(panel, state);
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
-
-  if (state.selectedListId === null && selectedListId !== null) {
-    state.selectedListId = selectedListId;
-  }
 
   function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
@@ -361,11 +366,11 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
 
   function noteRows(): JSX.Element[] {
     if (typeof panel.error === "string" && panel.error.length > 0) {
-      return [<Text>{panel.error}</Text>];
+      return [errorStateText(panel.error)];
     }
 
     if (items.length === 0) {
-      return [<Text>No notes yet. Add a note to get started.</Text>];
+      return [emptyStateText("No notes yet. Add a note to get started.")];
     }
 
     return [

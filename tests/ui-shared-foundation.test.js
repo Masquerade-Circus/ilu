@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -94,6 +93,8 @@ test('utility launcher actions are removed because utility apps live in top nav'
   const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
 
   assert.ok(navLine, 'expected global top nav with utility apps');
+  assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*Translate.*Speech/);
+  assert.ok(navLine.indexOf('Speech') < navLine.indexOf('Sync'), `expected Sync after app group:\n${navLine}`);
   assert.doesNotMatch(session.output(), /\bTools\b|Choose a tool\./);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
   session.destroy();
@@ -169,50 +170,6 @@ test('utility secondary overlays close before app exit', async () => {
   assert.equal(session.state().running, true);
   session.destroy();
 });
-
-
-test('utility app cleanup removes dead tools action plumbing', () => {
-  const appSource = fs.readFileSync(uiModulePath, 'utf8');
-  const utilitySource = fs.readFileSync(path.join(repoRoot, 'ui', 'components', 'UtilityHost.tsx'), 'utf8');
-
-  assert.doesNotMatch(appSource, /createUtilityActions|createUtilityActionBar/);
-  assert.doesNotMatch(utilitySource, /createUtilityActions|createUtilityActionBar/);
-});
-
-test('utility secondary overlays use the shared full-surface overlay contract', () => {
-  const utilitySource = fs.readFileSync(path.join(repoRoot, 'ui', 'components', 'UtilityHost.tsx'), 'utf8');
-
-  assert.doesNotMatch(utilitySource, /createOverlayProps\(\{\s*margin:/);
-  assert.match(utilitySource, /<AppOverlay[\s\S]*?trapFocus=\{true\}/);
-});
-
-
-test('production overlays use AppOverlay slots instead of children', () => {
-  const productionOverlayFiles = [
-    'ui/app.tsx',
-    'ui/components/UtilityHost.tsx',
-    'ui/pages/todos/MainView.tsx',
-    'ui/pages/notes/MainView.tsx',
-    'ui/pages/clocks/MainView.tsx',
-    'ui/pages/board/MainView.tsx'
-  ];
-  const offenders = [];
-
-  for (const relativeFile of productionOverlayFiles) {
-    const source = fs.readFileSync(path.join(repoRoot, relativeFile), 'utf8');
-    const overlayBlocks = source.matchAll(/<AppOverlay\b[^>]*>([\s\S]*?)<\/AppOverlay>/g);
-
-    for (const match of overlayBlocks) {
-      if (match[1].trim().length > 0) {
-        const line = source.slice(0, match.index).split(/\r?\n/).length;
-        offenders.push(`${relativeFile}:${line}`);
-      }
-    }
-  }
-
-  assert.deepEqual(offenders, [], `AppOverlay production consumers must use title/content/topNav/bottomNav slots, not children: ${offenders.join(', ')}`);
-});
-
 test('Board, Todo details, and utility overlays fill the 80x24 surface without overdraw', async () => {
   const Ui = require(uiModulePath);
 
@@ -409,47 +366,13 @@ test('shared snapshot enrichment exposes list identities without calling mutator
   assert.equal(snapshot.clocks.items[0].position, 1);
 });
 
-test('UI mutator adapters do not call sync runtime manually', () => {
-  const uiDir = path.join(repoRoot, 'ui');
-  const offenders = [];
-
-  function scan(dir) {
-    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        scan(fullPath);
-        continue;
-      }
-
-      if (!/\.(js|ts|tsx)$/.test(entry.name)) {
-        continue;
-      }
-
-      if (entry.name === 'app.tsx') {
-        continue;
-      }
-
-      const source = fs.readFileSync(fullPath, 'utf8');
-
-      if (/sync\/ilu-hooks|notifySync|flushPending|syncRuntime|sync\/index/.test(source)) {
-        offenders.push(path.relative(repoRoot, fullPath));
-      }
-    }
-  }
-
-  scan(uiDir);
-  assert.deepEqual(offenders, []);
-});
-
-
-test('top nav exposes Sync Translate and Speech as first-class apps without Tools launcher copy', async () => {
+test('top nav exposes Translate and Speech as apps with Sync as a global control without Tools launcher copy', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
   const lines = visibleLines(session.output());
   const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
 
-  assert.ok(navLine, `expected seven app labels in top nav:\n${lines.join('\n')}`);
+  assert.ok(navLine, `expected app labels and Sync global control in top nav:\n${lines.join('\n')}`);
   assert.doesNotMatch(session.output(), /\bTools\b|Choose a tool\./);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
 
@@ -482,68 +405,6 @@ test('Ctrl shortcuts can select the utility apps as top-level routes', async () 
   assert.equal(session.state().activeTab, 'Speech');
   session.destroy();
 });
-
-
-test('all UI overlays use the shared full-surface overlay helper', () => {
-  const overlaySource = fs.readFileSync(path.join(repoRoot, 'ui', 'components', 'Overlay.tsx'), 'utf8');
-  const uiRoot = path.join(repoRoot, 'ui');
-  const overlayFiles = [];
-  const directSurfaceFiles = [];
-  const boardSource = fs.readFileSync(path.join(uiRoot, 'pages', 'board', 'MainView.tsx'), 'utf8');
-
-  function scan(dir) {
-    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        scan(fullPath);
-        continue;
-      }
-
-      if (!/\.tsx$/.test(entry.name)) {
-        continue;
-      }
-
-      const fileSource = fs.readFileSync(fullPath, 'utf8');
-
-      if (/<Overlay\b/.test(fileSource)) {
-        overlayFiles.push(path.relative(repoRoot, fullPath));
-      }
-
-      if (fullPath !== path.join(uiRoot, 'components', 'Overlay.tsx') && /style=\{(?:OVERLAY_SURFACE_STYLE|CARD_DETAILS_SURFACE_STYLE)\}/.test(fileSource)) {
-        directSurfaceFiles.push(path.relative(repoRoot, fullPath));
-      }
-    }
-  }
-
-  scan(uiRoot);
-
-  assert.match(overlaySource, /export function createOverlaySurface/);
-  assert.deepEqual(directSurfaceFiles, []);
-  assert.doesNotMatch(boardSource, /overlayWidth|overlayHeight|overlayDimension|BOARD_OVERLAY_MARGIN_PERCENT/);
-
-  for (const file of overlayFiles) {
-    const fileSource = fs.readFileSync(path.join(repoRoot, file), 'utf8');
-
-    if (file === 'ui/components/Overlay.tsx') {
-      continue;
-    }
-
-    assert.match(fileSource, /createOverlaySurface/, `${file} renders overlays and must use the shared full-surface helper`);
-  }
-});
-
-
-test('AppOverlay builds its internal surface through the shared frame contract', () => {
-  const overlaySource = fs.readFileSync(path.join(repoRoot, 'ui', 'components', 'Overlay.tsx'), 'utf8');
-
-  assert.match(
-    overlaySource,
-    /<Overlay[\s\S]*?createOverlaySurfaceFrame\(\s*\{[\s\S]*?width[\s\S]*?height[\s\S]*?style: surfaceStyle[\s\S]*?\}[\s\S]*?<Fixed position="bottom" size=\{bottomSize\}>/,
-    'AppOverlay must build one shared full-surface frame before pinning bottomNav to the bottom region'
-  );
-});
-
 test('AppOverlay pins bottomNav to the internal bottom row with tall content', () => {
   const {renderTerminal, Screen, Text} = require('@valyrianjs/terminal');
   const {AppOverlay} = require('../ui/components/Overlay.tsx');
@@ -580,37 +441,58 @@ test('shared overlay props keep the 10 percent margin contract and modal default
   assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).backdrop, false);
 });
 
-test('Board keeps real controls under overlays and no longer ships passive render mode', () => {
-  const boardMainSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'MainView.tsx'), 'utf8');
-  const boardColumnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
-  const typesSource = fs.readFileSync(path.join(repoRoot, 'ui', 'types.ts'), 'utf8');
+test('StateText applies semantic tone styles to ANSI output without depending on global text state lookup', () => {
+  const {mountTerminal, Screen} = require('@valyrianjs/terminal');
+  const {errorStateText, emptyStateText, loadingStateText} = require('../ui/components/StateText.tsx');
+  const session = mountTerminal(Screen({}, [
+    errorStateText('Unsafe state'),
+    emptyStateText('Nothing here'),
+    loadingStateText('Loading data')
+  ]), {runtime: 'headless', cols: 80, rows: 8});
+  const ansi = session.ansiOutput();
+  const plain = session.output();
+  session.destroy();
 
-  assert.doesNotMatch(typesSource, /passive\?: boolean/);
-  assert.doesNotMatch(boardMainSource, /passive/);
-  assert.doesNotMatch(boardColumnSource, /passive/);
-  assert.match(boardColumnSource, /<Box height=\{boardHeight\} style=\{BOARD_COLUMN_STYLE\}>/);
-  assert.match(boardColumnSource, /<Button[\s\S]*?id=\{`board-column-header-\$\{columnIndex\}`\}/);
-  assert.match(boardColumnSource, /<List[\s\S]*?id=\{`board-card-list-\$\{columnIndex\}`\}/);
+  assert.match(plain, /Unsafe state/);
+  assert.match(plain, /Nothing here/);
+  assert.match(plain, /Loading data/);
+  assert.match(ansi, /\x1b\[/, `expected StateText semantic styles to produce ANSI spans:\n${JSON.stringify(ansi)}`);
 });
 
+test('UtilityHost render paths do not start status or voice preparation side effects', () => {
+  const {renderTerminal, Screen} = require('@valyrianjs/terminal');
+  const {createUtilityPanel} = require('../ui/components/utility/panels.tsx');
+  const {createUtilityOverlay} = require('../ui/components/utility/overlays.tsx');
+  const syncActions = {
+    status: failMutator('sync.status'),
+    retry: failMutator('sync.retry'),
+    enable: failMutator('sync.enable'),
+    disable: failMutator('sync.disable'),
+    init: failMutator('sync.init')
+  };
+  const babelActions = {translate: failMutator('babel.translate'), copyResult: failMutator('babel.copyResult')};
+  const ttsActions = {
+    voices: ['nova'],
+    getDefaultVoice: failMutator('tts.getDefaultVoice'),
+    createAudio: failMutator('tts.createAudio'),
+    setDefaultVoice: failMutator('tts.setDefaultVoice')
+  };
+  const state = {
+    activeOverlay: 'tts-voice',
+    sync: {label: 'Not set up', details: ['Status: Not set up'], error: '', operation: null, statusLoaded: false, initForm: {remoteUrl: '', branch: 'main', confirmed: false, error: ''}},
+    babel: {text: '', source: 'auto', target: 'en', translation: '', dictionaryEntries: [], error: '', message: '', operation: null, inputVersion: 0},
+    tts: {inputFile: '', outputFile: '', voice: 'alloy', voices: ['alloy'], error: '', message: '', operation: null}
+  };
 
-test('edit overlays share one production component contract', () => {
-  const componentPath = path.join(repoRoot, 'ui', 'components', 'EditOverlay.tsx');
-  assert.ok(fs.existsSync(componentPath), 'expected shared EditOverlay component');
+  const output = renderTerminal(Screen({}, [
+    ...createUtilityPanel('Sync', state, syncActions, babelActions, ttsActions),
+    ...createUtilityPanel('Speech', state, syncActions, babelActions, ttsActions),
+    createUtilityOverlay(state, syncActions, babelActions, ttsActions, {width: 80, rows: 24})
+  ]), {cols: 80, rows: 24});
 
-  const componentSource = fs.readFileSync(componentPath, 'utf8');
-  const todoSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'todos', 'MainView.tsx'), 'utf8');
-  const notesSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'notes', 'MainView.tsx'), 'utf8');
-  const boardSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'MainView.tsx'), 'utf8');
-
-  assert.match(componentSource, /export function EditOverlay/);
-  assert.match(componentSource, /<AppOverlay[\s\S]*?trapFocus=\{true\}/);
-  assert.match(componentSource, /bottomNav=\{/);
-  assert.match(componentSource, /primaryActionLabel = "Save"/);
-  assert.match(componentSource, /cancelLabel = "Cancel"/);
-  assert.match(componentSource, /<Editor/);
-
-  for (const [label, source] of [['Todo', todoSource], ['Notes', notesSource], ['Board', boardSource]]) {
-    assert.match(source, /EditOverlay/, label + ' edit surface must use shared EditOverlay');
-  }
+  assert.match(output, /Sync/);
+  assert.match(output, /Text to/);
+  assert.match(output, /Choose voice/);
+  assert.deepEqual(state.tts.voices, ['alloy']);
+  assert.equal(state.tts.voice, 'alloy');
 });

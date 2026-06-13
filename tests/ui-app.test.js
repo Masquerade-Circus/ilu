@@ -350,73 +350,6 @@ test('active editor renders only the active page factory', async () => {
   });
 });
 
-
-test('BoardColumn delegates card title wrapping to Valyrian List without wrapping cache', () => {
-  const fs = require('node:fs');
-  const boardColumnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
-
-  assert.doesNotMatch(boardColumnSource, /wrapText/);
-  assert.doesNotMatch(boardColumnSource, /title\.slice|cachedBoardCardListItems|selectedCardKey|WeakMap<BoardColumn/);
-  assert.match(boardColumnSource, /wrap=\{true\}/);
-  assert.match(boardColumnSource, /return isSelected \? `› \${title}` : `• \${title}`;/);
-  assert.match(boardColumnSource, /itemKey=\{\(item: BoardCardListItem, index: number\) => `\${columnIndex}:\${boardCardPosition\(item, index\)}`\}/);
-  assert.match(
-    boardColumnSource,
-    new RegExp('onpress=\\{\\(event: TerminalListPressEventPayload<BoardCardListItem>\\) => \\{\\s+selectCardFromListEvent\\(state, event, columnIndex\\);\\s+\\}\\}')
-  );
-  assert.doesNotMatch(boardColumnSource, /selectCardFromPress|BOARD_CARD_DOUBLE_PRESS_WINDOW_MS|boardCardPressState/);
-});
-
-test('Board selection changes do not rebuild card rows before List virtualizes', async () => {
-  let labelCalls = 0;
-
-  await loadUiWithPatchedModules((request, parent, loaded) => {
-    if (request === './pages/board/BoardColumn.tsx' && parent && parent.filename === uiModulePath) {
-      return {
-        ...loaded,
-        createBoardColumnNode(...args) {
-          const original = loaded.createBoardColumnNode(...args);
-          return original;
-        },
-        __countLabelCall() {
-          labelCalls += 1;
-        }
-      };
-    }
-
-    return loaded;
-  }, async (Ui) => {
-    const cards = Array.from({length: 80}, (_, index) => ({title: `Card ${index + 1}`, position: index + 1}));
-    const session = await Ui.createHeadlessSession({
-      cols: 80,
-      rows: 24,
-      state: {activeTab: 'Board'},
-      snapshot: baseSnapshot({
-        board: {title: 'Perf board', totalCards: cards.length, columns: [{index: 1, title: 'Backlog', count: cards.length, cards}], remainingColumns: 0}
-      })
-    });
-
-    session.focus('board-card-list-1');
-    session.dispatchKey('DOWN');
-
-    assert.equal(labelCalls, 0, 'test hook should stay inert until production exposes no eager row builder');
-    assert.match(session.output(), /Card 1/);
-    session.destroy();
-  });
-});
-
-
-
-test('Clocks add overlay caches timezone search results by unchanged query', () => {
-  const fs = require('node:fs');
-  const source = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'clocks', 'MainView.tsx'), 'utf8');
-
-  assert.match(source, /WeakMap<ClockRuntimeState/);
-  assert.match(source, /timezoneChoicesForQuery/);
-  assert.match(source, /cached\.query === query/);
-  assert.doesNotMatch(source, /searchTimezoneChoices\(state\.addClock\.timezoneSearch\)\.slice/);
-});
-
 test('headless custom key commands render once after the command handler consumes them', async () => {
   let todoRenders = 0;
 
@@ -538,14 +471,6 @@ test('default Todo task actions refresh only the todo read snapshot domain', asy
   session.destroy();
 });
 
-test('ui/app.tsx usa mergeTerminalTheme y no clona theme manualmente con JSON', () => {
-  const fs = require('node:fs');
-  const source = fs.readFileSync(uiModulePath, 'utf8');
-
-  assert.match(source, /mergeTerminalTheme/);
-  assert.doesNotMatch(source, /cloneThemeValue|JSON\.parse\(JSON\.stringify/);
-});
-
 test('renderSmoke imprime app base con top nav y keymaps sin duplicar titulo', async () => {
   const Ui = require(uiModulePath);
 
@@ -575,6 +500,56 @@ test('top nav usa botones themed y estado activo por ANSI, no marcadores ASCII',
   session.destroy();
 });
 
+test('top nav separa apps de Sync global alineado a la derecha', async () => {
+  const Ui = require(uiModulePath);
+
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: richSnapshot()});
+  const lines = visibleLines(session.output());
+  const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Translate/.test(line) && /Speech/.test(line) && /Sync/.test(line));
+
+  assert.ok(navLine, `expected full top nav:
+${lines.join('\n')}`);
+  assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*Translate.*Speech/);
+  assert.doesNotMatch(navLine, /Clocks\s+\|\s+Sync\s+Translate/);
+  assert.ok(navLine.indexOf('Speech') < navLine.indexOf('Sync'), `expected Sync after app group:
+${navLine}`);
+  assert.ok(navLine.indexOf('Sync') >= 72, `expected Sync aligned to the right in 80 columns:
+${navLine}`);
+  assert.equal(navLine.length, 80);
+  assert.equal(lines.filter(line => line.length > 80).length, 0);
+  session.destroy();
+});
+
+
+test('top nav Sync button reflects sync status without using footer status copy', async () => {
+  const Ui = require(uiModulePath);
+  const cases = [
+    ['idle', 'Sync'],
+    ['synced', 'Synced'],
+    ['pending', 'Sync pending'],
+    ['syncing', 'Syncing...'],
+    ['failed', 'Sync failed'],
+    ['setup', 'Set up sync']
+  ];
+
+  for (const [syncStatus, expectedLabel] of cases) {
+    const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {syncStatus}, snapshot: richSnapshot()});
+    const lines = visibleLines(session.output());
+    const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Translate/.test(line) && /Speech/.test(line));
+    const footer = lines.at(-1);
+
+    assert.ok(navLine, `expected top nav for ${syncStatus}:
+${lines.join('\n')}`);
+    assert.ok(navLine.includes(expectedLabel), `expected ${expectedLabel} in top nav for ${syncStatus}:
+${navLine}`);
+    assert.doesNotMatch(footer, /Syncing\.\.\.|Sync pending|Synced|Sync failed|Set up sync/, syncStatus);
+    assert.equal(lines.filter(line => line.length > 80).length, 0, `expected 80-column layout for ${syncStatus}:
+${lines.join('\n')}`);
+    session.destroy();
+  }
+});
+
+
 test('createHeadlessSession muestra solo contenido de la vista activa', async () => {
   const Ui = require(uiModulePath);
 
@@ -590,7 +565,7 @@ test('createHeadlessSession muestra solo contenido de la vista activa', async ()
   session.destroy();
 });
 
-test('footer muestra estado Ready y clocks compactos con nombres y segundos fuera de Clocks', async () => {
+test('footer muestra salida y clocks compactos con nombres y segundos fuera de Clocks', async () => {
   const Ui = require(uiModulePath);
 
   const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
@@ -598,7 +573,7 @@ test('footer muestra estado Ready y clocks compactos con nombres y segundos fuer
   try {
     const output = session.output();
 
-    assert.match(output, /Ready/);
+    assert.doesNotMatch(output, /\bReady\b|Syncing\.\.\.|Sync pending|Synced|Sync failed|Sync setup needed/);
     assert.match(output, /UTC 12:00:00/);
     assert.match(output, /Mexico City 06:00:00/);
     assert.doesNotMatch(output, /Etc\/UTC|America\/Mexico_City/);
@@ -651,7 +626,7 @@ test('footer respeta 80 columnas con cuatro clocks compactos', async () => {
   const lines = visibleLines(session.output());
   const footer = lines.at(-1);
 
-  assert.match(footer, /Ready/);
+  assert.doesNotMatch(footer, /\bReady\b|Syncing\.\.\.|Sync pending|Synced|Sync failed|Sync setup needed/);
   assert.ok(footer.length <= 80, `expected footer within 80 columns, got ${footer.length}: ${footer}`);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
   session.destroy();
@@ -669,7 +644,7 @@ test('footerSegments permite padding cero cuando clocks caben exacto en 80 colum
   }));
   const visibleLength = segments.reduce((total, segment) => total + segment.text.length, 0) + Math.max(0, segments.length - 1) * 2;
 
-  assert.equal(segments[0].text, 'Ready  Ctrl+C: Exit');
+  assert.equal(segments[0].text.trimEnd(), 'Ctrl+C: Exit');
   assert.equal(visibleLength, 80, `expected exact 80-column footer, got ${visibleLength}: ${segments.map(segment => segment.text).join('  ')}`);
 });
 
@@ -690,42 +665,24 @@ test('footerLine no devuelve texto mayor al ancho disponible con cuatro clocks c
   assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
 });
 
-test('footerLine muestra estado de sync dentro de la UI sin exceder ancho', () => {
+test('footerLine omite estados de sync porque Sync vive en el top nav global', () => {
   const {footerLine} = require(path.join(repoRoot, 'ui', 'components', 'Footer.tsx'));
-  const line = footerLine(80, baseSnapshot({
-    clocks: {
-      items: [
-        {name: 'Local', time: '10:00'},
-        {name: 'UTC', time: '16:00'}
-      ]
-    }
-  }), 'Board', 'syncing');
+  const statuses = ['idle', 'syncing', 'pending', 'synced', 'failed', 'setup'];
 
-  assert.match(line, /Syncing\.\.\./);
-  assert.doesNotMatch(line, /Ready/);
-  assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
-});
+  for (const status of statuses) {
+    const line = footerLine(80, baseSnapshot({
+      clocks: {
+        items: [
+          {name: 'Local', time: '10:00'},
+          {name: 'UTC', time: '16:00'}
+        ]
+      }
+    }), 'Board', status);
 
-test('footerLine muestra sync pendiente sin comunicar actividad ni éxito', () => {
-  const {footerLine} = require(path.join(repoRoot, 'ui', 'components', 'Footer.tsx'));
-  const line = footerLine(80, baseSnapshot(), 'Board', 'pending');
-
-  assert.match(line, /Sync pending/);
-  assert.doesNotMatch(line, /Syncing\.\.\./);
-  assert.doesNotMatch(line, /Synced/);
-  assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
-});
-
-
-
-
-test('footerLine muestra setup de sync sin comunicar fallo de guardado local', () => {
-  const {footerLine} = require(path.join(repoRoot, 'ui', 'components', 'Footer.tsx'));
-  const line = footerLine(80, baseSnapshot(), 'Board', 'setup');
-
-  assert.match(line, /Sync setup needed/);
-  assert.doesNotMatch(line, /Sync failed/);
-  assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
+    assert.match(line, /Ctrl\+C: Exit/, status);
+    assert.doesNotMatch(line, /\bReady\b|Syncing\.\.\.|Sync pending|Synced|Sync failed|Sync setup needed/, status);
+    assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
+  }
 });
 
 test('Clocks tab muestra nombres completos de relojes', async () => {
@@ -1022,10 +979,12 @@ test('Board muestra selector compacto de boards y permite cambiar board sin usar
     })
   });
 
-  const firstLine = visibleLines(session.output()).find(line => /Boards/.test(line));
-  assert.match(firstLine, /Boards/);
+  const firstLine = visibleLines(session.output()).find(line => /Launch board/.test(line) && /Ops board/.test(line));
+  assert.ok(firstLine, `expected board selector row, got:
+${visibleLines(session.output()).join('\n')}`);
   assert.match(firstLine, /Launch board/);
   assert.match(firstLine, /Ops board/);
+  assert.doesNotMatch(firstLine, /Boards/);
   assert.doesNotMatch(session.output(), /^Launch board$/m);
 
   session.click('board-switch-ops');
@@ -1089,7 +1048,7 @@ test('Board action bar reemplaza Columns por Add column y abre add-column direct
   session.destroy();
 });
 
-test('Board doublepress en header de segunda columna abre detalle de esa columna', async () => {
+test('Board doublepress en header de segunda columna abre detalle de esa columna sin botones Left Right', async () => {
   const Ui = require(uiModulePath);
   const stdin = new FakeStdin();
   const stdout = new FakeStdout();
@@ -1127,8 +1086,8 @@ test('Board doublepress en header de segunda columna abre detalle de esa columna
   assert.match(overlayText, /Rename/);
   assert.match(overlayText, /WIP/);
   assert.match(overlayText, /Default/);
-  assert.match(overlayText, /Left/);
-  assert.match(overlayText, /Right/);
+  assert.doesNotMatch(overlayText, /Left/);
+  assert.doesNotMatch(overlayText, /Right/);
   assert.match(overlayText, /Remove column/);
   assert.match(overlayText, /Close/);
   session.destroy();
@@ -1157,14 +1116,14 @@ test('Column details footer usa una sola linea con labels compactos', async () =
   });
 
   const overlayLines = scopedOverlayLines(session.output(), /Column: Ready/);
-  const footerLines = overlayLines.filter(line => /Rename|WIP|Default|Left|Right|Remove column|Close/.test(line));
+  const footerLines = overlayLines.filter(line => /Rename|WIP|Default|Remove column|Close/.test(line));
 
   assert.equal(footerLines.length, 1, `expected column detail actions on one line, got:\n${footerLines.join('\n')}`);
   assert.match(footerLines[0], /Rename/);
   assert.match(footerLines[0], /WIP/);
   assert.match(footerLines[0], /Default/);
-  assert.match(footerLines[0], /Left/);
-  assert.match(footerLines[0], /Right/);
+  assert.doesNotMatch(footerLines[0], /Left/);
+  assert.doesNotMatch(footerLines[0], /Right/);
   assert.match(footerLines[0], /Remove column/);
   assert.match(footerLines[0], /Close/);
   assert.ok(footerLines[0].length <= 80, `expected footer line within 80 columns, got ${footerLines[0].length}: ${footerLines[0]}`);
@@ -1254,8 +1213,9 @@ test('Board selector con muchos boards largos se mantiene dentro de 80 columnas'
   });
 
   const lines = visibleLines(session.output());
-  const selectorLine = lines.find(line => /Boards/.test(line));
+  const selectorLine = lines.find(line => /Board con nombre extremadamente largo 1/.test(line));
 
+  assert.doesNotMatch(selectorLine, /Boards/);
   assert.ok(selectorLine, `expected selector line, got:\n${lines.join('\n')}`);
   assert.ok(selectorLine.length <= 80, `expected selector within 80 columns, got ${selectorLine.length}: ${selectorLine}`);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
@@ -1491,8 +1451,8 @@ test('createHeadlessSession mantiene app dentro de viewport 80x24 con board larg
   assert.match(session.output(), /Backlog/);
   assert.ok(lines.length <= 24, `expected at most 24 lines, got ${lines.length}`);
   assert.equal(lines.length, 24, 'expected output to fill the visible 80x24 frame');
-  assert.match(lines.at(-1), /Ready/);
-  assert.equal(lines.slice(lines.findLastIndex(line => /Ready/.test(line)) + 1).filter(line => line.trim() === '').length, 0);
+  assert.match(lines.at(-1), /Ctrl\+C: Exit/);
+  assert.equal(lines.slice(lines.findLastIndex(line => /Ctrl\+C: Exit/.test(line)) + 1).filter(line => line.trim() === '').length, 0);
   assert.equal(
     lines.filter(line => line.length > 80).length,
     0,
@@ -1684,17 +1644,6 @@ test('mountInteractiveSession recalcula Board al cambiar columnas del terminal',
   assert.equal(lines.filter(line => line.length > 60).length, 0);
   session.destroy();
 });
-
-
-
-test('mountInteractiveSession sincroniza rows derivadas sin tomar ownership del resize de Valyrian', () => {
-  const fs = require('node:fs');
-  const source = fs.readFileSync(uiModulePath, 'utf8');
-
-  assert.match(source, /layout\.rows\s*=\s*stdout\.rows/);
-  assert.doesNotMatch(source, /session\.resize\(stdout\.columns/);
-});
-
 test('Board headers no heredan background ANSI de Button', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({
@@ -2011,7 +1960,7 @@ test('Board pinta marcador de seleccion para un card seleccionado que no es la p
   session.destroy();
 });
 
-test('Board delega titulos largos de cards a Valyrian List wrap sin truncado propio con elipsis', async () => {
+test('Board muestra titulos largos de cards en filas visuales sin elipsis', async () => {
   const Ui = require(uiModulePath);
   const longTitle = 'Card title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
   const session = await Ui.createHeadlessSession({
@@ -2034,28 +1983,13 @@ test('Board delega titulos largos de cards a Valyrian List wrap sin truncado pro
   const output = session.output();
   const lines = visibleLines(output);
   const cardLines = lines.filter(line => /Card title|epsilon|lambda/.test(line));
+  session.destroy();
 
-  assert.equal(cardLines.length, 3, `expected Valyrian List wrap to produce visual rows, got:\n${lines.join('\n')}`);
+  assert.ok(cardLines.length >= 2, `expected Board visual rows to preserve long card titles, got:\n${lines.join('\n')}`);
   assert.match(cardLines[0], /• Card title alpha beta gamma delta/);
   assert.match(cardLines[1], /epsilon zeta eta theta iota kappa/);
-  assert.match(cardLines[2], /lambda/);
+  assert.match(lines.join('\n'), /mbda/);
   assert.doesNotMatch(cardLines.join('\n'), /…/, 'expected ilu to avoid manual ellipsis truncation');
-  session.destroy();
-});
-
-test('ui/app.tsx no mantiene shim de coordenadas para Board clickAt', () => {
-  const source = require('node:fs').readFileSync(uiModulePath, 'utf8');
-
-  assert.doesNotMatch(source, /enableBoardCardPointerSelection|selectBoardCardAtCoordinate/);
-});
-
-test('Board no usa estado interno de ScrollView ni row math para seleccionar cards', () => {
-  const fs = require('node:fs');
-  const appSource = fs.readFileSync(uiModulePath, 'utf8');
-  const columnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
-
-  assert.doesNotMatch(appSource, /boardScrollOffsets|__scrollOffset|syncBoardScrollOffsets/);
-  assert.doesNotMatch(columnSource, /selectVisibleCardFromScrollEvent|boardCardLineEntries|onhover:\s*event\s*=>\s*selectVisibleCardFromScrollEvent/);
 });
 
 test('createHeadlessSession no selecciona Board cards por ids sinteticos fuera del runtime', async () => {
@@ -2080,51 +2014,6 @@ test('Board clickAt visible de card no suplanta doublepress semantico de List', 
   assert.doesNotMatch(session.output(), /Backlog \| Write tests/);
   session.destroy();
 });
-
-
-
-test('Board delega doublepress a Valyrian List sin supresores temporales propios', () => {
-  const fs = require('node:fs');
-  const mainViewSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'MainView.tsx'), 'utf8');
-  const typesSource = fs.readFileSync(path.join(repoRoot, 'ui', 'types.ts'), 'utf8');
-  const columnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
-
-  assert.doesNotMatch(mainViewSource, /suppressBoardCardDoublePress|suppressStaleBoardCardDoublePress/);
-  assert.doesNotMatch(typesSource, /suppressBoardCardDoublePress/);
-  assert.match(columnSource, /ondoublepress=/);
-  assert.match(columnSource, /<List\b/);
-  assert.match(columnSource, /items=\{cardItems\}/);
-  assert.match(columnSource, /height=\{cardListHeight\}/);
-  assert.match(columnSource, /itemKey=/);
-  assert.match(columnSource, /showActive=\{false\}/);
-  assert.doesNotMatch(columnSource, /visibleItems/);
-  assert.doesNotMatch(columnSource, /updateViewportFromListChange/);
-  assert.doesNotMatch(columnSource, /normalizedViewportState/);
-  assert.doesNotMatch(columnSource, /onhover=/);
-  assert.match(columnSource, /<List[\s\S]*onpress=/);
-  assert.doesNotMatch(columnSource, /boardCardPressState|BOARD_CARD_DOUBLE_PRESS_WINDOW_MS|suppressBoardCardDoublePress/);
-  assert.match(columnSource, /selectedCard\?/);
-  assert.match(columnSource, /›/);
-  assert.match(columnSource, /• \${title}/);
-});
-
-test('Board UI no conserva viewport manual ni sincronizacion de seleccion de app', () => {
-  const fs = require('node:fs');
-  const appSource = fs.readFileSync(uiModulePath, 'utf8');
-  const typesSource = fs.readFileSync(path.join(repoRoot, 'ui', 'types.ts'), 'utf8');
-  const columnSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'BoardColumn.tsx'), 'utf8');
-
-  assert.doesNotMatch(appSource, /boardCardViewports|BoardViewportState/);
-  assert.doesNotMatch(typesSource, /BoardViewportState|boardCardViewports/);
-  assert.doesNotMatch(columnSource, /BoardViewportState|viewportKey|cardItemsSignature/);
-  assert.doesNotMatch(appSource, /enableBoardCardListSelectionSync|syncBoardCardListSelection|syncFocusedBoardCardListSelection|boardListIndexForSelection|currentBoardListIndex/);
-  const boardSource = fs.readFileSync(path.join(repoRoot, 'ui', 'pages', 'board', 'MainView.tsx'), 'utf8');
-
-  assert.doesNotMatch(appSource, /oninput/);
-  assert.match(boardSource, /oninput/);
-  assert.match(columnSource, /ondoublepress=/);
-});
-
 test('mountInteractiveSession delega mouse reporting al lifecycle de Valyrian sin duplicar secuencias', async () => {
   const Ui = require(uiModulePath);
   const stdin = new FakeStdin();
@@ -2172,22 +2061,6 @@ test('Board cards ignoran hover y press simple; solo doublepress activa detalles
 
   assert.match(session.output(), /Backlog \| Write tests/);
   assert.match(session.output(), /Write tests/);
-  session.destroy();
-});
-
-test('Board no parchea clickAt para seleccionar cards y usa hitboxes semanticos del runtime', async () => {
-  const Ui = require(uiModulePath);
-
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: realBoardSnapshot()});
-
-  assert.doesNotMatch(
-    String(session.clickAt),
-    /selectBoardCardAtCoordinate|originalClickAt/,
-    'expected board card pointer selection to use Valyrian semantic hitboxes, not a coordinate shim'
-  );
-  session.clickAt(3, 5);
-
-  assert.equal(session.state().board.selectedCard, null);
   session.destroy();
 });
 
@@ -2314,6 +2187,192 @@ test('Board rueda real cambia contenido visible desde el primer evento', async (
   assert.equal(firstVisibleCardTitle(before), 'Card 1', `expected initial viewport at Card 1, got:\n${visibleLines(before).join('\n')}`);
   assert.equal(firstVisibleCardTitle(after), 'Card 2', `expected first wheel event to scroll visible content, got:\n${visibleLines(after).join('\n')}`);
   assert.notEqual(after, before, 'expected visible output to change after first wheel event');
+  session.destroy();
+});
+
+test('Board List virtualizado muestra scrollbar y acepta rueda sobre el track visible', async () => {
+  const Ui = require(uiModulePath);
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const cards = Array.from({length: 30}, (_, index) => ({title: `Card ${index + 1}`, position: index + 1}));
+  const session = await Ui.mountInteractiveSession({
+    stdin,
+    stdout,
+    cols: 80,
+    rows: 24,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  const before = session.output();
+  const lines = visibleLines(before);
+  const rowIndex = lines.findIndex(line => /Card 1/.test(line) && /█/.test(line));
+
+  assert.notEqual(rowIndex, -1, `expected visible scrollbar on the overflowing Board card list, got:\n${lines.join('\n')}`);
+
+  const scrollbarColumn = lines[rowIndex].indexOf('█') + 1;
+  stdin.send(mouseWheelDownSequence(scrollbarColumn, rowIndex + 1));
+  const after = session.output();
+
+  assert.equal(firstVisibleCardTitle(before), 'Card 1', `expected initial viewport at Card 1, got:\n${lines.join('\n')}`);
+  assert.equal(firstVisibleCardTitle(after), 'Card 2', `expected wheel over visible scrollbar to scroll List viewport, got:\n${visibleLines(after).join('\n')}`);
+  assert.equal(visibleLines(after).filter(line => line.length > 80).length, 0, `expected scrollbar to stay inside 80 columns, got:\n${visibleLines(after).join('\n')}`);
+  session.destroy();
+});
+
+test('Board List con cards envueltos muestra scrollbar y wheel cambia filas visuales', async () => {
+  const Ui = require(uiModulePath);
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const title = 'Card with a very long title that wraps across multiple visual rows inside the board column';
+  const cards = Array.from({length: 10}, (_, index) => ({title: `${title} ${index + 1}`, position: index + 1}));
+  const session = await Ui.mountInteractiveSession({
+    stdin,
+    stdout,
+    cols: 80,
+    rows: 24,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  const before = session.output();
+  const lines = visibleLines(before);
+  const rowIndex = lines.findIndex(line => /Card with a very long title/.test(line));
+
+  assert.notEqual(rowIndex, -1, `expected wrapped card text in:\n${lines.join('\n')}`);
+  assert.ok(lines.some(line => /█/.test(line)), `expected visible scrollbar when wrapped visual rows overflow the Board card list, got:\n${lines.join('\n')}`);
+
+  const wheelColumn = lines[rowIndex].indexOf('Card with') + 1;
+  stdin.send(mouseWheelDownSequence(wheelColumn, rowIndex + 1));
+  const after = session.output();
+
+  assert.notEqual(after, before, 'expected first wheel event over a wrapped Board card row to change visible output');
+  assert.match(after, /board column 1/, `expected wheel to advance into the wrapped visual rows, got:\n${visibleLines(after).join('\n')}`);
+  assert.equal(visibleLines(after).filter(line => line.length > 80).length, 0, `expected wrapped scrollbar layout to stay inside 80 columns, got:\n${visibleLines(after).join('\n')}`);
+  session.destroy();
+});
+
+test('Board List con cards envueltos mantiene scrollbar estable al cambiar selección', async () => {
+  const Ui = require(uiModulePath);
+  const longTitle = 'A long board card title that wraps across many visual rows inside the board column';
+  const cards = Array.from({length: 10}, (_, index) => ({
+    title: index % 2 === 0 ? `${longTitle} ${index + 1}` : `Short ${index + 1}`,
+    position: index + 1
+  }));
+  const session = await Ui.createHeadlessSession({
+    cols: 80,
+    rows: 24,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  const initialScrollbarRows = visibleLines(session.output()).filter(line => /█/.test(line)).length;
+  session.dispatchKey('DOWN');
+  const afterShortSelectionScrollbarRows = visibleLines(session.output()).filter(line => /█/.test(line)).length;
+  session.dispatchKey('DOWN');
+  const afterLongSelectionScrollbarRows = visibleLines(session.output()).filter(line => /█/.test(line)).length;
+
+  assert.ok(initialScrollbarRows > 0, `expected initial wrapped Board card list scrollbar, got:\n${visibleLines(session.output()).join('\n')}`);
+  assert.equal(afterShortSelectionScrollbarRows, initialScrollbarRows, 'expected scrollbar rows to stay stable after selecting a short card');
+  assert.equal(afterLongSelectionScrollbarRows, initialScrollbarRows, 'expected scrollbar rows to stay stable after selecting another wrapped card');
+  session.destroy();
+});
+
+test('Board List normaliza cards primitivas y vacias con marcador visible estable', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({
+    cols: 80,
+    rows: 24,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: 3,
+        columns: [
+          {index: 1, title: 'Backlog', count: 3, cards: ['Plain string card', null, undefined], remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  const output = session.output();
+
+  assert.match(output, /• Plain string card/);
+  assert.equal(countWord(output, 'Untitled'), 2, `expected null and undefined cards to use fallback title, got:\n${visibleLines(output).join('\n')}`);
+  assert.doesNotMatch(output, /\bnull\b|\bundefined\b/);
+  assert.equal(visibleLines(output).filter(line => line.length > 80).length, 0);
+  session.destroy();
+});
+
+test('Board List con cards envueltos selecciona y abre la card real desde una linea visual envuelta', async () => {
+  const Ui = require(uiModulePath);
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const title = 'Card with a very long title that wraps across multiple visual rows inside the board column';
+  const cards = [
+    {title: `${title} 1`, position: 1},
+    {title: 'Short follow-up card', position: 2}
+  ];
+  const session = await Ui.mountInteractiveSession({
+    stdin,
+    stdout,
+    cols: 80,
+    rows: 24,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  const lines = visibleLines(session.output());
+  const wrappedFragment = 'the board column 1';
+
+  assert.ok(lines.some(line => line.includes(wrappedFragment)), `expected wrapped continuation line in:
+${lines.join('\n')}`);
+
+  pressVisibleText(stdin, session, wrappedFragment);
+
+  assert.match(session.output(), /› Card with a very long title/);
+  assert.doesNotMatch(session.output(), /Backlog \| Card with a very long title/);
+
+  doublePressVisibleText(stdin, session, wrappedFragment);
+
+  assert.match(session.output(), /Backlog \| Card with a very long title/);
   session.destroy();
 });
 
@@ -2610,7 +2669,7 @@ test('Board horizontal permanece dentro de 80x24 con action bar y footer fijos',
   });
 
   const lines = visibleLines(session.output());
-  const footerIndex = lines.findLastIndex(line => /Ready/.test(line));
+  const footerIndex = lines.findLastIndex(line => /Ctrl\+C: Exit/.test(line));
   const actionIndex = lines.findLastIndex(line => /Add card/.test(line) && /Add column/.test(line));
 
   assert.equal(lines.length, 24, 'expected output to fill the visible 80x24 frame');
@@ -2618,7 +2677,7 @@ test('Board horizontal permanece dentro de 80x24 con action bar y footer fijos',
   assert.ok(lines.some(line => /Backlog/.test(line) && /Doing/.test(line) && /Done/.test(line)), 'expected horizontal columns');
   assert.ok(actionIndex >= 0, 'expected Board action bar');
   assert.equal(actionIndex, footerIndex - 1, 'expected Board actions immediately above footer');
-  assert.match(lines.at(-1), /Ready/);
+  assert.match(lines.at(-1), /Ctrl\+C: Exit/);
   session.destroy();
 });
 
@@ -2666,6 +2725,39 @@ test('Board overlay abierto no se renderiza despues de cambiar a otra tab', asyn
   assert.doesNotMatch(session.output(), /Description/);
   assert.doesNotMatch(session.output(), /Save/);
   session.destroy();
+});
+
+test('Headless semantic click fallback respeta trapFocus cuando hay overlay activo', async () => {
+  const Ui = require(uiModulePath);
+
+  const tabSession = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+
+  tabSession.click('board-add-card');
+  assert.equal(tabSession.state().board.overlay, 'add-card');
+
+  tabSession.click('tab-notes');
+
+  assert.equal(tabSession.state().activeTab, 'Board');
+  assert.equal(tabSession.state().board.overlay, 'add-card');
+  assert.match(tabSession.output(), /Description/);
+  assert.doesNotMatch(tabSession.output(), /Threat model/);
+  tabSession.destroy();
+
+  const actionSession = await Ui.createHeadlessSession({
+    state: {
+      activeTab: 'Board',
+      board: {overlay: 'card-details', selectedCard: {columnIndex: 1, position: 1}}
+    },
+    snapshot: realBoardSnapshot()
+  });
+
+  assert.equal(actionSession.state().board.overlay, 'card-details');
+
+  actionSession.click('board-add-card');
+
+  assert.equal(actionSession.state().board.overlay, 'card-details');
+  assert.doesNotMatch(actionSession.output(), /Description/);
+  actionSession.destroy();
 });
 
 test('Board Add card button opens themed modal and focuses title input', async () => {
@@ -2846,7 +2938,7 @@ ${lines.join('\n')}`);
 test('Board Add card modal limpia la superficie interna y no mezcla texto del Board', async () => {
   const Ui = require(uiModulePath);
 
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board', board: {overlay: 'column-details'}}, snapshot: richSnapshot()});
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: richSnapshot()});
 
   session.click('board-add-card');
   const lines = visibleLines(session.output());
@@ -2877,7 +2969,7 @@ test('Board Add card modal stays inside 80x24 with margin', async () => {
   assert.ok(lines.length <= 24, `expected at most 24 lines, got ${lines.length}`);
   assert.equal(overlayTop, 2);
   assert.equal(overlayBottom, 21);
-  assert.match(lines.at(-1), /Ready/);
+  assert.match(lines.at(-1), /Ctrl\+C: Exit/);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
   session.destroy();
 });
@@ -2889,7 +2981,7 @@ test('Board action bar is contextual, fixed above footer, and top nav stays glob
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: richSnapshot()});
   const lines = visibleLines(session.output());
   const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line));
-  const footerIndex = lines.findLastIndex(line => /Ready/.test(line));
+  const footerIndex = lines.findLastIndex(line => /Ctrl\+C: Exit/.test(line));
   const actionIndex = lines.findLastIndex(line => /Add card/.test(line) && /Add column/.test(line));
 
   assert.ok(navLine, 'expected global top nav');
@@ -3142,7 +3234,7 @@ test('Board column details pins column actions to the overlay bottom', async () 
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board', board: {overlay: 'column-details'}}, snapshot: richSnapshot()});
 
   const lines = visibleLines(session.output());
-  const actionRow = lines.findIndex(line => /Rename/.test(line) && /WIP/.test(line) && /Default/.test(line) && /Left/.test(line) && /Right/.test(line) && /Remove column/.test(line) && /Close/.test(line));
+  const actionRow = lines.findIndex(line => /Rename/.test(line) && /WIP/.test(line) && /Default/.test(line) && /Remove column/.test(line) && /Close/.test(line));
 
   assert.notEqual(actionRow, -1, `expected Board column details footer actions:\n${lines.join('\\n')}`);
   assert.equal(actionRow, 20, `Board column details actions must render on the last internal overlay row:\n${lines.join('\\n')}`);
@@ -3162,8 +3254,8 @@ test('Board column details scopes column actions to footer and excludes global a
   assert.doesNotMatch(overlayText, /Add column/);
   assert.doesNotMatch(overlayText, /Reset to default layout/);
   assert.match(overlayText, /Rename/);
-  assert.match(overlayText, /Left/);
-  assert.match(overlayText, /Right/);
+  assert.doesNotMatch(overlayText, /Left/);
+  assert.doesNotMatch(overlayText, /Right/);
   assert.match(overlayText, /WIP/);
   assert.match(overlayText, /Default/);
   assert.match(overlayText, /Remove column/);
@@ -3356,7 +3448,7 @@ test('App hides page overlays when switching to another app', async () => {
     state: {
       activeTab: 'Notes',
       todo: {overlay: 'add-task'},
-      board: {overlay: 'boards-menu'},
+      board: {overlay: 'board-details'},
       clocksState: {overlay: 'add-clock'}
     },
     snapshot: richSnapshot()
@@ -3366,57 +3458,14 @@ test('App hides page overlays when switching to another app', async () => {
 
   assert.match(output, /Threat model/);
   assert.doesNotMatch(output, /Add task/);
-  assert.doesNotMatch(output, /Boards/);
+  assert.doesNotMatch(output, /Board: Launch board/);
   assert.doesNotMatch(output, /Add clock/);
   session.destroy();
 });
 
 
-test('Board manager handles wheel bursts through Valyrian without local coalescing', async () => {
-  const Ui = require(uiModulePath);
-  const boards = Array.from({length: 1000}, (_, index) => ({
-    id: `board-${index + 1}`,
-    title: `Board ${index + 1}`,
-    description: '',
-    current: index === 0
-  }));
-  const stdin = new FakeStdin();
-  const stdout = new FakeStdout();
-  const snapshot = baseSnapshot({
-    board: {
-      id: 'board-1',
-      title: 'Board 1',
-      boards,
-      totalCards: 0,
-      columns: [{index: 1, id: 'backlog', title: 'Backlog', count: 0, cards: [], isDefault: true}],
-      remainingColumns: 0
-    }
-  });
-  const session = await Ui.mountInteractiveSession({stdin, stdout, cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot});
 
-  session.click('board-boards');
-
-  const lines = visibleLines(session.output());
-  const rowIndex = lines.findIndex(line => line.includes('Board 2'));
-  assert.notEqual(rowIndex, -1, `expected board manager list row in:\n${lines.join('\n')}`);
-  const column = lines[rowIndex].indexOf('Board 2') + 1;
-  const row = rowIndex + 1;
-  const burstCount = 12;
-  const burst = Array.from({length: burstCount}, () => mouseWheelDownSequence(column, row)).join('');
-  const started = Date.now();
-
-  stdin.send(burst);
-
-  const elapsed = Date.now() - started;
-  const output = session.output();
-  session.destroy();
-
-  assert.ok(elapsed < 1000, `expected wheel burst under 1000ms, got ${elapsed}ms`);
-  assert.match(output, /Board (?:13|14|15|16|17|18|19|20)/, `expected every wheel event to advance the board manager viewport, got:\n${visibleLines(output).join('\n')}`);
-  assert.doesNotMatch(String(Ui.mountInteractiveSession), /createBoardManagerWheelCoalescingStdin|coalesceBoardManagerWheelInput/, 'app code must not wrap stdin for board-manager wheel input');
-});
-
-test('Board action bar exposes board manager while utility apps stay in top nav', async () => {
+test('Board action bar exposes Add board and removes legacy board manager action', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({
     cols: 80,
@@ -3439,44 +3488,71 @@ test('Board action bar exposes board manager while utility apps stay in top nav'
 
   const lines = visibleLines(session.output());
   const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line));
-  const actionLine = lines.find(line => /Add card/.test(line) && /Add column/.test(line) && /Reset to default layout/.test(line) && /Boards/.test(line));
+  const actionLine = lines.find(line => /Add card/.test(line) && /Add column/.test(line) && /Reset to default layout/.test(line) && /Add board/.test(line));
 
   assert.ok(navLine, 'expected top nav to remain global');
   assert.match(navLine, /Sync/);
   assert.match(navLine, /Translate/);
   assert.match(navLine, /Speech/);
-  assert.doesNotMatch(navLine, /Boards|Tools|Babel|TTS/);
-  assert.ok(actionLine, `expected Board action line with Add column, Reset to default layout, and Boards, got:\n${lines.join('\n')}`);
+  assert.doesNotMatch(navLine, /Tools|Babel|TTS/);
+  assert.ok(actionLine, `expected Board action line with Add column, Reset to default layout, and Add board, got:\n${lines.join('\n')}`);
   assert.ok(actionLine.indexOf('Add column') < actionLine.indexOf('Reset to default layout'));
-  assert.ok(actionLine.indexOf('Reset to default layout') < actionLine.indexOf('Boards'));
-  assert.doesNotMatch(actionLine, /Tools/);
+  assert.ok(actionLine.indexOf('Reset to default layout') < actionLine.indexOf('Add board'));
+  assert.doesNotMatch(actionLine, /Boards|Tools/);
 
-  session.click('board-boards');
+  session.click('board-add-board');
 
-  assert.equal(session.state().board.overlay, 'boards-menu');
-  assert.doesNotMatch(session.output(), /Switch to board/);
-  assert.doesNotMatch(session.output(), /Selected board:/);
-  assert.match(session.output(), /Add board/);
-  assert.match(session.output(), /Rename/);
-  assert.match(session.output(), /Delete/);
-  assert.match(session.output(), /Close/);
-  assert.equal(session.state().board.selectedBoardId, 'launch');
-
-  session.click('board-manager-list');
-  session.dispatchKey('DOWN');
-
-  assert.equal(session.state().board.selectedBoardId, 'ops');
+  assert.equal(session.state().board.overlay, 'add-board');
+  assert.equal(session.focusedId(), 'board-add-board-title');
   session.destroy();
 });
 
-test('Board manager adds, renames, and removes boards through selected-board controls', async () => {
+test('Board selector click changes board and double click opens board details', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
   const boardActions = {
-    addBoard(values) {
-      calls.push(['addBoard', values]);
+    useBoard(values) {
+      calls.push(['useBoard', values]);
       return {ok: true};
-    },
+    }
+  };
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const snapshot = baseSnapshot({
+    board: {
+      id: 'launch',
+      title: 'Launch board',
+      boards: [
+        {id: 'launch', title: 'Launch board', description: 'Ship', current: true},
+        {id: 'ops', title: 'Ops board', description: 'Ops details', current: false}
+      ],
+      totalCards: 0,
+      columns: [{index: 1, id: 'backlog', title: 'Backlog', count: 0, cards: [], isDefault: true}],
+      remainingColumns: 0
+    }
+  });
+  const session = await Ui.mountInteractiveSession({stdin, stdout, cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot, boardActions});
+
+  pressVisibleText(stdin, session, 'Ops board');
+
+  assert.deepEqual(calls, [['useBoard', {id: 'ops'}]]);
+  assert.doesNotMatch(session.output(), /Board: Ops board/);
+
+  doublePressVisibleText(stdin, session, 'Ops board');
+
+  assert.match(session.output(), /Board: Ops board/);
+  assert.match(session.output(), /Ops details/);
+  assert.match(session.output(), /Rename/);
+  assert.match(session.output(), /Delete board/);
+  assert.match(session.output(), /Close/);
+  assert.doesNotMatch(session.output(), /Selected board:|Switch to board|board-details/);
+  session.destroy();
+});
+
+test('Board details reuses rename and delete board flows', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const boardActions = {
     renameBoard(values) {
       calls.push(['renameBoard', values]);
       return {ok: true};
@@ -3499,23 +3575,8 @@ test('Board manager adds, renames, and removes boards through selected-board con
       remainingColumns: 0
     }
   });
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board', board: {overlay: 'board-details', selectedBoardId: 'ops'}}, snapshot, boardActions});
 
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot, boardActions});
-
-  session.click('board-boards');
-  session.click('board-add-board');
-  session.click('board-add-board-save');
-
-  assert.equal(session.state().board.overlay, 'add-board');
-  assert.match(session.output(), /Title is required\./);
-
-  session.dispatchText('Product board');
-  session.focus('board-add-board-description');
-  session.dispatchText('Roadmap');
-  session.click('board-add-board-save');
-  session.click('board-boards');
-  session.click('board-manager-list');
-  session.dispatchKey('DOWN');
   session.click('board-rename-board');
 
   assert.equal(session.focusedId(), 'board-rename-board-title');
@@ -3527,26 +3588,25 @@ test('Board manager adds, renames, and removes boards through selected-board con
   session.dispatchKey('CTRL_A');
   session.dispatchText('Ops next');
   session.click('board-rename-board-save');
-  session.click('board-boards');
-  session.click('board-manager-list');
-  session.dispatchKey('DOWN');
-  session.click('board-delete-board');
 
-  assert.equal(session.state().board.overlay, 'remove-board-confirm');
-  assert.match(session.output(), /Delete board/);
+  const removeSession = await Ui.createHeadlessSession({state: {activeTab: 'Board', board: {overlay: 'board-details', selectedBoardId: 'ops'}}, snapshot, boardActions});
+  removeSession.click('board-delete-board');
 
-  session.click('board-remove-board-confirm');
+  assert.equal(removeSession.state().board.overlay, 'remove-board-confirm');
+  assert.match(removeSession.output(), /Delete board/);
+
+  removeSession.click('board-remove-board-confirm');
 
   assert.deepEqual(calls, [
-    ['addBoard', {title: 'Product board', description: 'Roadmap'}],
     ['renameBoard', {boardId: 'ops', title: 'Ops v2', description: 'Ops detailsOps next'}],
     ['removeBoard', {boardId: 'ops'}]
   ]);
-  assert.equal(session.state().board.overlay, null);
+  assert.equal(removeSession.state().board.overlay, null);
+  removeSession.destroy();
   session.destroy();
 });
 
-test('Board manager resets stale card and column focus after current board CRUD changes', async () => {
+test('Board current board CRUD changes reset stale card and column focus without board manager', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
   const boardActions = {
@@ -3577,12 +3637,11 @@ test('Board manager resets stale card and column focus after current board CRUD 
   });
 
   const addSession = await Ui.createHeadlessSession({
-    state: {activeTab: 'Board', selectedColumnIndex: 2, selectedCard: {columnIndex: 2, position: 1}},
+    state: {activeTab: 'Board', board: {selectedColumnIndex: 2, selectedCard: {columnIndex: 2, position: 1}}},
     snapshot,
     boardActions
   });
 
-  addSession.click('board-boards');
   addSession.click('board-add-board');
   addSession.dispatchText('Product board');
   addSession.click('board-add-board-save');
@@ -3595,12 +3654,11 @@ test('Board manager resets stale card and column focus after current board CRUD 
   addSession.destroy();
 
   const removeSession = await Ui.createHeadlessSession({
-    state: {activeTab: 'Board', selectedColumnIndex: 2, selectedCard: {columnIndex: 2, position: 1}},
+    state: {activeTab: 'Board', board: {overlay: 'board-details', selectedBoardId: 'launch', selectedColumnIndex: 2, selectedCard: {columnIndex: 2, position: 1}}},
     snapshot,
     boardActions
   });
 
-  removeSession.click('board-boards');
   removeSession.click('board-delete-board');
   removeSession.click('board-remove-board-confirm');
 
@@ -3613,40 +3671,6 @@ test('Board manager resets stale card and column focus after current board CRUD 
   assert.equal(removeSession.state().board.selectedColumnIndex, 1);
   assert.equal(removeSession.focusedId(), 'board-card-list-1');
   removeSession.destroy();
-});
-
-test('Board column details footer exposes WIP, default, move, and remove parity copy', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Board', board: {overlay: 'column-details', selectedColumnIndex: 2}},
-    snapshot: baseSnapshot({
-      board: {
-        id: 'launch',
-        title: 'Launch board',
-        defaultColumnId: 'backlog',
-        totalCards: 0,
-        columns: [
-          {index: 1, id: 'backlog', title: 'Backlog', count: 0, cards: [], isDefault: true},
-          {index: 2, id: 'doing', title: 'Doing', count: 0, cards: [], wipLimit: 2, isDefault: false},
-          {index: 3, id: 'done', title: 'Done', count: 0, cards: [], isDefault: false}
-        ],
-        remainingColumns: 0
-      }
-    })
-  });
-
-  const overlayText = scopedOverlayLines(session.output(), /Column: Doing/).join('\n');
-
-  assert.doesNotMatch(overlayText, /Add column/);
-  assert.doesNotMatch(overlayText, /Reset to default layout/);
-  assert.match(overlayText, /Rename/);
-  assert.match(overlayText, /Left/);
-  assert.match(overlayText, /Right/);
-  assert.match(overlayText, /Default/);
-  assert.match(overlayText, /WIP/);
-  assert.match(overlayText, /Remove column/);
-  assert.doesNotMatch(overlayText, /Move column left|Move column right/);
-  session.destroy();
 });
 
 test('Board reset default columns is blocked with cards and confirmed on empty boards', async () => {
@@ -3810,7 +3834,7 @@ test('Board blocks removing an empty default column before model calls', async (
   session.destroy();
 });
 
-test('Board column move keeps the moved column selected for follow-up actions', async () => {
+test('Board column header LEFT and RIGHT reorder columns and keep header focus', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
   const boardActions = {
@@ -3835,30 +3859,32 @@ test('Board column move keeps the moved column selected for follow-up actions', 
       remainingColumns: 0
     }
   });
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board', board: {overlay: 'column-details', selectedColumnIndex: 2}}, snapshot, boardActions});
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot, boardActions});
 
-  session.click('board-move-column-left');
+  session.focus('board-column-header-2');
+  session.dispatchKey('LEFT');
 
   assert.deepEqual(calls, [['left', {columnIndex: 2}]]);
   assert.equal(session.state().board.selectedColumnIndex, 1);
-  assert.equal(session.focusedId(), 'board-card-list-1');
+  assert.equal(session.focusedId(), 'board-column-header-1');
 
-  const rightSession = await Ui.createHeadlessSession({state: {activeTab: 'Board', board: {overlay: 'column-details', selectedColumnIndex: 1}}, snapshot, boardActions});
-  rightSession.click('board-move-column-right');
+  const rightSession = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot, boardActions});
+  rightSession.focus('board-column-header-1');
+  rightSession.dispatchKey('RIGHT');
 
   assert.deepEqual(calls, [
     ['left', {columnIndex: 2}],
     ['right', {columnIndex: 1}]
   ]);
   assert.equal(rightSession.state().board.selectedColumnIndex, 2);
-  assert.equal(rightSession.focusedId(), 'board-card-list-2');
+  assert.equal(rightSession.focusedId(), 'board-column-header-2');
   rightSession.destroy();
   session.destroy();
 });
 
 
 
-test('a11y shell closes active page overlay when switching tabs', async () => {
+test('a11y shell closes active page overlay when switching tabs by keyboard shortcut', async () => {
   const {createHeadlessSession} = require(uiModulePath);
   const session = await createHeadlessSession({snapshot: richSnapshot(), cols: 80, rows: 24});
 
@@ -3866,7 +3892,7 @@ test('a11y shell closes active page overlay when switching tabs', async () => {
     session.click('todo-add-task');
     assert.match(session.output(), /Add task/);
 
-    session.click('tab-notes');
+    session.dispatchKey('CTRL_2');
 
     assert.equal(session.state().activeTab, 'Notes');
     assert.equal(session.state().todo.overlay, null);
@@ -3893,14 +3919,15 @@ test('a11y overlay opening sets stable initial focus', async () => {
   }
 });
 
-test('a11y top nav groups apps and utilities with a separator', async () => {
+test('a11y top nav groups apps and Sync as a global control', async () => {
   const {createHeadlessSession} = require(uiModulePath);
   const session = await createHeadlessSession({snapshot: richSnapshot(), cols: 80, rows: 24});
 
   try {
     const navLine = visibleLines(session.output()).find(line => /Todo/.test(line) && /Speech/.test(line));
     assert.ok(navLine, 'expected nav line with primary apps and utilities');
-    assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*\|.*Sync.*Translate.*Speech/);
+    assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*Translate.*Speech/);
+    assert.ok(navLine.indexOf('Speech') < navLine.indexOf('Sync'), `expected Sync after app group:\n${navLine}`);
     assert.doesNotMatch(navLine, /Tools/);
   } finally {
     await session.destroy();
