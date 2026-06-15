@@ -99,6 +99,40 @@ function snapshot() {
   };
 }
 
+function reorderSnapshot() {
+  return {
+    todo: {
+      title: 'Today',
+      currentListId: 1,
+      lists: [{id: 1, title: 'Today', current: true}],
+      items: [
+        {id: 't1', position: 1, text: 'First task', description: '', done: false, labels: []},
+        {id: 't2', position: 2, text: 'Second task', description: '', done: false, labels: []},
+        {id: 't3', position: 3, text: 'Third task', description: '', done: false, labels: []}
+      ],
+      remaining: 0
+    },
+    notes: {
+      title: 'Research',
+      currentListId: 'n1',
+      lists: [{id: 'n1', title: 'Research', current: true}],
+      items: [
+        {id: 'n1', position: 1, text: 'First note', description: '', labels: []},
+        {id: 'n2', position: 2, text: 'Second note', description: '', labels: []},
+        {id: 'n3', position: 3, text: 'Third note', description: '', labels: []}
+      ],
+      remaining: 0
+    },
+    board: {title: 'Board', columns: [], totalCards: 0},
+    clocks: {items: [], remaining: 0}
+  };
+}
+
+function orderedTextIndex(output, labels) {
+  const text = visible(output);
+  return labels.map(label => text.indexOf(label));
+}
+
 
 
 test('Todo UI keeps list management out of the main task surface', async () => {
@@ -153,6 +187,69 @@ test('Todo Enter toggles selected task instead of opening details', async () => 
   session.destroy();
 });
 
+test('Todo Shift+Up and Shift+Down persist task order and keep moved task selected', async () => {
+  let current = reorderSnapshot();
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    buildSnapshot: () => current,
+    todoActions: {
+      moveTask(values) {
+        calls.push(values);
+        const items = current.todo.items;
+        const from = values.position - 1;
+        const to = values.direction === 'up' ? from - 1 : from + 1;
+        const [item] = items.splice(from, 1);
+        items.splice(to, 0, item);
+        current = {
+          ...current,
+          todo: {
+            ...current.todo,
+            items: items.map((task, index) => ({...task, position: index + 1}))
+          }
+        };
+        return {ok: true};
+      }
+    }
+  });
+
+  session.focus('todo-items');
+  session.dispatchKey('DOWN');
+  session.dispatchKey('SHIFT_UP');
+
+  assert.deepEqual(calls, [{position: 2, direction: 'up'}]);
+  assert.deepEqual(orderedTextIndex(session.output(), ['Second task', 'First task', 'Third task']).map(index => index >= 0), [true, true, true]);
+  assert.ok(orderedTextIndex(session.output(), ['Second task', 'First task', 'Third task']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.equal(session.state().todo.selectedTaskPosition, 1);
+
+  session.dispatchKey('SHIFT_DOWN');
+  assert.deepEqual(calls, [{position: 2, direction: 'up'}, {position: 1, direction: 'down'}]);
+  assert.ok(orderedTextIndex(session.output(), ['First task', 'Second task', 'Third task']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.equal(session.state().todo.selectedTaskPosition, 2);
+  session.destroy();
+});
+
+test('Todo Shift reorder is scoped to task list and no-ops at boundaries', async () => {
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    snapshot: reorderSnapshot(),
+    todoActions: {
+      moveTask(values) {
+        calls.push(values);
+        return {ok: true};
+      }
+    }
+  });
+
+  session.focus('todo-items');
+  session.dispatchKey('SHIFT_UP');
+  session.click('todo-add-task');
+  session.focus('todo-add-description');
+  session.dispatchKey('SHIFT_DOWN');
+
+  assert.deepEqual(calls, []);
+  session.destroy();
+});
+
 test('Notes UI keeps list management out of the main note surface', async () => {
   const session = await Ui.createHeadlessSession({state: {activeTab: 'Notes'}, snapshot: snapshot()});
   const output = visible(session.output());
@@ -181,6 +278,70 @@ test('Notes UI opens list manager as full-surface overlay with virtualized list 
   assert.match(output, /Delete list/);
   assert.match(output, /Close/);
   assert.doesNotMatch(output, /Use list/);
+  session.destroy();
+});
+
+test('Notes Shift+Up and Shift+Down persist note order and keep moved note selected', async () => {
+  let current = reorderSnapshot();
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    state: {activeTab: 'Notes'},
+    buildSnapshot: () => current,
+    noteActions: {
+      moveNote(values) {
+        calls.push(values);
+        const items = current.notes.items;
+        const from = values.position - 1;
+        const to = values.direction === 'up' ? from - 1 : from + 1;
+        const [item] = items.splice(from, 1);
+        items.splice(to, 0, item);
+        current = {
+          ...current,
+          notes: {
+            ...current.notes,
+            items: items.map((note, index) => ({...note, position: index + 1}))
+          }
+        };
+        return {ok: true};
+      }
+    }
+  });
+
+  session.focus('note-items');
+  session.dispatchKey('DOWN');
+  session.dispatchKey('SHIFT_UP');
+
+  assert.deepEqual(calls, [{position: 2, direction: 'up'}]);
+  assert.ok(orderedTextIndex(session.output(), ['Second note', 'First note', 'Third note']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.equal(session.state().notesState.selectedNotePosition, 1);
+
+  session.dispatchKey('SHIFT_DOWN');
+  assert.deepEqual(calls, [{position: 2, direction: 'up'}, {position: 1, direction: 'down'}]);
+  assert.ok(orderedTextIndex(session.output(), ['First note', 'Second note', 'Third note']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.equal(session.state().notesState.selectedNotePosition, 2);
+  session.destroy();
+});
+
+test('Notes Shift reorder is scoped to note list and no-ops at boundaries', async () => {
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    state: {activeTab: 'Notes'},
+    snapshot: reorderSnapshot(),
+    noteActions: {
+      moveNote(values) {
+        calls.push(values);
+        return {ok: true};
+      }
+    }
+  });
+
+  session.focus('note-items');
+  session.dispatchKey('SHIFT_UP');
+  session.click('note-add-note');
+  session.focus('note-add-content');
+  session.dispatchKey('SHIFT_DOWN');
+
+  assert.deepEqual(calls, []);
   session.destroy();
 });
 

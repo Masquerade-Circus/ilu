@@ -315,6 +315,8 @@ export function createBoardKeyBindings(): TerminalKeyBinding[] {
     ...descriptionEditorEnterBindings,
     { key: "ENTER", command: { id: "ilu.board-card-list-enter" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "SPACE", command: { id: "ilu.board-card-list-space" }, scope: "list", when: { focusedTag: "terminal-list" } },
+    { key: "SHIFT_UP", command: { id: "ilu.board-card-priority-up" }, scope: "list", when: { focusedTag: "terminal-list" } },
+    { key: "SHIFT_DOWN", command: { id: "ilu.board-card-priority-down" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "LEFT", command: { id: "ilu.column-left" }, scope: "global", when: { focusedTag: "terminal-list" } },
     { key: "RIGHT", command: { id: "ilu.column-right" }, scope: "global", when: { focusedTag: "terminal-list" } },
     { key: "LEFT", command: { id: "ilu.board-column-header-left" }, scope: "global", when: { focusedTag: "terminal-button" } },
@@ -574,6 +576,57 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
   return true;
 }
 
+function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive = true, context?: TerminalCommandContext): boolean {
+  if (command.id !== "ilu.board-card-priority-up" && command.id !== "ilu.board-card-priority-down") {
+    return false;
+  }
+
+  if (!isActive || state.overlay !== null || !boardCardListHasKeyFocus(context)) {
+    return false;
+  }
+
+  const columnIndex = focusedBoardColumnIndex(context);
+  const currentBoard = snapshotRef.current.board || {} as BoardSnapshot;
+  const selection = state.selectedCard && state.selectedCard.columnIndex === columnIndex
+    ? state.selectedCard
+    : columnIndex === null
+      ? null
+      : firstSelectionInColumn(currentBoard, columnIndex);
+
+  if (columnIndex === null || !selection || !positiveInteger(selection.position)) {
+    return true;
+  }
+
+  const column = getBoardColumn(currentBoard, columnIndex);
+  const cards = Array.isArray(column?.cards) ? column.cards : [];
+  const toPosition = command.id === "ilu.board-card-priority-up" ? selection.position - 1 : selection.position + 1;
+
+  if (toPosition < 1 || toPosition > cards.length) {
+    return true;
+  }
+
+  if (typeof boardActions.prioritizeCard !== "function") {
+    state.actionError = "Priority could not be changed. Try again.";
+    state.overlay = "card-action-error";
+    return true;
+  }
+
+  const result = safeActionResult(boardActions.prioritizeCard({ columnIndex, position: selection.position, toPosition }), "Priority could not be changed. Try again.");
+
+  if (!result.ok) {
+    state.actionError = result.error || "Priority could not be changed. Try again.";
+    state.overlay = "card-action-error";
+    return true;
+  }
+
+  snapshotRef.refresh("board");
+  state.selectedColumnIndex = columnIndex;
+  state.selectedCard = { columnIndex, position: toPosition };
+  state.pendingFocus = `board-card-list-${columnIndex}`;
+  state.actionError = "";
+  return true;
+}
+
 export function handleBoardCommand(
   command: TerminalCommand,
   state: BoardRuntimeState,
@@ -602,6 +655,10 @@ export function handleBoardCommand(
 
   if (command.id === "ilu.board-card-list-enter") {
     return isActive && state.overlay === null && openFocusedBoardCardDetails(state, snapshotRef, context);
+  }
+
+  if (handleBoardCardPriorityKeyCommand(command, state, snapshotRef, boardActions, isActive, context)) {
+    return true;
   }
 
   return handleBoardColumnKeyCommand(command, state, snapshotRef, boardActions, isActive, context);

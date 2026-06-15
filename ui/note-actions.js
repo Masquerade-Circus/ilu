@@ -110,6 +110,49 @@ function createNoteActions(options = {}) {
     }
   }
 
+  function currentNotes(model, missingMessage) {
+    const result = currentList(model, missingMessage);
+
+    if (!result.ok) {
+      return result;
+    }
+
+    return {ok: true, notes: asArray(result.list.notes)};
+  }
+
+  function noteMoveTarget(model, values) {
+    const position = values.position;
+
+    if (!positiveInteger(position)) {
+      return {ok: false, error: 'Choose a note first.'};
+    }
+
+    const result = currentNotes(model, 'Choose a note list before moving a note.');
+
+    if (!result.ok) {
+      return result;
+    }
+
+    const explicitTarget = values.toPosition;
+    const toPosition = positiveInteger(explicitTarget)
+      ? explicitTarget
+      : values.direction === 'up'
+        ? position - 1
+        : values.direction === 'down'
+          ? position + 1
+          : null;
+
+    if (toPosition === null) {
+      return {ok: false, error: 'Choose a move direction.'};
+    }
+
+    if (toPosition < 1 || position > result.notes.length || toPosition > result.notes.length || position === toPosition) {
+      return {ok: true, noop: true};
+    }
+
+    return {ok: true, fromIndex: position, toIndex: toPosition};
+  }
+
   return {
     addNote(values = {}) {
       const title = safeString(values.title);
@@ -178,6 +221,25 @@ function createNoteActions(options = {}) {
         return createUiSuccessResult({list: model.notes.remove(position)});
       } catch (error) {
         return createUiErrorResult(error, 'Note could not be removed. Try again.');
+      }
+    },
+
+    moveNote(values = {}) {
+      try {
+        const model = modelFor();
+        const target = noteMoveTarget(model, values);
+
+        if (!target.ok) {
+          return target;
+        }
+
+        if (target.noop) {
+          return createUiSuccessResult();
+        }
+
+        return createUiSuccessResult({list: model.notes.reorder({fromIndex: target.fromIndex, toIndex: target.toIndex})});
+      } catch (error) {
+        return createUiErrorResult(error, 'Note could not be moved. Try again.');
       }
     },
 

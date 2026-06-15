@@ -130,6 +130,18 @@ export function createNotesKeyBindings(): TerminalKeyBinding[] {
       command: { id: "notes.open-details" },
       scope: "list",
       when: { focusedId: "note-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
+    {
+      key: "SHIFT_UP",
+      command: { id: "notes.move-note-up" },
+      scope: "list",
+      when: { focusedId: "note-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
+    {
+      key: "SHIFT_DOWN",
+      command: { id: "notes.move-note-down" },
+      scope: "list",
+      when: { focusedId: "note-items", focusedTag: "terminal-list" }
     } as TerminalKeyBinding
   ];
 }
@@ -217,7 +229,15 @@ export function prepareNotesViewState(panel: ListPanel, state: NotesRuntimeState
   }
 }
 
-export function handleNotesCommand(command: TerminalCommand, state: NotesRuntimeState, isActive: boolean, context?: TerminalCommandContext, panel?: ListPanel): boolean {
+export function handleNotesCommand(
+  command: TerminalCommand,
+  state: NotesRuntimeState,
+  isActive: boolean,
+  context?: TerminalCommandContext,
+  panel?: ListPanel,
+  noteActions?: Partial<NoteActions>,
+  refreshSnapshot?: RefreshSnapshot
+): boolean {
   if (isActive !== true) {
     return false;
   }
@@ -236,6 +256,44 @@ export function handleNotesCommand(command: TerminalCommand, state: NotesRuntime
 
     state.actionError = "";
     state.overlay = "note-details";
+    return true;
+  }
+
+  if ((command.id === "notes.move-note-up" || command.id === "notes.move-note-down") && context?.focusedId === "note-items") {
+    if (state.overlay !== null) {
+      return false;
+    }
+
+    const items = Array.isArray(panel?.items) ? panel.items : [];
+    const item = panel ? selectedItem(panel, state) : null;
+
+    if (!item) {
+      state.actionError = "Choose a note first.";
+      return true;
+    }
+
+    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
+    const direction = command.id === "notes.move-note-up" ? "up" : "down";
+    const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
+
+    if (toPosition < 1 || toPosition > items.length) {
+      return true;
+    }
+
+    const result = noteActions?.moveNote?.({ position: currentPosition, direction });
+
+    if (!result || result.ok !== true) {
+      state.actionError = result && typeof result.error === "string" ? result.error : "Note could not be moved. Try again.";
+      return true;
+    }
+
+    state.selectedNotePosition = toPosition;
+    state.actionError = "";
+
+    if (typeof refreshSnapshot === "function") {
+      refreshSnapshot("notes");
+    }
+
     return true;
   }
 

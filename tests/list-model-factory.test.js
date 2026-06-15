@@ -161,3 +161,57 @@ test('create-list-model expone check solo para colecciones que lo necesitan', ()
     [false, true]
   );
 });
+
+test('create-list-model reorders nested tasks and preserves item fields', () => {
+  const {createListModel} = loadFactory();
+  const Model = createListModel({
+    dbName: 'todos',
+    collectionName: 'todos',
+    itemKey: 'tasks',
+    itemHasCheck: true
+  });
+
+  Model.add({title: 'Today', description: ''});
+  Model.tasks.add({title: 'First', description: 'A', labels: ['a']});
+  Model.tasks.add({title: 'Second', description: 'B', labels: ['b']});
+  Model.tasks.add({title: 'Third', description: 'C', labels: ['c']});
+  Model.tasks.check([1]);
+
+  Model.tasks.reorder({fromIndex: 2, toIndex: 1});
+
+  assert.deepEqual(
+    Model.getCurrent().tasks.map(item => ({title: item.title, description: item.description, done: item.done, labels: item.labels})),
+    [
+      {title: 'Second', description: 'B', done: true, labels: ['b']},
+      {title: 'First', description: 'A', done: false, labels: ['a']},
+      {title: 'Third', description: 'C', done: false, labels: ['c']}
+    ]
+  );
+});
+
+test('create-list-model reorders nested notes and ignores invalid moves without corruption', () => {
+  const {createListModel} = loadFactory();
+  const Model = createListModel({
+    dbName: 'notes',
+    collectionName: 'notes',
+    itemKey: 'notes'
+  });
+
+  Model.add({title: 'Research', description: ''});
+  Model.notes.add({title: 'Alpha', content: 'One', labels: ['x']});
+  Model.notes.add({title: 'Beta', content: 'Two', labels: ['y']});
+  Model.notes.add({title: 'Gamma', content: 'Three', labels: ['z']});
+
+  Model.notes.reorder({fromIndex: 2, toIndex: 3});
+  Model.notes.reorder({fromIndex: 1, toIndex: 0});
+  Model.notes.reorder({fromIndex: 9, toIndex: 1});
+
+  assert.deepEqual(
+    Model.getCurrent().notes.map(item => ({title: item.title, content: item.content, labels: item.labels})),
+    [
+      {title: 'Alpha', content: 'One', labels: ['x']},
+      {title: 'Gamma', content: 'Three', labels: ['z']},
+      {title: 'Beta', content: 'Two', labels: ['y']}
+    ]
+  );
+});

@@ -94,6 +94,8 @@ type HeadlessSession = {
 };
 
 const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
+const BRACKETED_PASTE_START = "\u001b[200~";
+const BRACKETED_PASTE_END = "\u001b[201~";
 
 const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = require("./read-model");
 const { createBoardActions }: { createBoardActions: (options?: Record<string, unknown>) => BoardActions } = require("./board-actions");
@@ -857,6 +859,47 @@ function findFocusedNode(nodes: TerminalNode[]): TerminalElementNode | null {
   return null;
 }
 
+function isFocusedTextEntry(node: TerminalElementNode | null): boolean {
+  return node?.tag === "terminal-input" || node?.tag === "terminal-editor";
+}
+
+function normalizeHeadlessPasteText(value: string): string {
+  let output = "";
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    const start = value.indexOf(BRACKETED_PASTE_START, cursor);
+
+    if (start < 0) {
+      output += value.slice(cursor);
+      break;
+    }
+
+    output += value.slice(cursor, start);
+    const textStart = start + BRACKETED_PASTE_START.length;
+    const end = value.indexOf(BRACKETED_PASTE_END, textStart);
+
+    if (end < 0) {
+      output += value.slice(start);
+      break;
+    }
+
+    output += value.slice(textStart, end).replace(/\r\n?/g, "\n");
+    cursor = end + BRACKETED_PASTE_END.length;
+  }
+
+  return output;
+}
+
+function pasteTextIntoFocusedEntry(session: TerminalSession, text: string): string {
+  const previousClipboard = session.clipboard();
+
+  session.setClipboard(text);
+  const output = session.dispatchKey("CTRL_V");
+  session.setClipboard(previousClipboard);
+  return output;
+}
+
 
 function prepareActivePageState(state: AppRuntimeState, snapshot: UiSnapshot): void {
   if (state.activeTab === "Todo") {
@@ -944,7 +987,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return true;
     }
 
-    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes)) {
+    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes, sessionActions.noteActions, sessionActions.refreshSnapshot)) {
       return true;
     }
 
@@ -974,8 +1017,18 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return output;
     },
     dispatchText(value) {
+      const text = normalizeHeadlessPasteText(String(value));
+      const focused = findFocusedNode(activeSession.tree());
+
+      if (isFocusedTextEntry(focused) && text.length > 1) {
+        const output = pasteTextIntoFocusedEntry(activeSession, text);
+        prepareActivePageState(state, snapshotRef.current);
+        applyPendingFocus(activeSession, state);
+        return output;
+      }
+
       let output = "";
-      for (const char of String(value)) {
+      for (const char of text) {
         output = activeSession.dispatchKey(char);
       }
       prepareActivePageState(state, snapshotRef.current);
@@ -1150,7 +1203,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
       return true;
     }
 
-    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes)) {
+    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes, sessionActions.noteActions, sessionActions.refreshSnapshot)) {
       return true;
     }
 

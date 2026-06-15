@@ -31,6 +31,22 @@ function createNestedCollection(Model, key, options = {}) {
                 Object.assign(item, values);
             }
             return Model.save(current);
+        },
+        reorder({fromIndex, toIndex} = {}) {
+            if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 1 || toIndex < 1) {
+                return Model.getCurrent();
+            }
+
+            let current = Model.getCurrent();
+            let items = Array.isArray(current[key]) ? current[key] : [];
+
+            if (fromIndex > items.length || toIndex > items.length || fromIndex === toIndex) {
+                return current;
+            }
+
+            let moved = items.splice(fromIndex - 1, 1)[0];
+            items.splice(toIndex - 1, 0, moved);
+            return Model.save(current);
         }
     };
 

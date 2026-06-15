@@ -82,6 +82,14 @@ function createTodoModel() {
         calls.push(['remove-task', position]);
         model.getCurrent().tasks.splice(position - 1, 1);
         return model.getCurrent();
+      },
+      reorder(values) {
+        calls.push(['reorder-task', values]);
+        const from = values.fromIndex - 1;
+        const to = values.toIndex - 1;
+        const [task] = model.getCurrent().tasks.splice(from, 1);
+        model.getCurrent().tasks.splice(to, 0, task);
+        return model.getCurrent();
       }
     }
   };
@@ -98,6 +106,32 @@ test('Todo adapter rejects invalid task input before model calls', () => {
   assert.deepEqual(actions.markTaskDone({position: -1}), {ok: false, error: 'Choose a task first.'});
   assert.deepEqual(actions.removeTask({position: Number.NaN}), {ok: false, error: 'Choose a task first.'});
   assert.deepEqual(calls, []);
+});
+
+test('Todo adapter rejects invalid reorder requests before model calls', () => {
+  const {model, calls} = createTodoModel();
+  const actions = createTodoActions({model});
+
+  assert.deepEqual(actions.moveTask({position: 1, direction: 'up'}), {ok: true});
+  assert.deepEqual(actions.moveTask({position: 2, direction: 'sideways'}), {ok: false, error: 'Choose a move direction.'});
+  assert.deepEqual(actions.moveTask({position: Number.NaN, direction: 'down'}), {ok: false, error: 'Choose a task first.'});
+
+  assert.deepEqual(calls, []);
+});
+
+test('Todo adapter reorders tasks through the model and treats end boundaries as no-ops', () => {
+  const {model, calls, lists} = createTodoModel();
+  const actions = createTodoActions({model});
+
+  assert.equal(actions.moveTask({position: 2, direction: 'up'}).ok, true);
+  assert.equal(actions.moveTask({position: 2, direction: 'down'}).ok, true);
+  assert.equal(actions.moveTask({position: 2, toPosition: 1}).ok, true);
+
+  assert.deepEqual(calls, [
+    ['reorder-task', {fromIndex: 2, toIndex: 1}],
+    ['reorder-task', {fromIndex: 2, toIndex: 1}]
+  ]);
+  assert.deepEqual(lists[0].tasks.map(task => task.title), ['Open task', 'Done task']);
 });
 
 test('Todo adapter calls model task APIs with trimmed values and preserves labels when editing', () => {

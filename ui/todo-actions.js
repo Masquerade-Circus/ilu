@@ -138,6 +138,39 @@ function createTodoActions(options = {}) {
     return {ok: true, checked: next};
   }
 
+  function taskMoveTarget(model, values) {
+    const position = values.position;
+
+    if (!positiveInteger(position)) {
+      return {ok: false, error: 'Choose a task first.'};
+    }
+
+    const result = currentTasks(model, 'Choose a todo list before moving a task.');
+
+    if (!result.ok) {
+      return result;
+    }
+
+    const explicitTarget = values.toPosition;
+    const toPosition = positiveInteger(explicitTarget)
+      ? explicitTarget
+      : values.direction === 'up'
+        ? position - 1
+        : values.direction === 'down'
+          ? position + 1
+          : null;
+
+    if (toPosition === null) {
+      return {ok: false, error: 'Choose a move direction.'};
+    }
+
+    if (toPosition < 1 || position > result.tasks.length || toPosition > result.tasks.length || position === toPosition) {
+      return {ok: true, noop: true};
+    }
+
+    return {ok: true, fromIndex: position, toIndex: toPosition};
+  }
+
   return {
     addTask(values = {}) {
       const title = safeString(values.title);
@@ -248,6 +281,25 @@ function createTodoActions(options = {}) {
         return createUiSuccessResult({list: model.tasks.remove(position)});
       } catch (error) {
         return createUiErrorResult(error, 'Task could not be removed. Try again.');
+      }
+    },
+
+    moveTask(values = {}) {
+      try {
+        const model = modelFor();
+        const target = taskMoveTarget(model, values);
+
+        if (!target.ok) {
+          return target;
+        }
+
+        if (target.noop) {
+          return createUiSuccessResult();
+        }
+
+        return createUiSuccessResult({list: model.tasks.reorder({fromIndex: target.fromIndex, toIndex: target.toIndex})});
+      } catch (error) {
+        return createUiErrorResult(error, 'Task could not be moved. Try again.');
       }
     },
 

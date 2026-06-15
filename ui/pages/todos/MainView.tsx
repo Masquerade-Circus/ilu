@@ -138,6 +138,18 @@ export function createTodoKeyBindings(): TerminalKeyBinding[] {
       command: { id: "todo.toggle-task" },
       scope: "list",
       when: { focusedId: "todo-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
+    {
+      key: "SHIFT_UP",
+      command: { id: "todo.move-task-up" },
+      scope: "list",
+      when: { focusedId: "todo-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
+    {
+      key: "SHIFT_DOWN",
+      command: { id: "todo.move-task-down" },
+      scope: "list",
+      when: { focusedId: "todo-items", focusedTag: "terminal-list" }
     } as TerminalKeyBinding
   ];
 }
@@ -260,6 +272,44 @@ export function handleTodoCommand(
       return true;
     }
 
+    state.actionError = "";
+
+    if (typeof refreshSnapshot === "function") {
+      refreshSnapshot("todo");
+    }
+
+    return true;
+  }
+
+  if ((command.id === "todo.move-task-up" || command.id === "todo.move-task-down") && context?.focusedId === "todo-items") {
+    if (state.overlay !== null) {
+      return false;
+    }
+
+    const items = Array.isArray(panel?.items) ? panel.items : [];
+    const item = panel ? selectedItem(panel, state) : null;
+
+    if (!item) {
+      state.actionError = "Choose a task first.";
+      return true;
+    }
+
+    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
+    const direction = command.id === "todo.move-task-up" ? "up" : "down";
+    const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
+
+    if (toPosition < 1 || toPosition > items.length) {
+      return true;
+    }
+
+    const result = todoActions?.moveTask?.({ position: currentPosition, direction });
+
+    if (!result || result.ok !== true) {
+      state.actionError = result && typeof result.error === "string" ? result.error : "Task could not be moved. Try again.";
+      return true;
+    }
+
+    state.selectedTaskPosition = toPosition;
     state.actionError = "";
 
     if (typeof refreshSnapshot === "function") {

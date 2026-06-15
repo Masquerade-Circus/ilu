@@ -1293,6 +1293,97 @@ test('Board flechas izquierda y derecha mueven la card seleccionada a la columna
   session.destroy();
 });
 
+test('Board Shift+Up and Shift+Down persist card priority and keep moved card selected', async () => {
+  const Ui = require(uiModulePath);
+  const cards = [
+    {title: 'First card', position: 1},
+    {title: 'Second card', position: 2},
+    {title: 'Third card', position: 3}
+  ];
+  const calls = [];
+  const boardActions = {
+    prioritizeCard(values) {
+      calls.push(values);
+      const [card] = cards.splice(values.position - 1, 1);
+      cards.splice(values.toPosition - 1, 0, card);
+      cards.forEach((item, index) => { item.position = index + 1; });
+      return {ok: true};
+    }
+  };
+  const buildSnapshot = () => baseSnapshot({
+    board: {
+      title: 'Launch board',
+      totalCards: cards.length,
+      columns: [
+        {index: 1, title: 'Backlog', count: cards.length, cards: cards.map(card => ({...card})), remaining: 0}
+      ],
+      remainingColumns: 0
+    }
+  });
+  const session = await Ui.createHeadlessSession({
+    state: {activeTab: 'Board', selectedCard: {columnIndex: 1, position: 2}},
+    buildSnapshot,
+    boardActions
+  });
+
+  session.focus('board-card-list-1');
+  session.dispatchKey('SHIFT_UP');
+
+  assert.deepEqual(calls, [{columnIndex: 1, position: 2, toPosition: 1}]);
+  assert.ok(orderedTextIndex(session.output(), ['Second card', 'First card', 'Third card']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.deepEqual(session.state().board.selectedCard, {columnIndex: 1, position: 1});
+  assert.equal(session.focusedId(), 'board-card-list-1');
+
+  session.dispatchKey('SHIFT_DOWN');
+  assert.deepEqual(calls, [
+    {columnIndex: 1, position: 2, toPosition: 1},
+    {columnIndex: 1, position: 1, toPosition: 2}
+  ]);
+  assert.ok(orderedTextIndex(session.output(), ['First card', 'Second card', 'Third card']).every((value, index, list) => index === 0 || list[index - 1] < value));
+  assert.deepEqual(session.state().board.selectedCard, {columnIndex: 1, position: 2});
+  session.destroy();
+});
+
+test('Board Shift priority shortcut is scoped to card lists and no-ops at boundaries', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const boardActions = {
+    prioritizeCard(values) {
+      calls.push(values);
+      return {ok: true};
+    }
+  };
+  const snapshot = baseSnapshot({
+    board: {
+      title: 'Launch board',
+      totalCards: 2,
+      columns: [
+        {index: 1, title: 'Backlog', count: 2, cards: [{title: 'First card', position: 1}, {title: 'Second card', position: 2}], remaining: 0}
+      ],
+      remainingColumns: 0
+    }
+  });
+  const session = await Ui.createHeadlessSession({
+    state: {activeTab: 'Board', selectedCard: {columnIndex: 1, position: 1}},
+    snapshot,
+    boardActions
+  });
+
+  session.focus('board-card-list-1');
+  session.dispatchKey('SHIFT_UP');
+  session.click('board-column-header-1');
+  session.dispatchKey('SHIFT_DOWN');
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(session.state().board.selectedCard, {columnIndex: 1, position: 1});
+  session.destroy();
+});
+
+function orderedTextIndex(output, labels) {
+  const text = stripAnsi(output);
+  return labels.map(label => text.indexOf(label));
+}
+
 test('Board flechas izquierda y derecha son no-op sin card seleccionada o sin columna vecina', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
@@ -2835,6 +2926,49 @@ test('Board Add card description Enter inserts a newline without saving', async 
   assert.equal(session.state().board.overlay, 'add-card');
   assert.equal(session.state().board.addCard.description, 'Line one\nLine two');
   session.destroy();
+});
+
+test('Board Add card description handles bracketed paste as editor text', async () => {
+  const Ui = require(uiModulePath);
+
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+
+  try {
+    session.click('board-add-card');
+    session.focus('board-add-description');
+    session.dispatchText('\x1b[200~Line one\nLine two\x1b[201~');
+
+    assert.equal(session.state().board.addCard.description, 'Line one\nLine two');
+    assert.doesNotMatch(session.state().board.addCard.description, /\[200~|\[201~/);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('Board Add card title handles bracketed paste as input text without submitting', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const boardActions = {
+    addCard(values) {
+      calls.push(values);
+      return {ok: true};
+    }
+  };
+
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot(), boardActions});
+
+  try {
+    session.click('board-add-card');
+    session.focus('board-add-title');
+    session.dispatchText('\x1b[200~Line one\nLine two\x1b[201~');
+
+    assert.equal(session.state().board.addCard.title, 'Line one\nLine two');
+    assert.doesNotMatch(session.state().board.addCard.title, /\[200~|\[201~/);
+    assert.equal(session.state().board.overlay, 'add-card');
+    assert.deepEqual(calls, []);
+  } finally {
+    session.destroy();
+  }
 });
 
 test('Board Add card cancel closes modal without mutation', async () => {

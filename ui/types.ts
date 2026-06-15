@@ -255,6 +255,7 @@ export interface TodoActions {
   markTaskDone: (values: { position: number | null }) => TodoActionResult;
   markTaskOpen: (values: { position: number | null }) => TodoActionResult;
   removeTask: (values: { position: number | null }) => TodoActionResult;
+  moveTask: (values: { position: number | null; direction?: "up" | "down"; toPosition?: number | null }) => TodoActionResult;
   useList: (values: { listId: UiEntityId | null }) => TodoActionResult;
   addList: (values: { title: string; description?: string }) => TodoActionResult;
   renameList: (values: { listId: UiEntityId | null; title: string; description?: string }) => TodoActionResult;
@@ -265,6 +266,7 @@ export interface NoteActions {
   addNote: (values: { title: string; content?: string }) => NoteActionResult;
   editNote: (values: { position: number | null; title: string; content?: string }) => NoteActionResult;
   removeNote: (values: { position: number | null }) => NoteActionResult;
+  moveNote: (values: { position: number | null; direction?: "up" | "down"; toPosition?: number | null }) => NoteActionResult;
   useList: (values: { listId: UiEntityId | null }) => NoteActionResult;
   addList: (values: { title: string; description?: string }) => NoteActionResult;
   renameList: (values: { listId: UiEntityId | null; title: string; description?: string }) => NoteActionResult;

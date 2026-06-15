@@ -7,7 +7,8 @@ function createNoteModel() {
   const calls = [];
   const lists = [
     {$id: 'n1', index: 1, title: 'Research', description: 'Ideas', current: true, labels: [], notes: [
-      {title: 'Threat model', content: 'Line 1\nLine 2', labels: [{title: 'sec'}]}
+      {title: 'Threat model', content: 'Line 1\nLine 2', labels: [{title: 'sec'}]},
+      {title: 'Abuse cases', content: 'Boundaries', labels: []}
     ]},
     {$id: 'n2', index: 2, title: 'Archive', description: '', current: false, labels: [], notes: []}
   ];
@@ -65,6 +66,14 @@ function createNoteModel() {
         calls.push(['remove-note', position]);
         model.getCurrent().notes.splice(position - 1, 1);
         return model.getCurrent();
+      },
+      reorder(values) {
+        calls.push(['reorder-note', values]);
+        const from = values.fromIndex - 1;
+        const to = values.toIndex - 1;
+        const [note] = model.getCurrent().notes.splice(from, 1);
+        model.getCurrent().notes.splice(to, 0, note);
+        return model.getCurrent();
       }
     }
   };
@@ -80,6 +89,32 @@ test('Notes adapter rejects invalid note input before model calls', () => {
   assert.deepEqual(actions.editNote({position: 0, title: 'Title', content: 'Body'}), {ok: false, error: 'Choose a note first.'});
   assert.deepEqual(actions.removeNote({position: null}), {ok: false, error: 'Choose a note first.'});
   assert.deepEqual(calls, []);
+});
+
+test('Notes adapter rejects invalid reorder requests before model calls', () => {
+  const {model, calls} = createNoteModel();
+  const actions = createNoteActions({model});
+
+  assert.deepEqual(actions.moveNote({position: 1, direction: 'up'}), {ok: true});
+  assert.deepEqual(actions.moveNote({position: 2, direction: 'sideways'}), {ok: false, error: 'Choose a move direction.'});
+  assert.deepEqual(actions.moveNote({position: null, direction: 'down'}), {ok: false, error: 'Choose a note first.'});
+
+  assert.deepEqual(calls, []);
+});
+
+test('Notes adapter reorders notes through the model and treats end boundaries as no-ops', () => {
+  const {model, calls, lists} = createNoteModel();
+  const actions = createNoteActions({model});
+
+  assert.equal(actions.moveNote({position: 2, direction: 'up'}).ok, true);
+  assert.equal(actions.moveNote({position: 2, direction: 'down'}).ok, true);
+  assert.equal(actions.moveNote({position: 2, toPosition: 1}).ok, true);
+
+  assert.deepEqual(calls, [
+    ['reorder-note', {fromIndex: 2, toIndex: 1}],
+    ['reorder-note', {fromIndex: 2, toIndex: 1}]
+  ]);
+  assert.deepEqual(lists[0].notes.map(note => note.title), ['Threat model', 'Abuse cases']);
 });
 
 test('Notes adapter preserves multiline content and calls model APIs', () => {
