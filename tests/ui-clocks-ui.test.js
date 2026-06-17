@@ -49,7 +49,7 @@ test('Clocks UI shows names and timezones in the page and names with seconds in 
     {name: 'Mexico City', timezone: 'America/Mexico_City', time: '06:00:04', position: 2}
   ])});
   const output = visible(session.output());
-  const footerLine = output.split(/\r?\n/).find(line => line.includes('Ctrl+C: Exit')) || '';
+  const footerLine = output.split(/\r?\n/).find(line => line.includes('Ctrl+K: Help  Ctrl+C: Exit')) || '';
 
   assert.match(output, /UTC/);
   assert.match(output, /Etc\/UTC/);
@@ -74,7 +74,7 @@ test('Clocks footer keeps 80-column layout when clock names and seconds do not f
     ])
   });
   const lines = visibleLines(session.output());
-  const footerLine = lines.find(line => line.includes('Ctrl+C: Exit')) || '';
+  const footerLine = lines.find(line => line.includes('Ctrl+K: Help  Ctrl+C: Exit')) || '';
 
   assert.ok(footerLine.length <= 80, `expected compact footer within 80 columns, got ${footerLine.length}: ${footerLine}`);
   assert.equal(lines.filter(line => line.length > 80).length, 0);

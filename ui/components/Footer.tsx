@@ -112,7 +112,7 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
 }
 
 function footerHints(_activeTab: string, _syncStatus: SyncStatusState = "idle"): string[] {
-  return ["Ctrl+C: Exit"];
+  return ["Ctrl+K: Help", "Ctrl+C: Exit"];
 }
 
 function footerLeft(activeTab: string, syncStatus: SyncStatusState): string {

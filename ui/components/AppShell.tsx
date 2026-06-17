@@ -21,7 +21,7 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
   const bottomChromeSize = bottomActionBar ? 3 : 1;
 
   return (
-    <Screen title="">
+    <Screen>
       {topNav}
       {TOP_NAV_BOTTOM_MARGIN_ROWS > 0 ? <Text>{""}</Text> : null}
       <Box width={width} height={panelHeight} style={panelStyle}>

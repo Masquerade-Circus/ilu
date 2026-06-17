@@ -122,7 +122,7 @@ const {
   createUtilityPanel,
   prepareUtilityApp
 }: typeof import("./components/UtilityHost") = require("./components/UtilityHost.tsx");
-const { PANEL_STYLE, UI_COLORS }: typeof import("./theme") = require("./theme.ts");
+const { PANEL_STYLE, TERMINAL_THEME }: typeof import("./theme") = require("./theme.ts");
 const {
   clearBoardUiOverlay,
   createBoardKeyBindings,
@@ -157,6 +157,42 @@ const {
 }: typeof import("./pages/todos/MainView") = require("./pages/todos/MainView.tsx");
 
 const TABS = Object.freeze(["Todo", "Notes", "Board", "Clocks", "Sync", "Translate", "Speech"] as const);
+const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Object.freeze({
+  Todo: Object.freeze([
+    "Use ↑/↓ to choose a task. Use Enter/Space to toggle it.",
+    "Use Shift+↑/↓ to reorder.",
+    "Use Actions to manage tasks."
+  ]),
+  Notes: Object.freeze([
+    "Use ↑/↓ to choose a note. Use Enter to open it.",
+    "Use Shift+↑/↓ to reorder.",
+    "Use Actions to manage notes."
+  ]),
+  Board: Object.freeze([
+    "Use ↑/↓ to choose a card. Use Enter to open it.",
+    "Use ←/→ to move cards or columns.",
+    "Use Shift+↑/↓ to change priority.",
+    "Use Actions to add cards, columns, or boards."
+  ]),
+  Clocks: Object.freeze([
+    "Use ↑/↓ to choose a clock.",
+    "Use Actions to manage clocks."
+  ]),
+  Sync: Object.freeze([
+    "Use Actions to manage sync.",
+    "Setup asks for the remote, branch, and confirmation."
+  ]),
+  Translate: Object.freeze([
+    "Write the text, source, and target.",
+    "Use Actions to translate.",
+    "Use Actions to copy the result."
+  ]),
+  Speech: Object.freeze([
+    "Set the input, output, and voice.",
+    "Use Actions to convert text.",
+    "Use Actions to choose a voice."
+  ])
+});
 const DEFAULT_STATE: Omit<AppRuntimeState, "board" | "utilities" | "todo" | "notesState" | "clocksState"> = Object.freeze({
   activeTab: "Todo",
   overlay: null,
@@ -176,32 +212,7 @@ async function loadTerminalRuntime(): Promise<Runtime> {
 }
 
 function createTerminalTheme(terminal: TerminalRuntimeModule): TerminalTheme {
-  return terminal.mergeTerminalTheme({
-    styles: {
-      button: {
-        base: { color: UI_COLORS.text, padding: { left: 2, right: 2 } },
-        focus: { background: UI_COLORS.accent },
-        hover: { background: UI_COLORS.hover }
-      },
-      list: {
-        selected: { color: UI_COLORS.textStrong },
-        current: { color: UI_COLORS.textStrong },
-        hover: { color: UI_COLORS.textStrong }
-      },
-      text: {
-        empty: { color: UI_COLORS.muted },
-        error: { color: UI_COLORS.textStrong, background: UI_COLORS.danger },
-        loading: { color: UI_COLORS.borderActive },
-        muted: { color: UI_COLORS.muted },
-        warning: { color: UI_COLORS.warning },
-        success: { color: UI_COLORS.success }
-      }
-    },
-    spans: {
-      "list.current": { color: UI_COLORS.textStrong, plainPrefix: "" },
-      "list.hover": { color: UI_COLORS.textStrong }
-    }
-  });
+  return terminal.mergeTerminalTheme(TERMINAL_THEME);
 }
 
 function normalizeTab(tab: unknown): Tab {
@@ -565,13 +576,16 @@ function createApp(
     if (state.overlay !== "help") {
       return null;
     }
+    const helpLines = HELP_LINES_BY_TAB[state.activeTab] || [];
 
     return (
       <AppOverlay
-        title={<Text>Help</Text>}
+        title={<Text>{`${state.activeTab} help`}</Text>}
         content={[
-          <Text>Tab moves between controls. Enter activates the focused control.</Text>,
-          <Text>Ctrl+C closes this panel or exits the app.</Text>
+          <Text>Tab moves focus.</Text>,
+          <Text>Enter activates.</Text>,
+          ...helpLines.map((line) => <Text>{line}</Text>),
+          <Text>Esc closes Help.</Text>
         ]}
         bottomNav={createButton("help-close", "Close", () => { state.overlay = null; })}
       />
@@ -653,7 +667,7 @@ function createApp(
     return createAppShell({
       activePanelNodes,
       actionBar,
-      children: [helpOverlay(), activeUtilityOverlay, ...activePageOverlays],
+      children: [activeUtilityOverlay, ...activePageOverlays, helpOverlay()],
       footerStyle: FOOTER_STYLE,
       footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus),
       footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus),
@@ -707,7 +721,7 @@ function handleCommand(command: TerminalCommand, state: AppRuntimeState): boolea
 
   if (command.id === "ilu.cancel") {
     if (state.overlay === "help") {
-      state.overlay = null;
+      state.running = false;
       return true;
     }
 
@@ -738,6 +752,7 @@ function createKeymap(
     { key: "CTRL_5", command: { id: "ilu.tab", text: "Sync" }, scope: "global" },
     { key: "CTRL_6", command: { id: "ilu.tab", text: "Translate" }, scope: "global" },
     { key: "CTRL_7", command: { id: "ilu.tab", text: "Speech" }, scope: "global" },
+    { key: "CTRL_K", command: { id: "ilu.help" }, scope: "global" },
     { key: "ESCAPE", command: { id: "ilu.escape" }, scope: "global" },
     { key: "CTRL_C", command: { id: "ilu.cancel" }, scope: "global" }
   ];
@@ -818,16 +833,17 @@ function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeSta
     return false;
   }
 
-  overlayFocusSignatures.set(state, signature);
   const initialFocusId = overlayInitialFocusId(state);
 
   if (!initialFocusId) {
+    overlayFocusSignatures.set(state, signature);
     return false;
   }
 
   const focused = session.focus(initialFocusId);
 
   if (focused) {
+    overlayFocusSignatures.set(state, signature);
     trackedFocusIds.set(state, initialFocusId);
     session.update();
   }
@@ -859,6 +875,30 @@ function findFocusedNode(nodes: TerminalNode[]): TerminalElementNode | null {
   return null;
 }
 
+function findNodeById(nodes: TerminalNode[], id: string | null | undefined): TerminalElementNode | null {
+  if (typeof id !== "string" || id.length === 0) {
+    return null;
+  }
+
+  for (const node of nodes) {
+    if (!isTerminalElementNode(node)) {
+      continue;
+    }
+
+    if (node.props.id === id) {
+      return node;
+    }
+
+    const child = findNodeById(node.children, id);
+
+    if (child) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
 function isFocusedTextEntry(node: TerminalElementNode | null): boolean {
   return node?.tag === "terminal-input" || node?.tag === "terminal-editor";
 }
@@ -875,12 +915,15 @@ function normalizeHeadlessPasteText(value: string): string {
       break;
     }
 
+    if (start === cursor && value.indexOf(BRACKETED_PASTE_END, start + BRACKETED_PASTE_START.length) < 0) {
+      break;
+    }
+
     output += value.slice(cursor, start);
     const textStart = start + BRACKETED_PASTE_START.length;
     const end = value.indexOf(BRACKETED_PASTE_END, textStart);
 
     if (end < 0) {
-      output += value.slice(start);
       break;
     }
 
@@ -921,6 +964,14 @@ function prepareActiveUtilityApp(state: AppRuntimeState, actions: SessionActions
   const syncActions = actions.syncActions || createSyncActions();
   const ttsActions = actions.ttsActions || createTtsActions();
   prepareUtilityApp(state.utilities, state.activeTab, syncActions, ttsActions, requestRender);
+}
+
+function shouldPrepareUtilityAfterCommand(command: TerminalCommand, state: AppRuntimeState): boolean {
+  if ((command.id === "ilu.help" || command.id === "ilu.escape") && state.utilities.activeOverlay !== null) {
+    return false;
+  }
+
+  return true;
 }
 
 function createSessionActions(options: AppOptions, snapshotRef: SnapshotRef, requestRender?: () => void): SessionActions {
@@ -971,16 +1022,23 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24, panelHeight: options.panelHeight });
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, () => {
+  const keymap = createKeymap(state, (command) => {
+    if (state.running === false) {
+      if (session) {
+        session.destroy();
+      }
+
+      return;
+    }
+
     prepareActivePageState(state, snapshotRef.current);
-    prepareActiveUtilityApp(state, sessionActions, requestRender);
+
+    if (shouldPrepareUtilityAfterCommand(command, state)) {
+      prepareActiveUtilityApp(state, sessionActions, requestRender);
+    }
 
     if (session) {
       applyPendingFocus(session, state);
-
-      if (state.running === false) {
-        session.destroy();
-      }
     }
   }, (command, context) => {
     if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
@@ -1017,10 +1075,19 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return output;
     },
     dispatchText(value) {
-      const text = normalizeHeadlessPasteText(String(value));
-      const focused = findFocusedNode(activeSession.tree());
+      const rawText = String(value);
+      const text = normalizeHeadlessPasteText(rawText);
+      const tree = activeSession.tree();
+      const focused = findFocusedNode(tree);
+      const trackedFocused = findNodeById(tree, trackedFocusIds.get(state));
+      const isBracketedPaste = rawText.startsWith(BRACKETED_PASTE_START);
+      const hasFocusedTextEntry = isFocusedTextEntry(focused) || isFocusedTextEntry(trackedFocused);
 
-      if (isFocusedTextEntry(focused) && text.length > 1) {
+      if (isBracketedPaste && !hasFocusedTextEntry) {
+        return activeSession.output();
+      }
+
+      if ((isFocusedTextEntry(focused) || isBracketedPaste) && hasFocusedTextEntry && text.length > 1) {
         const output = pasteTextIntoFocusedEntry(activeSession, text);
         prepareActivePageState(state, snapshotRef.current);
         applyPendingFocus(activeSession, state);
@@ -1144,7 +1211,7 @@ function updateLayoutFromStdout(layout: RuntimeLayout, stdout: TerminalOutputStr
   }
 }
 
-function enableLayoutResize(session: TerminalSession, stdout: TerminalOutputStream | undefined, layout: RuntimeLayout): TerminalSession {
+function syncLayoutWithTerminalResize(session: TerminalSession, stdout: TerminalOutputStream | undefined, layout: RuntimeLayout): TerminalSession {
   if (!stdout || typeof stdout.on !== "function") {
     return session;
   }
@@ -1188,15 +1255,21 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   const layout = resolveLayoutOptions({ ...options, stdout });
   layout.lockPanelHeight = positiveInteger(options.panelHeight);
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, () => {
-    prepareActiveUtilityApp(state, sessionActions, requestRender);
+  const keymap = createKeymap(state, (command) => {
+    if (state.running === false) {
+      if (session) {
+        session.destroy();
+      }
+
+      return;
+    }
+
+    if (shouldPrepareUtilityAfterCommand(command, state)) {
+      prepareActiveUtilityApp(state, sessionActions, requestRender);
+    }
 
     if (session) {
       applyPendingFocus(session, state);
-
-      if (state.running === false) {
-        session.destroy();
-      }
     }
   }, (command, context) => {
     if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
@@ -1223,7 +1296,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     theme: createTerminalTheme(runtime.terminal)
   });
   const cleanupSyncRunner = createTuiSyncRunnerCleanup();
-  session = enableLayoutResize(session, stdout, layout);
+  session = syncLayoutWithTerminalResize(session, stdout, layout);
   session = enableSyncStatusUpdates(session, state, cleanupSyncRunner);
   session = enableClockFooterTicker(session, snapshotRef);
   applyPendingFocus(session, state);

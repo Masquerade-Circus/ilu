@@ -635,7 +635,7 @@ test('footer respeta 80 columnas con cuatro clocks compactos', async () => {
 
 test('footerSegments permite padding cero cuando clocks caben exacto en 80 columnas', () => {
   const {footerSegments} = require(path.join(repoRoot, 'ui', 'components', 'Footer.tsx'));
-  const exactFitName = 'X'.repeat(50);
+  const exactFitName = 'X'.repeat(43);
   const segments = footerSegments(80, baseSnapshot({
     clocks: {
       items: [{name: exactFitName, time: '12:34:56'}],
@@ -644,7 +644,7 @@ test('footerSegments permite padding cero cuando clocks caben exacto en 80 colum
   }));
   const visibleLength = segments.reduce((total, segment) => total + segment.text.length, 0) + Math.max(0, segments.length - 1) * 2;
 
-  assert.equal(segments[0].text.trimEnd(), 'Ctrl+C: Exit');
+  assert.equal(segments[0].text.trimEnd(), 'Ctrl+K: Help  Ctrl+C: Exit');
   assert.equal(visibleLength, 80, `expected exact 80-column footer, got ${visibleLength}: ${segments.map(segment => segment.text).join('  ')}`);
 });
 
@@ -679,7 +679,7 @@ test('footerLine omite estados de sync porque Sync vive en el top nav global', (
       }
     }), 'Board', status);
 
-    assert.match(line, /Ctrl\+C: Exit/, status);
+    assert.match(line, /Ctrl\+K: Help  Ctrl\+C: Exit/, status);
     assert.doesNotMatch(line, /\bReady\b|Syncing\.\.\.|Sync pending|Synced|Sync failed|Sync setup needed/, status);
     assert.ok(line.length <= 80, `expected footerLine within 80 columns, got ${line.length}: ${line}`);
   }
@@ -868,14 +868,162 @@ test('createHeadlessSession cambia a Clocks al hacer click en top nav y muestra 
   session.destroy();
 });
 
-test('help overlay muestra copy aprobado para Ctrl+C', async () => {
+test('help overlay muestra Esc como cierre y no presenta Ctrl+C como key de app', async () => {
   const Ui = require(uiModulePath);
 
   const session = await Ui.createHeadlessSession({state: {overlay: 'help'}, snapshot: baseSnapshot()});
   const output = session.output();
+  const helpOverlayText = scopedOverlayLines(output, /Todo help/).join('\n');
 
-  assert.match(output, /Ctrl\+C closes this panel or exits the app\./);
+  assert.match(helpOverlayText, /Esc closes Help\./);
+  assert.doesNotMatch(helpOverlayText, /Ctrl\+C/);
+  assert.doesNotMatch(helpOverlayText, /Esc\/Ctrl\+C closes this panel\./);
   assert.doesNotMatch(output, /Ctrl\+C closes this panel or exits\./);
+  session.destroy();
+});
+
+test('help overlay keeps independent app actions on separate lines', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  const cases = [
+    ['CTRL_1', 'Todo', /Use Shift\+↑\/↓ to reorder\. Use Actions to manage tasks\./, [/Use Shift\+↑\/↓ to reorder\./, /Use Actions to manage tasks\./]],
+    ['CTRL_2', 'Notes', /Use Shift\+↑\/↓ to reorder\. Use Actions to manage notes\./, [/Use Shift\+↑\/↓ to reorder\./, /Use Actions to manage notes\./]],
+    ['CTRL_4', 'Clocks', /Use Actions to add, move, or remove clocks\./, [/Use Actions to manage clocks\./]],
+    ['CTRL_5', 'Sync', /Use Actions to retry, enable, disable, or set up sync\./, [/Use Actions to manage sync\./]],
+    ['CTRL_6', 'Translate', /Use Actions to translate or copy the result\./, [/Use Actions to translate\./, /Use Actions to copy the result\./]],
+    ['CTRL_7', 'Speech', /Use Actions to convert text or choose a voice\./, [/Use Actions to convert text\./, /Use Actions to choose a voice\./]]
+  ];
+
+  for (const [key, tab, mixedActionsPattern, expectedPatterns] of cases) {
+    session.dispatchKey(key);
+    session.dispatchKey('CTRL_K');
+
+    const helpOverlayText = scopedOverlayLines(session.output(), new RegExp(`${tab} help`)).join('\n');
+
+    assert.doesNotMatch(helpOverlayText, mixedActionsPattern);
+    for (const expectedPattern of expectedPatterns) {
+      assert.match(helpOverlayText, expectedPattern);
+    }
+
+    session.dispatchKey('CTRL_K');
+  }
+
+  session.destroy();
+});
+
+test('Ctrl+H no abre help ni se mantiene como alias inseguro', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  session.dispatchKey('CTRL_H');
+
+  assert.equal(session.state().overlay, null);
+  assert.doesNotMatch(session.output(), /Todo help/);
+  session.destroy();
+});
+
+test('Ctrl+K opens contextual help for every app', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  const cases = [
+    ['CTRL_1', 'Todo', /Use ↑\/↓ to choose a task\./, /Use Shift\+↑\/↓ to reorder\./],
+    ['CTRL_2', 'Notes', /Use ↑\/↓ to choose a note\./, /Use Shift\+↑\/↓ to reorder\./],
+    ['CTRL_3', 'Board', /Use ←\/→ to move cards or columns\./, /Use Shift\+↑\/↓ to change priority\./],
+    ['CTRL_4', 'Clocks', /Use Actions to manage clocks\./, /Use ↑\/↓ to choose a clock\./],
+    ['CTRL_5', 'Sync', /Use Actions to manage sync\./, /Setup asks for the remote, branch, and confirmation\./],
+    ['CTRL_6', 'Translate', /Write the text, source, and target\./, /Use Actions to translate\./],
+    ['CTRL_7', 'Speech', /Set the input, output, and voice\./, /Use Actions to convert text\./]
+  ];
+
+  for (const [key, tab, firstPattern, secondPattern] of cases) {
+    session.dispatchKey(key);
+    session.dispatchKey('CTRL_K');
+
+    const output = session.output();
+
+    assert.equal(session.state().activeTab, tab);
+    assert.equal(session.state().overlay, 'help');
+    assert.match(output, new RegExp(`${tab} help`));
+    assert.match(output, firstPattern);
+    assert.match(output, secondPattern);
+    assert.match(output, /Tab moves focus\./);
+    assert.match(output, /Enter activates\./);
+    assert.match(output, /Esc closes Help\./);
+    assert.doesNotMatch(scopedOverlayLines(output, new RegExp(`${tab} help`)).join('\n'), /Ctrl\+C/);
+
+    session.dispatchKey('CTRL_K');
+    assert.equal(session.state().overlay, null);
+  }
+
+  session.destroy();
+});
+
+test('help overlay closes with Esc and Close button without exiting', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  session.dispatchKey('CTRL_K');
+  assert.equal(session.state().overlay, 'help');
+
+  session.dispatchKey('ESCAPE');
+  assert.equal(session.state().overlay, null);
+  assert.equal(session.state().running, true);
+
+  session.dispatchKey('CTRL_K');
+  assert.equal(session.state().overlay, 'help');
+
+  session.click('help-close');
+  assert.equal(session.state().overlay, null);
+  assert.equal(session.state().running, true);
+
+  session.destroy();
+});
+
+test('Ctrl+C exits from Help instead of acting as overlay help copy', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  session.dispatchKey('CTRL_K');
+  assert.equal(session.state().overlay, 'help');
+
+  session.dispatchKey('CTRL_C');
+
+  assert.equal(session.state().running, false);
+  assert.equal(session.state().overlay, 'help');
+  session.destroy();
+});
+
+test('Ctrl+K puts help above an already open page overlay and Close targets help', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+
+  session.click('todo-add-task');
+  assert.equal(session.state().todo.overlay, 'add-task');
+  assert.match(session.output(), /Add task/);
+
+  session.dispatchKey('CTRL_K');
+
+  assert.equal(session.state().overlay, 'help');
+  assert.equal(session.state().todo.overlay, 'add-task');
+  assert.equal(session.focusedId(), 'help-close');
+
+  const outputWithHelp = session.output();
+
+  assert.match(outputWithHelp, /Todo help/);
+  assert.match(outputWithHelp, /Esc closes Help\./);
+
+  const helpOverlayText = scopedOverlayLines(outputWithHelp, /Todo help/).join('\n');
+
+  assert.doesNotMatch(helpOverlayText, /Add task/);
+
+  session.click('help-close');
+
+  assert.equal(session.state().overlay, null);
+  assert.equal(session.state().todo.overlay, 'add-task');
+  assert.match(session.output(), /Add task/);
+  assert.equal(session.state().running, true);
   session.destroy();
 });
 
@@ -904,7 +1052,7 @@ test('Esc cierra help sin usar semantica de salida de Ctrl+C', async () => {
 
   assert.equal(session.state().overlay, null);
   assert.equal(session.state().running, true);
-  assert.doesNotMatch(session.output(), /Help/);
+  assert.doesNotMatch(session.output(), /Todo help/);
   session.destroy();
 });
 test('createHeadlessSession cambia activeTab con CTRL_1 a CTRL_4', async () => {
@@ -2633,6 +2781,92 @@ ${visibleLines(session.output()).join('\n')}`);
   session.destroy();
 });
 
+test('Board mueve viewport por rueda sin cambiar seleccion de app', async () => {
+  const Ui = require(uiModulePath);
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const cards = Array.from({length: 30}, (_, index) => ({title: `Card ${index + 1}`, position: index + 1}));
+  const session = await Ui.mountInteractiveSession({
+    stdin,
+    stdout,
+    state: {activeTab: 'Board'},
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  try {
+    assert.equal(session.focus('board-card-list-1'), true);
+    wheelDownVisibleText(stdin, session, 'Card 1');
+    await new Promise(resolve => queueMicrotask(resolve));
+
+    assert.match(session.output(), /• Card 2/);
+    assert.doesNotMatch(session.output(), /› Card 2/);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('Board no selecciona otra card cuando la rueda mueve viewport dentro de una card envuelta', async () => {
+  const Ui = require(uiModulePath);
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  const cards = [
+    {
+      title: 'Card 1 con titulo deliberadamente largo para envolver varias lineas dentro de la columna',
+      position: 1
+    },
+    {title: 'Card 2 no debe quedar seleccionada por offset visual', position: 2},
+    ...Array.from({length: 28}, (_, index) => ({title: `Card ${index + 3}`, position: index + 3}))
+  ];
+  const appState = {activeTab: 'Board', board: {selectedCard: {columnIndex: 1, position: 1}}};
+  const session = await Ui.mountInteractiveSession({
+    stdin,
+    stdout,
+    cols: 80,
+    rows: 24,
+    state: appState,
+    snapshot: baseSnapshot({
+      board: {
+        title: 'Launch board',
+        totalCards: cards.length,
+        columns: [
+          {index: 1, title: 'Backlog', count: cards.length, cards, remaining: 0}
+        ],
+        remainingColumns: 0
+      }
+    })
+  });
+
+  try {
+    assert.equal(session.focus('board-card-list-1'), true);
+    assert.match(session.output(), /Card 1 con titulo/);
+
+    wheelDownVisibleText(stdin, session, 'Card 1 con titulo');
+    await new Promise(resolve => queueMicrotask(resolve));
+
+    assert.doesNotMatch(
+      session.output(),
+      /› Card 2 no debe quedar seleccionada/,
+      `expected wrapped viewport scroll not to move the visual selection marker to Card 2, got:\n${visibleLines(session.output()).join('\n')}`
+    );
+    assert.deepEqual(
+      appState.board.selectedCard,
+      {columnIndex: 1, position: 1},
+      'expected viewport line offset from a wrapped card not to select a different card'
+    );
+  } finally {
+    session.destroy();
+  }
+});
+
 
 test('Board no selecciona cards por teclado aunque el listado tenga titulos duplicados', async () => {
   const Ui = require(uiModulePath);
@@ -2966,6 +3200,38 @@ test('Board Add card title handles bracketed paste as input text without submitt
     assert.doesNotMatch(session.state().board.addCard.title, /\[200~|\[201~/);
     assert.equal(session.state().board.overlay, 'add-card');
     assert.deepEqual(calls, []);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('Board Add card title ignores incomplete bracketed paste instead of leaking control text', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+
+  try {
+    session.click('board-add-card');
+    session.focus('board-add-title');
+    session.dispatchText('\x1b[200~Half pasted title');
+
+    assert.equal(session.state().board.addCard.title, '');
+    assert.doesNotMatch(session.output(), /\[200~|Half pasted title/);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('Board ignores bracketed paste when focus is not a text entry', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+
+  try {
+    assert.equal(session.focus('board-card-list-1'), true);
+    session.dispatchText('\x1b[200~Injected text\x1b[201~');
+
+    assert.equal(session.state().board.overlay, null);
+    assert.deepEqual(session.state().board.selectedCard, null);
+    assert.doesNotMatch(session.output(), /Injected text/);
   } finally {
     session.destroy();
   }

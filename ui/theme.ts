@@ -1,4 +1,4 @@
-import type { TerminalStyleValue } from "@valyrianjs/terminal";
+import type { TerminalStyleValue, TerminalTheme } from "@valyrianjs/terminal";
 
 export const UI_COLORS = Object.freeze({
   text: "#d8dee9",
@@ -73,3 +73,30 @@ export const CLOCK_FOOTER_COLORS = Object.freeze([
   "#c084fc",
   "#fb7185"
 ]);
+
+export const TERMINAL_THEME: TerminalTheme = Object.freeze({
+  styles: {
+    button: {
+      base: { color: UI_COLORS.text, padding: { left: 2, right: 2 } },
+      focus: { background: UI_COLORS.accent },
+      hover: { background: UI_COLORS.hover }
+    },
+    list: {
+      selected: { color: UI_COLORS.textStrong },
+      current: { color: UI_COLORS.textStrong },
+      hover: { color: UI_COLORS.textStrong }
+    },
+    text: {
+      empty: { color: UI_COLORS.muted },
+      error: { color: UI_COLORS.textStrong, background: UI_COLORS.danger },
+      loading: { color: UI_COLORS.borderActive },
+      muted: { color: UI_COLORS.muted },
+      warning: { color: UI_COLORS.warning },
+      success: { color: UI_COLORS.success }
+    }
+  },
+  spans: {
+    "list.current": { color: UI_COLORS.textStrong, plainPrefix: "" },
+    "list.hover": { color: UI_COLORS.textStrong }
+  }
+});

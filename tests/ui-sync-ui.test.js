@@ -134,6 +134,30 @@ test('Sync setup overlay pins setup actions to the overlay bottom', async () => 
   session.destroy();
 });
 
+test('Ctrl+C exits when Help is above Sync setup overlay', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  try {
+    session.click('tab-sync');
+    session.click('sync-setup');
+    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
+
+    session.dispatchKey('CTRL_K');
+    assert.equal(session.state().overlay, 'help');
+    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
+
+    session.dispatchKey('CTRL_C');
+
+    assert.equal(session.state().running, false);
+    assert.equal(session.state().overlay, 'help');
+    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
+  } finally {
+    session.destroy();
+  }
+});
+
 test('Sync init form requires explicit confirmation and keeps test remote under repo tmp', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
