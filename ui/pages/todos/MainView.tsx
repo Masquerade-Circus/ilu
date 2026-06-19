@@ -31,7 +31,6 @@ import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 
-const TODO_DESCRIPTION_EDITOR_IDS = Object.freeze(["todo-add-description", "todo-edit-description"] as const);
 const TODO_OVERLAY_STATES = Object.freeze([
   "add-task",
   "task-details",
@@ -121,12 +120,6 @@ export function createInitialTodoState(source: Record<string, unknown> = {}): To
 
 export function createTodoKeyBindings(): TerminalKeyBinding[] {
   return [
-    ...TODO_DESCRIPTION_EDITOR_IDS.map((id) => ({
-      key: "ENTER",
-      command: { id: "editor.newline" },
-      scope: "editor",
-      when: { focusedId: id, focusedTag: "terminal-editor" }
-    } as TerminalKeyBinding)),
     {
       key: "ENTER",
       command: { id: "todo.toggle-task" },
@@ -478,7 +471,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
         showActive={true}
         virtualized={true}
         height={4}
-        onchange={(event) => {
+        onactive={(event) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
         onpress={(event) => {
@@ -544,7 +537,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onchange={(event) => {
+                onactive={(event) => {
                   state.selectedListId = event.value.id;
                 }}
                 onpress={(event) => {

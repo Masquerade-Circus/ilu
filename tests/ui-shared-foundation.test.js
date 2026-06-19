@@ -16,6 +16,22 @@ function visibleLines(output) {
   return stripAnsi(output).split(/\r?\n/);
 }
 
+function findNodeById(nodes, id) {
+  for (const node of nodes || []) {
+    if (node && node.type === 'element' && node.props && node.props.id === id) {
+      return node;
+    }
+
+    const child = findNodeById(node && node.children, id);
+
+    if (child) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
 function overlayContractFor(cols, rows) {
   const marginX = Math.round(cols * 0.1);
   const marginY = Math.round(rows * 0.1);
@@ -208,8 +224,8 @@ test('Board, Todo details, and utility overlays fill the 80x24 surface without o
 
 
 
-test('Board overlays keep the base board panel mounted by default', () => {
-  const {createBoardMainView, createInitialBoardState} = require('../ui/pages/board/MainView.tsx');
+test('Board overlays keep the base board panel mounted by default', async () => {
+  const Ui = require(uiModulePath);
   const board = {
     id: 'launch',
     title: 'Launch board',
@@ -236,26 +252,29 @@ test('Board overlays keep the base board panel mounted by default', () => {
     'reset-columns-confirm'
   ].map((overlay) => ({
     name: overlay,
-    state: createInitialBoardState({
-      overlay,
-      selectedBoardId: 'launch',
-      selectedCard: {columnIndex: 1, position: 1},
-      selectedColumnIndex: 1
-    })
+    state: {
+      activeTab: 'Board',
+      board: {
+        overlay,
+        selectedBoardId: 'launch',
+        selectedCard: {columnIndex: 1, position: 1},
+        selectedColumnIndex: 1
+      }
+    }
   }));
 
   for (const overlay of overlays) {
-    const view = createBoardMainView({
-      board,
+    const session = await Ui.createHeadlessSession({
+      cols: 80,
+      rows: 24,
       state: overlay.state,
-      isActive: true,
-      width: 80,
-      panelHeight: 17,
-      boardActions: {},
-      refreshSnapshot: () => {}
+      snapshot: baseSnapshot({board})
     });
+    const output = session.output();
 
-    assert.ok(view.activePanelNodes.length > 1, `${overlay.name} must keep board selector and columns mounted`);
+    assert.match(output, /Backlo/, `${overlay.name} must keep board columns visible under overlay`);
+    assert.match(output, /Writ/, `${overlay.name} must keep board cards visible under overlay`);
+    session.destroy();
   }
 });
 

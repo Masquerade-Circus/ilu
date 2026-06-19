@@ -1,6 +1,7 @@
 import {
   Button,
   Editor,
+  Fixed,
   FocusScope,
   Input,
   List,
@@ -16,7 +17,7 @@ import type {
   TerminalEditorChangeEventPayload,
   TerminalInputChangeEventPayload,
   TerminalKeyBinding,
-  TerminalListChangeEventPayload,
+  TerminalListActiveEventPayload,
   TerminalListPressEventPayload
 } from "@valyrianjs/terminal";
 import type {
@@ -36,34 +37,20 @@ import type {
   TextFormState,
   UiSnapshot
 } from "../../types";
-import { createButton } from "../../components/Button";
+import { createButton, createButtonStatus } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 import {
   CARD_DETAILS_HEADING_STYLE,
   CARD_DETAILS_SURFACE_STYLE,
-  CONTROL_BUTTON_STYLE,
-  DANGER_BUTTON_STYLE,
-  UI_COLORS
+  CONTROL_BUTTON_STYLE
 } from "../../theme";
 import { getBoardCard, getBoardColumn, positiveInteger } from "./BoardCard";
 import { createBoardActionBar } from "./BoardActionBar";
 import { createBoardColumnNode } from "./BoardColumn";
 
-export const BOARD_DESCRIPTION_EDITOR_IDS = Object.freeze(["board-add-description", "board-edit-description", "board-add-board-description", "board-rename-board-description"] as const);
-
 const BOARD_SHELL_FIXED_ROWS = 5;
-const COLUMN_DETAILS_BUTTON_STYLE = Object.freeze({
-  color: UI_COLORS.text,
-  background: UI_COLORS.surfaceControl,
-  padding: { left: 0, right: 0 }
-});
-const COLUMN_DETAILS_DANGER_BUTTON_STYLE = Object.freeze({
-  color: UI_COLORS.textStrong,
-  background: UI_COLORS.danger,
-  padding: { left: 0, right: 0 }
-});
 const BOARD_OVERLAY_STATES = Object.freeze([
   "add-card",
   "card-action-error",
@@ -97,7 +84,6 @@ type BoardMainViewOptions = {
   state: BoardRuntimeState;
   isActive: boolean;
   width: number;
-  panelHeight: number;
   boardActions: BoardActions;
   refreshSnapshot: RefreshSnapshot;
   utilityActions?: JSX.Element[];
@@ -121,21 +107,6 @@ function boardSelectorItems(board: BoardSnapshot): BoardSummary[] {
 
   const title = typeof board.title === "string" && board.title.trim().length > 0 ? board.title.trim() : "No board yet";
   return [{ id: typeof board.id === "string" || typeof board.id === "number" ? board.id : "current", title, current: true }];
-}
-
-function createColumnDetailsButton(id: string, label: string, onpress: () => void, state?: "error"): JSX.Element {
-  const style = state === "error" ? COLUMN_DETAILS_DANGER_BUTTON_STYLE : COLUMN_DETAILS_BUTTON_STYLE;
-
-  return (
-    <Button
-      id={id}
-      label={label}
-      style={style}
-      styles={{ error: COLUMN_DETAILS_DANGER_BUTTON_STYLE, focus: style, hover: style, pressed: style, selected: style }}
-      state={state}
-      onpress={onpress}
-    />
-  );
 }
 
 type BoardSelectorHandlers = {
@@ -304,17 +275,11 @@ export function normalizeBoardRuntimeState(state: BoardRuntimeState): void {
 }
 
 export function createBoardKeyBindings(): TerminalKeyBinding[] {
-  const descriptionEditorEnterBindings: TerminalKeyBinding[] = BOARD_DESCRIPTION_EDITOR_IDS.map((id) => ({
-    key: "ENTER",
-    command: { id: "editor.newline" },
-    scope: "editor",
-    when: { focusedId: id, focusedTag: "terminal-editor" }
-  }));
-
   return [
-    ...descriptionEditorEnterBindings,
-    { key: "ENTER", command: { id: "ilu.board-card-list-enter" }, scope: "list", when: { focusedTag: "terminal-list" } },
-    { key: "SPACE", command: { id: "ilu.board-card-list-space" }, scope: "list", when: { focusedTag: "terminal-list" } },
+    { key: "o", command: { id: "ilu.board-open-details" }, scope: "global", when: { focusedTag: "terminal-list" } },
+    { key: "O", command: { id: "ilu.board-open-details" }, scope: "global", when: { focusedTag: "terminal-list" } },
+    { key: "o", command: { id: "ilu.board-open-details" }, scope: "global", when: { focusedTag: "terminal-button" } },
+    { key: "O", command: { id: "ilu.board-open-details" }, scope: "global", when: { focusedTag: "terminal-button" } },
     { key: "SHIFT_UP", command: { id: "ilu.board-card-priority-up" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "SHIFT_DOWN", command: { id: "ilu.board-card-priority-down" }, scope: "list", when: { focusedTag: "terminal-list" } },
     { key: "LEFT", command: { id: "ilu.column-left" }, scope: "global", when: { focusedTag: "terminal-list" } },
@@ -362,37 +327,6 @@ function firstSelectionInColumn(board: BoardSnapshot, columnIndex: number): Sele
   const firstCard = column.cards[0];
   const position = typeof firstCard === "object" && firstCard !== null && positiveInteger(firstCard.position) ? firstCard.position : 1;
   return { columnIndex, position };
-}
-
-function openFocusedBoardCardDetails(state: BoardRuntimeState, snapshotRef: SnapshotRef, context?: TerminalCommandContext): boolean {
-  if (!boardCardListHasKeyFocus(context)) {
-    return false;
-  }
-
-  const columnIndex = focusedBoardColumnIndex(context);
-
-  if (columnIndex === null) {
-    return true;
-  }
-
-  const currentBoard = snapshotRef.current.board || {} as BoardSnapshot;
-  const selected = state.selectedCard && state.selectedCard.columnIndex === columnIndex
-    ? state.selectedCard
-    : firstSelectionInColumn(currentBoard, columnIndex);
-
-  if (selected === null || !getBoardCard(currentBoard, selected)) {
-    state.actionError = "Choose a card first.";
-    state.overlay = "card-action-error";
-    return true;
-  }
-
-  state.selectedCard = selected;
-  state.selectedColumnIndex = selected.columnIndex;
-  state.removeCardArmedUntil = 0;
-  state.removeCardArmedSelection = null;
-  state.overlay = "card-details";
-  state.pendingFocus = "board-card-details-scroll";
-  return true;
 }
 
 export function openBoardAddCardModal(state: BoardRuntimeState): void {
@@ -627,6 +561,83 @@ function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: Boar
   return true;
 }
 
+function resetBoardDestructiveArming(state: BoardRuntimeState): void {
+  state.removeCardArmedUntil = 0;
+  state.removeCardArmedSelection = null;
+  state.removeColumnArmedUntil = 0;
+  state.removeColumnArmedIndex = null;
+}
+
+function openBoardCardDetailsFromKeyboard(state: BoardRuntimeState, snapshotRef: SnapshotRef, context?: TerminalCommandContext): boolean {
+  const columnIndex = focusedBoardColumnIndex(context);
+  const currentBoard = snapshotRef.current.board || {} as BoardSnapshot;
+  const selection = state.selectedCard && state.selectedCard.columnIndex === columnIndex
+    ? state.selectedCard
+    : columnIndex === null
+      ? null
+      : firstSelectionInColumn(currentBoard, columnIndex);
+  const details = getBoardCard(currentBoard, selection);
+
+  if (!details) {
+    state.actionError = "Choose a card first.";
+    state.overlay = "card-action-error";
+    return true;
+  }
+
+  resetBoardDestructiveArming(state);
+  state.selectedCard = { columnIndex: details.columnIndex, position: details.position };
+  state.selectedColumnIndex = details.columnIndex;
+  state.overlay = "card-details";
+  state.pendingFocus = "board-card-details-scroll";
+  return true;
+}
+
+function openBoardColumnDetailsFromKeyboard(state: BoardRuntimeState, snapshotRef: SnapshotRef, context?: TerminalCommandContext): boolean {
+  const columnIndex = focusedBoardColumnHeaderIndex(context);
+  const currentBoard = snapshotRef.current.board || {} as BoardSnapshot;
+  const columns = Array.isArray(currentBoard.columns) ? currentBoard.columns : [];
+
+  if (columnIndex === null) {
+    return false;
+  }
+
+  state.selectedColumnIndex = columnIndex;
+
+  if (columns.length === 0) {
+    resetBoardDestructiveArming(state);
+    state.overlay = "column-details";
+    state.pendingFocus = "board-add-column";
+    return true;
+  }
+
+  if (!getBoardColumn(currentBoard, columnIndex)) {
+    state.actionError = "Choose a column first.";
+    state.overlay = "card-action-error";
+    return true;
+  }
+
+  resetBoardDestructiveArming(state);
+  state.overlay = "column-details";
+  state.pendingFocus = "board-remove-column";
+  return true;
+}
+
+function handleBoardOpenDetailsKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, isActive = true, context?: TerminalCommandContext): boolean {
+  if (command.id !== "ilu.board-open-details") {
+    return false;
+  }
+
+  if (!isActive || state.overlay !== null) {
+    return false;
+  }
+
+  if (boardCardListHasKeyFocus(context)) {
+    return openBoardCardDetailsFromKeyboard(state, snapshotRef, context);
+  }
+
+  return openBoardColumnDetailsFromKeyboard(state, snapshotRef, context);
+}
+
 export function handleBoardCommand(
   command: TerminalCommand,
   state: BoardRuntimeState,
@@ -649,15 +660,11 @@ export function handleBoardCommand(
     return true;
   }
 
-  if (command.id === "ilu.board-card-list-space") {
-    return isActive && state.overlay === null && boardCardListHasKeyFocus(context);
-  }
-
-  if (command.id === "ilu.board-card-list-enter") {
-    return isActive && state.overlay === null && openFocusedBoardCardDetails(state, snapshotRef, context);
-  }
-
   if (handleBoardCardPriorityKeyCommand(command, state, snapshotRef, boardActions, isActive, context)) {
+    return true;
+  }
+
+  if (handleBoardOpenDetailsKeyCommand(command, state, snapshotRef, isActive, context)) {
     return true;
   }
 
@@ -669,29 +676,35 @@ export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState,
     return [errorStateText(board.error)];
   }
 
-  const nodes: JSX.Element[] = [renderBoardSelector(board, { switchBoard: layout.switchBoard, openBoardDetails: layout.openBoardDetails })];
+  const selector = renderBoardSelector(board, { switchBoard: layout.switchBoard, openBoardDetails: layout.openBoardDetails });
 
   if (!Array.isArray(board.columns) || board.columns.length === 0) {
-    nodes.push(emptyStateText("No columns yet. Add a column to get started."));
-    return nodes;
+    return [
+      <Pane fill={true}>
+        <Fixed position="top" size={1}>{selector}</Fixed>
+        {emptyStateText("No columns yet. Add a column to get started.")}
+      </Pane>
+    ];
   }
 
   const columns = board.columns;
   const gap = 0;
   const boardWidth = Math.max(1, layout.width - 2);
-  const boardHeight = Math.max(1, layout.panelHeight - 1);
   const columnWidth = Math.max(1, Math.floor(boardWidth / columns.length));
   const columnNodes = columns.map((column, columnOffset) => {
-    return createBoardColumnNode(column, columnOffset, columnWidth, boardHeight, state, layout.openCardDetails, layout.openColumnDetails);
+    return createBoardColumnNode(column, columnOffset, columnWidth, state, layout.openCardDetails, layout.openColumnDetails);
   });
 
-  nodes.push(<Split width={boardWidth} height={boardHeight} direction="row" gap={gap} sizes={columns.map(() => "1fr")}>{columnNodes}</Split>);
-
-  return nodes;
+  return [
+    <Pane fill={true}>
+      <Fixed position="top" size={1}>{selector}</Fixed>
+      <Split width={boardWidth} fill={true} direction="row" gap={gap} sizes={columns.map(() => "1fr")}>{columnNodes}</Split>
+    </Pane>
+  ];
 }
 
 export function createBoardMainView(options: BoardMainViewOptions): BoardMainViewResult {
-  const { board, boardActions, isActive, panelHeight, refreshSnapshot, state, width } = options;
+  const { board, boardActions, isActive, refreshSnapshot, state, width } = options;
 
   function currentBoard(): BoardSnapshot {
     return board || {} as BoardSnapshot;
@@ -1194,7 +1207,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
 
   function boardOverlayContentHeight(): number {
-    return Math.max(1, panelHeight + BOARD_SHELL_FIXED_ROWS - 4);
+    return Math.max(1, BOARD_SHELL_FIXED_ROWS + 12);
   }
 
   function boardOverlayContentWidth(): number {
@@ -1642,7 +1655,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
             <Text>No columns yet.</Text>
           
         ]}
-        bottomNav={createColumnDetailsButton("board-column-details-close", "Close", () => closeBoardOverlay(state))}
+        bottomNav={createButton("board-column-details-close", "Close", () => closeBoardOverlay(state))}
       />
       );
     }
@@ -1687,11 +1700,11 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         ]}
         bottomNav={
           <View direction="row" gap={1}>
-            {createColumnDetailsButton("board-rename-column", "Rename", openRenameColumn)}
-            {createColumnDetailsButton("board-set-wip-limit", "WIP", openSetWipLimit)}
-            {selectedColumnDetails.isDefault === true ? <Text>Current</Text> : createColumnDetailsButton("board-set-default-column", "Default", setSelectedColumnAsDefault)}
-            {createColumnDetailsButton("board-remove-column", removeIsArmed ? "Delete column" : "Remove column", armOrRemoveSelectedColumn, removeIsArmed ? "error" : undefined)}
-            {createColumnDetailsButton("board-column-details-close", "Close", () => closeBoardOverlay(state))}
+            {createButton("board-rename-column", "Rename", openRenameColumn)}
+            {createButton("board-set-wip-limit", "WIP", openSetWipLimit)}
+            {selectedColumnDetails.isDefault === true ? createButtonStatus("board-current-column", "Current") : createButton("board-set-default-column", "Default", setSelectedColumnAsDefault)}
+            {createButton("board-remove-column", removeIsArmed ? "Delete column" : "Remove column", armOrRemoveSelectedColumn, removeIsArmed ? "error" : undefined)}
+            {createButton("board-column-details-close", "Close", () => closeBoardOverlay(state))}
           </View>
         }
       />
@@ -1884,7 +1897,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     );
   }
 
-  const boardPanelNodes = renderBoardNodes(board, state, { width, panelHeight, openCardDetails, openColumnDetails, switchBoard, openBoardDetails });
+  const boardPanelNodes = renderBoardNodes(board, state, { width, openCardDetails, openColumnDetails, switchBoard, openBoardDetails });
 
   return {
     activePanelNodes: boardPanelNodes,

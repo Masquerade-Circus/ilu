@@ -1,9 +1,10 @@
-import { Editor, FocusScope, Input, ScrollView, Text, View } from "@valyrianjs/terminal";
+import { Editor, FocusScope, Input, LogView, ScrollView, Text, View } from "@valyrianjs/terminal";
 import type { TerminalEditorChangeEventPayload, TerminalInputChangeEventPayload } from "@valyrianjs/terminal";
 import { createActionBar } from "../ActionBar";
 import { createButton } from "../Button";
 import type {
   BabelActions,
+  BabelActionResult,
   OptionalTerminalChild,
   SyncActions,
   TerminalChild,
@@ -21,6 +22,11 @@ import {
 } from "./operations";
 
 type RequestRender = () => void;
+type CopyText = (text: string) => BabelActionResult | Promise<BabelActionResult>;
+
+function logEntries(prefix: string, values: readonly string[]) {
+  return values.map((content, index) => ({ id: `${prefix}-${index}`, content }));
+}
 
 function createSyncContent(state: UtilityRuntimeState, _syncActions: SyncActions, _onComplete?: RequestRender): JSX.Element {
   const busy = state.sync.operation !== null;
@@ -29,10 +35,14 @@ function createSyncContent(state: UtilityRuntimeState, _syncActions: SyncActions
     <FocusScope>
       <Text>Sync</Text>
       {state.sync.error ? <Text>{state.sync.error}</Text> : <Text></Text>}
-      <ScrollView id="sync-details-scroll" height={5}>
-        {state.sync.details.map(detail => <Text>{detail}</Text>)}
-        {busy ? <Text>Pending sync</Text> : <Text></Text>}
-      </ScrollView>
+      <LogView
+        id="sync-details-scroll"
+        height={5}
+        entries={logEntries("sync", busy ? [...state.sync.details, "Pending sync"] : state.sync.details)}
+        followTail={true}
+        emptyText="No sync details yet."
+        renderEntry={(entry) => entry.content}
+      />
     </FocusScope>
   );
 }
@@ -51,11 +61,11 @@ export function createSyncActionBar(state: UtilityRuntimeState, syncActions: Syn
   });
 }
 
-export function createTranslateActionBar(state: UtilityRuntimeState, babelActions: BabelActions, onComplete?: RequestRender): OptionalTerminalChild {
+export function createTranslateActionBar(state: UtilityRuntimeState, babelActions: BabelActions, copyText: CopyText, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
       createButton("translate-start", "Translate", () => runTranslate(state, babelActions, onComplete)),
-      createButton("translate-copy", "Copy result", () => copyTranslation(state, babelActions, onComplete))
+      createButton("translate-copy", "Copy result", () => copyTranslation(state, copyText, onComplete))
     ]
   });
 }

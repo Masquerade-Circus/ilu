@@ -31,7 +31,6 @@ import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 
-const NOTE_CONTENT_EDITOR_IDS = Object.freeze(["note-add-content", "note-edit-content"] as const);
 const NOTE_OVERLAY_STATES = Object.freeze([
   "add-note",
   "note-details",
@@ -119,12 +118,6 @@ export function createInitialNotesState(source: Record<string, unknown> = {}): N
 
 export function createNotesKeyBindings(): TerminalKeyBinding[] {
   return [
-    ...NOTE_CONTENT_EDITOR_IDS.map((id) => ({
-      key: "ENTER",
-      command: { id: "editor.newline" },
-      scope: "editor",
-      when: { focusedId: id, focusedTag: "terminal-editor" }
-    } as TerminalKeyBinding)),
     {
       key: "ENTER",
       command: { id: "notes.open-details" },
@@ -439,7 +432,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
         showActive={true}
         virtualized={true}
         height={4}
-        onchange={(event) => {
+        onactive={(event) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
         onpress={(event) => {
@@ -505,7 +498,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onchange={(event) => {
+                onactive={(event) => {
                   state.selectedListId = event.value.id;
                 }}
                 onpress={(event) => {

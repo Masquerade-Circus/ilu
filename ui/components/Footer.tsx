@@ -11,20 +11,6 @@ function positiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
-function clipText(value: unknown, width: number): string {
-  const text = String(value);
-
-  if (!positiveWidth(width) || text.length <= width) {
-    return text;
-  }
-
-  if (width === 1) {
-    return "…";
-  }
-
-  return `${text.slice(0, width - 1)}…`;
-}
-
 function formatClockTimeWithSeconds(value: unknown): string {
   const time = String(value ?? "").trim();
 
@@ -78,8 +64,8 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
   }
 
   if (typeof clocks.error === "string" && clocks.error.length > 0) {
-    const text = clipText(clocks.error, width);
-    return text.length > 0 ? [{ text, length: text.length }] : [];
+    const text = String(clocks.error);
+    return text.length > 0 && text.length <= width ? [{ text, length: text.length }] : [];
   }
 
   if (!Array.isArray(clocks.items) || clocks.items.length === 0) {
@@ -124,7 +110,7 @@ export function footerSegments(width: number, snapshot: UiSnapshot, activeTab = 
   const left = footerLeft(activeTab, syncStatus);
 
   if (left.length >= safeWidth) {
-    return [{ text: clipText(left, safeWidth) }];
+    return [];
   }
 
   const clockBudget = safeWidth - left.length - 2;

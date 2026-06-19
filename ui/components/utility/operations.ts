@@ -19,6 +19,7 @@ import {
 } from "./state";
 
 type RequestRender = () => void;
+type CopyText = (text: string) => BabelActionResult | Promise<BabelActionResult>;
 type SyncOperation = "status" | "retry" | "enable" | "disable" | "init";
 
 const FAILURE_RESULT: SyncActionResult = Object.freeze({
@@ -210,7 +211,7 @@ export function runTranslate(state: UtilityRuntimeState, babelActions: BabelActi
     });
 }
 
-export function copyTranslation(state: UtilityRuntimeState, babelActions: BabelActions, onComplete: RequestRender = () => {}): void {
+export function copyTranslation(state: UtilityRuntimeState, copyText: CopyText, onComplete: RequestRender = () => {}): void {
   if (state.babel.operation !== null) {
     return;
   }
@@ -219,7 +220,7 @@ export function copyTranslation(state: UtilityRuntimeState, babelActions: BabelA
   state.babel.error = "";
   state.babel.message = "";
 
-  Promise.resolve(babelActions.copyResult({ translation: state.babel.translation }))
+  Promise.resolve(copyText(state.babel.translation))
     .then(result => {
       if (result.ok === true) {
         state.babel.message = cleanText(result.message, "Copied.");

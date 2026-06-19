@@ -11,7 +11,7 @@ import type {
   TerminalSession,
   TerminalTheme
 } from "@valyrianjs/terminal";
-import type { AppState, BabelActions, BoardActions, ClockActions, NoteActions, RefreshSnapshot, SyncActions, SyncStatusState, TodoActions, TtsActions, UiSnapshot, UiSnapshotDomain } from "./types";
+import type { AppState, BabelActionResult, BabelActions, BoardActions, ClockActions, NoteActions, RefreshSnapshot, SyncActions, SyncStatusState, TodoActions, TtsActions, UiSnapshot, UiSnapshotDomain } from "./types";
 
 type TerminalRuntimeModule = typeof import("@valyrianjs/terminal");
 type ValyrianRuntime = { v: (tag: unknown, props?: Record<string, unknown>, ...children: unknown[]) => JSX.Element };
@@ -42,7 +42,6 @@ type AppOptions = {
   snapshotOptions?: SnapshotOptions;
   cols?: number;
   rows?: number;
-  panelHeight?: number;
   boardActions?: BoardActions;
   todoActions?: TodoActions;
   noteActions?: NoteActions;
@@ -57,15 +56,12 @@ type AppOptions = {
 type LayoutOptions = {
   cols?: number;
   rows?: number;
-  panelHeight?: number;
   stdout?: TerminalOutputStream;
 };
 
 type RuntimeLayout = {
   cols: number;
   rows: number;
-  panelHeight: number;
-  lockPanelHeight?: boolean;
 };
 
 type SessionActions = {
@@ -78,6 +74,9 @@ type SessionActions = {
   ttsActions?: TtsActions;
   refreshSnapshot?: RefreshSnapshot;
   requestRender?: () => void;
+  syncTerminalTitle?: () => void;
+  copyTextToClipboard?: (text: string) => BabelActionResult;
+  currentLayout?: () => Partial<RuntimeLayout>;
 };
 
 type HeadlessSession = {
@@ -89,6 +88,7 @@ type HeadlessSession = {
   ansiOutput: () => string;
   click: (id: string) => string;
   clickAt: (x: number, y: number) => string;
+  clipboard: () => string;
   state: () => AppRuntimeState;
   destroy: () => void | Promise<void>;
 };
@@ -169,7 +169,8 @@ const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Object.freez
     "Use Actions to manage notes."
   ]),
   Board: Object.freeze([
-    "Use ↑/↓ to choose a card. Use Enter to open it.",
+    "Use ↑/↓ to choose a card. Use Enter/Space to select it.",
+    "Use O to open card or column details.",
     "Use ←/→ to move cards or columns.",
     "Use Shift+↑/↓ to change priority.",
     "Use Actions to add cards, columns, or boards."
@@ -217,6 +218,18 @@ function createTerminalTheme(terminal: TerminalRuntimeModule): TerminalTheme {
 
 function normalizeTab(tab: unknown): Tab {
   return isTab(tab) ? tab : DEFAULT_STATE.activeTab;
+}
+
+function terminalTitleForTab(tab: Tab): string {
+  return `Ilu - ${tab}`;
+}
+
+function syncTerminalTitle(session: TerminalSession | null, state: AppRuntimeState): void {
+  if (!session || typeof session.setTitle !== "function") {
+    return;
+  }
+
+  session.setTitle(terminalTitleForTab(state.activeTab));
 }
 
 function isSyncStatusState(value: unknown): value is SyncStatusState {
@@ -523,13 +536,8 @@ function resolveLayoutOptions(options: LayoutOptions = {}): RuntimeLayout {
   const stdout = options.stdout || process.stdout;
   const rows = positiveInteger(options.rows) ? options.rows : stdout && positiveInteger(stdout.rows) ? stdout.rows : undefined;
   const cols = positiveInteger(options.cols) ? options.cols : stdout && positiveInteger(stdout.columns) ? stdout.columns : 80;
-  const panelHeight = positiveInteger(options.panelHeight)
-    ? options.panelHeight
-    : positiveInteger(rows)
-      ? Math.max(6, rows - 5)
-      : 13;
 
-  return { cols, rows: positiveInteger(rows) ? rows : 24, panelHeight };
+  return { cols, rows: positiveInteger(rows) ? rows : 24 };
 }
 
 function createApp(
@@ -549,17 +557,25 @@ function createApp(
   const ttsActions: TtsActions = actions.ttsActions || createTtsActions();
   const refreshSnapshot = typeof actions.refreshSnapshot === "function" ? actions.refreshSnapshot : () => {};
   const requestRender = typeof actions.requestRender === "function" ? actions.requestRender : () => {};
+  const syncActiveTerminalTitle = typeof actions.syncTerminalTitle === "function" ? actions.syncTerminalTitle : () => {};
 
-  function currentWidth(): number {
-    return positiveInteger(layout.cols) ? layout.cols : 80;
+  function currentLayout(): RuntimeLayout {
+    const liveLayout = typeof actions.currentLayout === "function" ? actions.currentLayout() : null;
+    const cols = liveLayout && positiveInteger(liveLayout.cols) ? liveLayout.cols : layout.cols;
+    const rows = liveLayout && positiveInteger(liveLayout.rows) ? liveLayout.rows : layout.rows;
+
+    return {
+      cols: positiveInteger(cols) ? cols : 80,
+      rows: positiveInteger(rows) ? rows : 24
+    };
   }
 
-  function currentPanelHeight(): number {
-    return positiveInteger(layout.panelHeight) ? layout.panelHeight : 13;
+  function currentWidth(): number {
+    return currentLayout().cols;
   }
 
   function currentRows(): number {
-    return positiveInteger(layout.rows) ? layout.rows : 24;
+    return currentLayout().rows;
   }
 
   function currentSnapshot(): UiSnapshot {
@@ -570,6 +586,7 @@ function createApp(
     closeAllOverlays(state);
     state.board.pendingFocus = tab === "Board" ? getBoardPendingFocus(state.board) : null;
     prepareUtilityApp(state.utilities, tab, syncActions, ttsActions, requestRender);
+    syncActiveTerminalTitle();
   }
 
   function helpOverlay(): JSX.Element | null {
@@ -641,7 +658,6 @@ function createApp(
         state: state.board,
         isActive: true,
         width: currentWidth(),
-        panelHeight: currentPanelHeight(),
         boardActions,
         refreshSnapshot,
         utilityActions
@@ -655,7 +671,13 @@ function createApp(
       if (state.activeTab === "Sync") {
         actionBar = createSyncActionBar(state.utilities, syncActions, requestRender);
       } else if (state.activeTab === "Translate") {
-        actionBar = createTranslateActionBar(state.utilities, babelActions, requestRender);
+        actionBar = createTranslateActionBar(state.utilities, babelActions, (text: string) => {
+          if (typeof actions.copyTextToClipboard === "function") {
+            return actions.copyTextToClipboard(text);
+          }
+
+          return { ok: false, error: "Could not copy the translation." };
+        }, requestRender);
       } else if (state.activeTab === "Speech") {
         actionBar = createTtsActionBar(state.utilities, ttsActions, requestRender);
       }
@@ -671,7 +693,6 @@ function createApp(
       footerStyle: FOOTER_STYLE,
       footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus),
       footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus),
-      panelHeight: currentPanelHeight(),
       panelStyle: PANEL_STYLE,
       topNav: createTopNav(state, TABS, { onSelect: selectTab, width: currentWidth() }),
       width: currentWidth()
@@ -943,6 +964,19 @@ function pasteTextIntoFocusedEntry(session: TerminalSession, text: string): stri
   return output;
 }
 
+function copyTextWithSessionClipboard(session: TerminalSession | null, text: string): BabelActionResult {
+  if (typeof text !== "string" || text.trim().length === 0) {
+    return { ok: false, error: "Could not copy the translation." };
+  }
+
+  if (!session || typeof session.setClipboard !== "function") {
+    return { ok: false, error: "Could not copy the translation." };
+  }
+
+  session.setClipboard(text);
+  return { ok: true, message: "Copied." };
+}
+
 
 function prepareActivePageState(state: AppRuntimeState, snapshot: UiSnapshot): void {
   if (state.activeTab === "Todo") {
@@ -994,7 +1028,7 @@ async function renderSmoke(options: AppOptions = {}): Promise<string> {
   const snapshotRef = createSnapshotRef(options);
   const cols = options.cols || 80;
   const rows = options.rows || 24;
-  const layout = resolveLayoutOptions({ cols, rows, panelHeight: options.panelHeight });
+  const layout = resolveLayoutOptions({ cols, rows });
   const sessionActions = createSessionActions(options, snapshotRef);
   prepareActivePageState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions);
@@ -1020,7 +1054,8 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
   prepareActivePageState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions, requestRender);
-  const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24, panelHeight: options.panelHeight });
+  const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24 });
+  sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const keymap = createKeymap(state, (command) => {
     if (state.running === false) {
@@ -1063,6 +1098,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     keymap,
     theme: createTerminalTheme(runtime.terminal)
   });
+  sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
   session = enableClockFooterTicker(session, snapshotRef);
   applyPendingFocus(session, state);
   const activeSession = session;
@@ -1139,6 +1175,9 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       applyPendingFocus(activeSession, state);
       return output;
     },
+    clipboard() {
+      return activeSession.clipboard();
+    },
     state() {
       return { ...state, todo: { ...state.todo }, notesState: { ...state.notesState }, board: { ...state.board }, clocksState: { ...state.clocksState }, utilities: { ...state.utilities, sync: { ...state.utilities.sync, initForm: { ...state.utilities.sync.initForm }, details: [...state.utilities.sync.details] }, babel: { ...state.utilities.babel, dictionaryEntries: [...state.utilities.babel.dictionaryEntries] }, tts: { ...state.utilities.tts, voices: [...state.utilities.tts.voices] } } };
     },
@@ -1191,52 +1230,6 @@ function handleHeadlessChromeClick(id: string, state: AppRuntimeState): boolean 
   return false;
 }
 
-function updateLayoutFromStdout(layout: RuntimeLayout, stdout: TerminalOutputStream | undefined): void {
-  if (!stdout || !positiveInteger(stdout.columns)) {
-    return;
-  }
-
-  layout.cols = stdout.columns;
-
-  if (positiveInteger(stdout.rows)) {
-    layout.rows = stdout.rows;
-  }
-
-  if (layout.lockPanelHeight === true) {
-    return;
-  }
-
-  if (positiveInteger(stdout.rows)) {
-    layout.panelHeight = Math.max(6, stdout.rows - 5);
-  }
-}
-
-function syncLayoutWithTerminalResize(session: TerminalSession, stdout: TerminalOutputStream | undefined, layout: RuntimeLayout): TerminalSession {
-  if (!stdout || typeof stdout.on !== "function") {
-    return session;
-  }
-
-  const addResizeListener = stdout.on.bind(stdout);
-  const removeResizeListener = typeof stdout.off === "function" ? stdout.off.bind(stdout) : stdout.removeListener && stdout.removeListener.bind(stdout);
-
-  if (typeof removeResizeListener !== "function") {
-    return session;
-  }
-
-  const onResize = () => updateLayoutFromStdout(layout, stdout);
-  const destroySession = session.destroy.bind(session);
-
-  addResizeListener("resize", onResize);
-
-  session.destroy = () => {
-    removeResizeListener("resize", onResize);
-    destroySession();
-  };
-
-  return session;
-}
-
-
 async function mountInteractiveSession(options: AppOptions = {}): Promise<TerminalSession> {
   const runtime = await loadTerminalRuntime();
   const state = createInitialState(options.state);
@@ -1250,10 +1243,11 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     }
   };
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
+  sessionActions.syncTerminalTitle = () => syncTerminalTitle(session, state);
   prepareActivePageState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ ...options, stdout });
-  layout.lockPanelHeight = positiveInteger(options.panelHeight);
+  sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const keymap = createKeymap(state, (command) => {
     if (state.running === false) {
@@ -1269,6 +1263,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     }
 
     if (session) {
+      syncTerminalTitle(session, state);
       applyPendingFocus(session, state);
     }
   }, (command, context) => {
@@ -1293,10 +1288,11 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     stdout,
     cols: layout.cols,
     rows: layout.rows,
+    terminalTitle: terminalTitleForTab(state.activeTab),
     theme: createTerminalTheme(runtime.terminal)
   });
+  sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
   const cleanupSyncRunner = createTuiSyncRunnerCleanup();
-  session = syncLayoutWithTerminalResize(session, stdout, layout);
   session = enableSyncStatusUpdates(session, state, cleanupSyncRunner);
   session = enableClockFooterTicker(session, snapshotRef);
   applyPendingFocus(session, state);

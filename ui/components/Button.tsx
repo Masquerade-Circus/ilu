@@ -34,3 +34,21 @@ export function createButton(
     />
   );
 }
+
+export function createButtonStatus(
+  id: string,
+  label: string,
+  state?: TerminalVisualState,
+  style: TerminalStyleValue = CONTROL_BUTTON_STYLE
+): JSX.Element {
+  return (
+    <Button
+      id={id}
+      label={label}
+      focusable={false}
+      style={style}
+      styles={buttonStateStyles(state)}
+      state={state}
+    />
+  );
+}

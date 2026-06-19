@@ -1,5 +1,5 @@
-import { Box, Button, List, View } from "@valyrianjs/terminal";
-import type { TerminalListChangeEventPayload, TerminalListPressEventPayload } from "@valyrianjs/terminal";
+import { Box, Button, Fixed, List, Pane } from "@valyrianjs/terminal";
+import type { TerminalListActiveEventPayload, TerminalListPressEventPayload, TerminalListSelectEventPayload } from "@valyrianjs/terminal";
 import type { BoardCardListItem, BoardColumn, BoardRuntimeState, Selection } from "../../types";
 import { UI_COLORS } from "../../theme";
 import { positiveInteger } from "./BoardCard";
@@ -27,20 +27,6 @@ function visibleLength(value: unknown): number {
   return String(value).length;
 }
 
-function clipText(value: unknown, width: number): string {
-  const text = String(value);
-
-  if (!positiveInteger(width) || text.length <= width) {
-    return text;
-  }
-
-  if (width === 1) {
-    return "…";
-  }
-
-  return `${text.slice(0, width - 1)}…`;
-}
-
 function boardColumnCounter(column: BoardColumn): string {
   const count = Number.isInteger(column.count) && Number(column.count) >= 0
     ? Number(column.count)
@@ -61,7 +47,11 @@ export function formatBoardColumnHeader(column: BoardColumn, width: number): str
     return `${title}${" ".repeat(contentWidth - visibleLength(title) - visibleLength(counter))}${counter}`;
   }
 
-  return clipText(`${title} ${counter}`, contentWidth);
+  if (visibleLength(counter) <= contentWidth) {
+    return counter;
+  }
+
+  return "";
 }
 
 function boardCardTitle(card: BoardCardListItem): string {
@@ -117,7 +107,7 @@ function boardCardListDisplayItems(cardItems: BoardCardListItem[], columnIndex: 
   });
 }
 
-type BoardCardListEvent = TerminalListChangeEventPayload<BoardCardListItem> | TerminalListPressEventPayload<BoardCardListItem>;
+type BoardCardListEvent = TerminalListActiveEventPayload<BoardCardListItem> | TerminalListPressEventPayload<BoardCardListItem> | TerminalListSelectEventPayload<BoardCardListItem>;
 
 function selectCardFromListEvent(
   state: BoardRuntimeState,
@@ -131,9 +121,9 @@ function selectCardFromListEvent(
   return selection;
 }
 
-function activateCardFromListDoublePress(
+function openCardDetailsFromListEvent(
   state: BoardRuntimeState,
-  event: TerminalListPressEventPayload<BoardCardListItem>,
+  event: BoardCardListEvent,
   columnIndex: number,
   openCardDetails?: (selection: Selection) => void
 ): void {
@@ -148,7 +138,6 @@ export function createBoardColumnNode(
   column: BoardColumn,
   columnOffset: number,
   columnWidth: number,
-  boardHeight: number,
   state: BoardRuntimeState,
   openCardDetails?: (selection: Selection) => void,
   openColumnDetails?: (columnIndex: number) => void
@@ -156,16 +145,14 @@ export function createBoardColumnNode(
   const columnIndex = column.index ?? columnOffset + 1;
   const columnContentWidth = Math.max(1, columnWidth - 2);
   const headerLabel = formatBoardColumnHeader(column, columnContentWidth);
-  const columnContentHeight = Math.max(1, boardHeight - 2);
   const cardItems = boardCardListDisplayItems(boardCardListItems(column), columnIndex, state.selectedCard);
   const headerHeight = 2;
-  const cardListHeight = Math.max(1, columnContentHeight - headerHeight);
-  function selectColumn(): void {
+  function selectColumnFromHeader(): void {
     state.selectedColumnIndex = columnIndex;
   }
 
   function openColumnDetailsFromHeader(): void {
-    state.selectedColumnIndex = columnIndex;
+    selectColumnFromHeader();
 
     if (typeof openColumnDetails === "function") {
       openColumnDetails(columnIndex);
@@ -175,39 +162,42 @@ export function createBoardColumnNode(
   const headerStyle = state.selectedColumnIndex === columnIndex ? BOARD_COLUMN_HEADER_ACTIVE_STYLE : BOARD_COLUMN_HEADER_STYLE;
 
   return (
-    <Box height={boardHeight} style={BOARD_COLUMN_STYLE}>
-      <Box height={headerHeight} style={headerStyle}>
-        <Button
-          id={`board-column-header-${columnIndex}`}
-          label={headerLabel}
-          style={headerStyle}
-          styles={{ focus: BOARD_COLUMN_HEADER_ACTIVE_STYLE, hover: BOARD_COLUMN_HEADER_ACTIVE_STYLE, pressed: BOARD_COLUMN_HEADER_ACTIVE_STYLE, selected: BOARD_COLUMN_HEADER_ACTIVE_STYLE }}
-          state={state.selectedColumnIndex === columnIndex ? "selected" : undefined}
-          onpress={selectColumn}
-          ondoublepress={openColumnDetailsFromHeader}
-        />
-      </Box>
-      <View height={cardListHeight}>
-        <List
-          id={`board-card-list-${columnIndex}`}
-          items={cardItems}
-          virtualized={true}
-          width={columnContentWidth}
-          height={cardListHeight}
-          wrap={true}
-          itemKey={(item: BoardCardListItem, index: number) => `${columnIndex}:${boardCardPosition(item, index)}`}
-          showActive={false}
-          onchange={(event: TerminalListChangeEventPayload<BoardCardListItem>) => {
-            selectCardFromListEvent(state, event, columnIndex);
-          }}
-          onpress={(event: TerminalListPressEventPayload<BoardCardListItem>) => {
-            selectCardFromListEvent(state, event, columnIndex);
-          }}
-          ondoublepress={(event: TerminalListPressEventPayload<BoardCardListItem>) => activateCardFromListDoublePress(state, event, columnIndex, openCardDetails)}
-        >
-          {(card: BoardCardListItem) => String(card)}
-        </List>
-      </View>
-    </Box>
+    <Pane fill={true} style={BOARD_COLUMN_STYLE}>
+      <Fixed position="top" size={headerHeight}>
+        <Box height={headerHeight} style={headerStyle}>
+          <Button
+            id={`board-column-header-${columnIndex}`}
+            label={headerLabel}
+            style={headerStyle}
+            styles={{ focus: BOARD_COLUMN_HEADER_ACTIVE_STYLE, hover: BOARD_COLUMN_HEADER_ACTIVE_STYLE, pressed: BOARD_COLUMN_HEADER_ACTIVE_STYLE, selected: BOARD_COLUMN_HEADER_ACTIVE_STYLE }}
+            state={state.selectedColumnIndex === columnIndex ? "selected" : undefined}
+            onpress={selectColumnFromHeader}
+            ondoublepress={openColumnDetailsFromHeader}
+          />
+        </Box>
+      </Fixed>
+      <List
+        id={`board-card-list-${columnIndex}`}
+        items={cardItems}
+        virtualized={true}
+        width={columnContentWidth}
+        fill={true}
+        wrap={true}
+        itemKey={(item: BoardCardListItem, index: number) => `${columnIndex}:${boardCardPosition(item, index)}`}
+        showActive={false}
+        onactive={(event: TerminalListActiveEventPayload<BoardCardListItem>) => {
+          selectCardFromListEvent(state, event, columnIndex);
+        }}
+        onselect={(event: TerminalListSelectEventPayload<BoardCardListItem>) => {
+          selectCardFromListEvent(state, event, columnIndex);
+        }}
+        onpress={(event: TerminalListPressEventPayload<BoardCardListItem>) => {
+          selectCardFromListEvent(state, event, columnIndex);
+        }}
+        ondoublepress={(event: TerminalListPressEventPayload<BoardCardListItem>) => openCardDetailsFromListEvent(state, event, columnIndex, openCardDetails)}
+      >
+        {(card: BoardCardListItem) => String(card)}
+      </List>
+    </Pane>
   );
 }

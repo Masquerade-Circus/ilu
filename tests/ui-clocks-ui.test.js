@@ -263,7 +263,7 @@ test('Clocks add and remove overlays use the full overlay surface without inset 
   session.destroy();
 });
 
-test('Clocks remove overlay clips long clock names and time zones inside 80 columns', async () => {
+test('Clocks remove overlay wraps long clock names and time zones without truncation inside 80 columns', async () => {
   const longName = `Clock ${'A'.repeat(110)}`;
   const longTimezone = `America/${'B'.repeat(110)}`;
   const session = await Ui.createHeadlessSession({
@@ -280,12 +280,9 @@ test('Clocks remove overlay clips long clock names and time zones inside 80 colu
   const output = visible(session.output());
   const lines = visibleLines(session.output());
   assert.match(output, /Remove “Clock/);
-  const promptLine = lines.find(line => line.includes('Remove “Clock')) || '';
-  const detailLine = lines.find(line => line.includes('Time zone: America/')) || '';
-  assert.match(promptLine, /…/);
-  assert.match(detailLine, /…/);
-  assert.doesNotMatch(output, new RegExp(longName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.doesNotMatch(output, new RegExp(longTimezone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(output, /…/);
+  assert.match(output, /AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/);
+  assert.match(output, /BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB/);
   assert.equal(lines.filter(line => line.length > 80).length, 0, `expected no overdraw in remove overlay:\n${lines.join('\n')}`);
   session.destroy();
 });

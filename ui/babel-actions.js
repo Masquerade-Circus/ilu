@@ -36,18 +36,6 @@ function normalizeDictionaryEntries(response) {
   return entries;
 }
 
-function clipboardWrite(clipboard, value) {
-  if (clipboard && typeof clipboard.write === 'function') {
-    return clipboard.write(value);
-  }
-
-  if (clipboard && typeof clipboard.writeText === 'function') {
-    return clipboard.writeText(value);
-  }
-
-  throw new Error('Clipboard adapter is not available');
-}
-
 function createSafeDefaultProvider({fetchImpl, log} = {}) {
   return createGoogleTranslateProvider({
     fetchImpl,
@@ -58,7 +46,7 @@ function createSafeDefaultProvider({fetchImpl, log} = {}) {
   });
 }
 
-function createBabelActions({provider = null, clipboard = require('clipboardy'), fetchImpl, log} = {}) {
+function createBabelActions({provider = null, fetchImpl, log} = {}) {
   const translateProvider = provider || createSafeDefaultProvider({fetchImpl, log});
 
   return {
@@ -102,12 +90,7 @@ function createBabelActions({provider = null, clipboard = require('clipboardy'),
         return {ok: false, error: COPY_FAILED};
       }
 
-      try {
-        await clipboardWrite(clipboard, translation);
-        return {ok: true, message: 'Copied.'};
-      } catch (_) {
-        return {ok: false, error: COPY_FAILED};
-      }
+      return {ok: false, error: COPY_FAILED};
     }
   };
 }

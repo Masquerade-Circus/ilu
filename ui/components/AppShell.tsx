@@ -1,4 +1,4 @@
-import { Box, Fixed, Row, Screen, Text } from "@valyrianjs/terminal";
+import { Fixed, Pane, Row, Screen, Text } from "@valyrianjs/terminal";
 import type { AppShellOptions } from "../types";
 
 const TOP_NAV_BOTTOM_MARGIN_ROWS = 1;
@@ -12,7 +12,6 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
     footerText,
     footerSegments,
     footerStyle,
-    panelHeight,
     panelStyle,
     topNav,
     width
@@ -22,11 +21,13 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
 
   return (
     <Screen>
-      {topNav}
-      {TOP_NAV_BOTTOM_MARGIN_ROWS > 0 ? <Text>{""}</Text> : null}
-      <Box width={width} height={panelHeight} style={panelStyle}>
+      <Fixed position="top" size={1 + TOP_NAV_BOTTOM_MARGIN_ROWS}>
+        {topNav}
+        {TOP_NAV_BOTTOM_MARGIN_ROWS > 0 ? <Text>{""}</Text> : null}
+      </Fixed>
+      <Pane width={width} fill={true} style={panelStyle}>
         {activePanelNodes}
-      </Box>
+      </Pane>
       <Fixed position="bottom" size={bottomChromeSize}>
         {bottomActionBar}
         {Array.isArray(footerSegments) && footerSegments.length > 0 ? (

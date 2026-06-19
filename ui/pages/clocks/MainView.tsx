@@ -9,7 +9,7 @@ import type {
   TerminalCommand,
   TerminalCommandContext,
   TerminalInputChangeEventPayload,
-  TerminalListChangeEventPayload,
+  TerminalListActiveEventPayload,
   TerminalListPressEventPayload
 } from "@valyrianjs/terminal";
 import type {
@@ -157,8 +157,24 @@ function selectedClock(items: ClockItem[], state: ClockRuntimeState): ClockItem 
   return items.find((item, index) => clockPosition(item, index) === selectedPosition) ?? null;
 }
 
-function clipLine(value: string, maxLength: number): string {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
+function wrapLine(value: string, maxLength: number): string[] {
+  if (!Number.isInteger(maxLength) || maxLength < 1) {
+    return [value];
+  }
+
+  if (value.length <= maxLength) {
+    return [value];
+  }
+
+  const lines: string[] = [];
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    lines.push(value.slice(cursor, cursor + maxLength));
+    cursor += maxLength;
+  }
+
+  return lines;
 }
 
 function renderClockLabel(clock: ClockItem, index: number): string {
@@ -338,7 +354,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
         showActive={true}
         virtualized={true}
         height={6}
-        onchange={(event: TerminalListChangeEventPayload<ClockItem>) => {
+        onactive={(event: TerminalListActiveEventPayload<ClockItem>) => {
           state.selectedClockPosition = clockPosition(event.value, event.index);
         }}
         onpress={(event: TerminalListPressEventPayload<ClockItem>) => {
@@ -398,7 +414,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
                 state.addClock.timezoneSearch = event.value.value;
                 state.addClock.error = "";
               }}
-              onchange={(event: TerminalListChangeEventPayload<TimezoneChoice>) => {
+              onactive={(event: TerminalListActiveEventPayload<TimezoneChoice>) => {
                 state.addClock.timezone = event.value.value;
               }}
             >
@@ -425,16 +441,17 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
     const positions = currentRemovePositions();
     const count = positions.length;
     const onlyClock = count === 1 ? items.find((clock, index) => clockPosition(clock, index) === positions[0]) ?? null : null;
-    const prompt = count === 1 && onlyClock
-      ? clipLine(`Remove “${clockName(onlyClock)}”?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS)
-      : clipLine(`Remove ${count} clocks?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS);
+    const promptLines = count === 1 && onlyClock
+      ? wrapLine(`Remove “${clockName(onlyClock)}”?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS)
+      : wrapLine(`Remove ${count} clocks?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS);
+    const timezoneLines = onlyClock ? wrapLine(`Time zone: ${clockTimezone(onlyClock)}`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS) : [];
 
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            <Text>{count > 0 ? prompt : "Choose a clock first."}</Text>
+            {count > 0 ? promptLines.map((line) => <Text>{line}</Text>) : <Text>Choose a clock first.</Text>}
             {state.actionError ? <Text>{state.actionError}</Text> : <Text></Text>}
-            {onlyClock ? <Text>{clipLine(`Time zone: ${clockTimezone(onlyClock)}`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS)}</Text> : <Text></Text>}
+            {timezoneLines.length > 0 ? timezoneLines.map((line) => <Text>{line}</Text>) : <Text></Text>}
           </FocusScope>
         
         ]}

@@ -1,5 +1,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const Module = require('node:module');
+
+function withBlockedClipboardy(fn) {
+  const originalLoad = Module._load;
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'clipboardy') {
+      throw new Error('UI Babel actions must not load clipboardy');
+    }
+
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    return fn();
+  } finally {
+    Module._load = originalLoad;
+  }
+}
 
 test('Babel UI adapter rejects empty and too-long text without provider or clipboard calls', async () => {
   const {createBabelActions} = require('../ui/babel-actions');
@@ -55,7 +74,24 @@ test('Babel UI adapter returns translation and dictionary without copying automa
   assert.deepEqual(calls, [['provider', {text: 'hello world', source: 'en', target: 'es'}]]);
 });
 
-test('Babel UI adapter copies only through injected clipboard and reports safe failures', async () => {
+test('Babel UI actions do not load a process clipboard adapter', async () => {
+  await withBlockedClipboardy(async () => {
+    const {createBabelActions} = require('../ui/babel-actions');
+    const actions = createBabelActions({
+      provider: async () => ({sentences: [{trans: 'Hola'}], src: 'en'})
+    });
+
+    assert.deepEqual(await actions.translate({text: 'hello', source: 'en', target: 'es'}), {
+      ok: true,
+      translation: 'Hola',
+      source: 'en',
+      target: 'es',
+      dictionaryEntries: []
+    });
+  });
+});
+
+test('Babel UI adapter does not copy through an Ilu clipboard adapter', async () => {
   const {createBabelActions} = require('../ui/babel-actions');
   const writes = [];
   const actions = createBabelActions({
@@ -66,18 +102,8 @@ test('Babel UI adapter copies only through injected clipboard and reports safe f
       }
     }
   });
-  const failingActions = createBabelActions({
-    provider: async () => ({sentences: [{trans: 'Hola'}], src: 'en'}),
-    clipboard: {
-      async write() {
-        throw new Error('clipboard failed at /home/user/.config/token stack');
-      }
-    }
-  });
-
-  assert.deepEqual(await actions.copyResult({translation: 'Hola mundo'}), {ok: true, message: 'Copied.'});
-  assert.deepEqual(await failingActions.copyResult({translation: 'Hola mundo'}), {ok: false, error: 'Could not copy the translation.'});
-  assert.deepEqual(writes, ['Hola mundo']);
+  assert.deepEqual(await actions.copyResult({translation: 'Hola mundo'}), {ok: false, error: 'Could not copy the translation.'});
+  assert.deepEqual(writes, []);
 });
 
 test('Babel UI adapter redacts provider failures and missing translations', async () => {

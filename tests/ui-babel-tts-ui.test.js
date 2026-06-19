@@ -114,10 +114,8 @@ test('Translate utility clears stale translation when inputs change or translati
       return {ok: false, error: 'Could not translate the text.'};
     },
     async copyResult(values) {
-      calls.push(['copy', values]);
-      return values.translation.trim().length > 0
-        ? {ok: true, message: 'Copied.'}
-        : {ok: false, error: 'Could not copy the translation.'};
+      calls.push(['legacy-copy', values]);
+      return {ok: false, error: 'legacy copy must not be called'};
     }
   };
   const session = await Ui.createHeadlessSession({
@@ -157,7 +155,7 @@ test('Translate utility clears stale translation when inputs change or translati
   await new Promise(resolve => setImmediate(resolve));
 
   assert.deepEqual(calls[0], ['translate', {text: 'old text updated', source: 'en', target: 'es'}]);
-  assert.deepEqual(calls[1], ['copy', {translation: ''}]);
+  assert.equal(calls.length, 1);
   assert.equal(session.state().utilities.babel.translation, '');
   assert.deepEqual(session.state().utilities.babel.dictionaryEntries, []);
   assert.doesNotMatch(session.output(), /Old translation/);
@@ -178,10 +176,8 @@ test('Translate utility ignores stale in-flight translation after input changes'
       return translationPromise;
     },
     async copyResult(values) {
-      calls.push(['copy', values]);
-      return values.translation.trim().length > 0
-        ? {ok: true, message: 'Copied.'}
-        : {ok: false, error: 'Could not copy the translation.'};
+      calls.push(['legacy-copy', values]);
+      return {ok: false, error: 'legacy copy must not be called'};
     }
   };
   const session = await Ui.createHeadlessSession({
@@ -220,12 +216,12 @@ test('Translate utility ignores stale in-flight translation after input changes'
 
   session.click('translate-copy');
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls[1], ['copy', {translation: ''}]);
+  assert.equal(calls.length, 1);
   assert.doesNotMatch(session.output(), /Copied\./);
   session.destroy();
 });
 
-test('Translate utility performs translation, displays dictionary, and copies through injected adapter', async () => {
+test('Translate utility performs translation, displays dictionary, and copies through Valyrian clipboard', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
   const babelActions = {
@@ -234,8 +230,8 @@ test('Translate utility performs translation, displays dictionary, and copies th
       return {ok: true, translation: 'Hola mundo', source: 'en', target: 'es', dictionaryEntries: ['Hola — Hello']};
     },
     async copyResult(values) {
-      calls.push(['copy', values]);
-      return {ok: true, message: 'Copied.'};
+      calls.push(['legacy-copy', values]);
+      return {ok: false, error: 'legacy copy must not be called'};
     }
   };
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(), babelActions});
@@ -255,7 +251,8 @@ test('Translate utility performs translation, displays dictionary, and copies th
   session.click('translate-copy');
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.deepEqual(calls[1], ['copy', {translation: 'Hola mundo'}]);
+  assert.equal(calls.length, 1);
+  assert.equal(session.clipboard(), 'Hola mundo');
   assert.match(session.output(), /Copied\./);
   session.destroy();
 });

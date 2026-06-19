@@ -230,7 +230,6 @@ export interface UiSnapshot {
 
 export interface BoardLayout {
   width: number;
-  panelHeight: number;
   openCardDetails?: (selection: Selection) => void;
   openColumnDetails?: (columnIndex: number) => void;
   switchBoard?: (id: BoardId) => void;
@@ -339,7 +338,6 @@ export interface AppShellOptions {
   footerText: string;
   footerSegments?: FooterSegment[];
   footerStyle: TerminalStyleValue;
-  panelHeight: number;
   panelStyle: TerminalStyleValue;
   topNav: TerminalChild;
   width: number;
