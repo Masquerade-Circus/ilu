@@ -122,6 +122,16 @@ function normalizeBranch(value) {
   return branch.length > 0 ? branch : 'main';
 }
 
+function hasEmbeddedUrlUserinfo(value) {
+  try {
+    const parsedUrl = new URL(value);
+
+    return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function createSyncActions(options = {}) {
   const commands = options.commands || defaultCommands();
 
@@ -161,6 +171,10 @@ function createSyncActions(options = {}) {
 
       if (remoteUrl.length === 0) {
         return validationResult('Remote URL is required.');
+      }
+
+      if (hasEmbeddedUrlUserinfo(remoteUrl)) {
+        return validationResult('Remote URL must not include embedded credentials.');
       }
 
       if (branch.length === 0) {

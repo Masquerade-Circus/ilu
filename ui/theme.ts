@@ -60,11 +60,6 @@ export const CARD_DETAILS_SURFACE_STYLE: TerminalStyleValue = Object.freeze({
   padding: { left: 1, right: 1 }
 });
 
-export const CARD_DETAILS_HEADING_STYLE: TerminalStyleValue = Object.freeze({
-  border: { bottom: true, style: "solid", color: UI_COLORS.text }
-});
-
-
 export const CLOCK_FOOTER_COLORS = Object.freeze([
   "#f87171",
   "#60a5fa",

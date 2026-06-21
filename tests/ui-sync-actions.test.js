@@ -125,6 +125,30 @@ test('Sync init rejects missing remote URL, branch, and confirmation without com
   assert.deepEqual(fake.calls, []);
 });
 
+test('Sync init rejects any embedded URL userinfo before command calls', async () => {
+  const {createSyncActions} = require('../ui/sync-actions');
+  const fake = createFakeCommands();
+  const actions = createSyncActions({commands: fake.commands});
+  const cases = [
+    'https://user:password@example.test/repo.git',
+    'https://token@example.test/repo.git',
+    'https://ghp_TOKEN@example.test/repo.git'
+  ];
+
+  for (const remoteUrl of cases) {
+    const result = await actions.init({remoteUrl, branch: 'main', confirmed: true});
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: 'Remote URL must not include embedded credentials.',
+      label: 'Not set up',
+      details: ['Status: Not set up']
+    }, remoteUrl);
+  }
+
+  assert.deepEqual(fake.calls, []);
+});
+
 test('Sync init preserves command safety path and refreshes status after setup', async () => {
   const {createSyncActions} = require('../ui/sync-actions');
   const fake = createFakeCommands({

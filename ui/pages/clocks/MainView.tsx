@@ -28,7 +28,7 @@ import { emptyStateText, errorStateText } from "../../components/StateText";
 
 const { searchTimezoneChoices }: { searchTimezoneChoices: (search?: unknown) => TimezoneChoice[] } = require("../../clock-actions");
 
-const CLOCK_OVERLAY_STATES = Object.freeze(["add-clock", "remove-clock-confirm"] as const);
+const CLOCK_OVERLAY_STATES = Object.freeze(["add-clock", "clock-details", "remove-clock-confirm"] as const);
 const TIMEZONE_CHOICE_HEIGHT = 5;
 const timezoneChoiceCache = new WeakMap<ClockRuntimeState, { query: string; choices: TimezoneChoice[] }>();
 const REMOVE_OVERLAY_TEXT_MAX_COLUMNS = 54;
@@ -282,9 +282,33 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
     state.overlay = "remove-clock-confirm";
   }
 
+  function openClockDetails(): void {
+    const selected = selectedClock(items, state);
+
+    if (!selected || state.selectedClockPosition === null) {
+      state.actionError = "Choose a clock first.";
+      return;
+    }
+
+    state.actionError = "";
+    state.overlay = "clock-details";
+  }
+
   function saveAddClock(): void {
-    const timezone = safeText(state.addClock.timezone, state.addClock.timezoneSearch);
-    applyResult(clockActions.addClock?.({ name: state.addClock.name, timezone }), state.addClock, refreshSnapshot, close, "Clock could not be saved. Try again.");
+    const name = state.addClock.name.trim();
+    const timezone = safeText(state.addClock.timezone);
+
+    if (name.length === 0) {
+      state.addClock.error = "Clock name is required.";
+      return;
+    }
+
+    if (timezone.length === 0) {
+      state.addClock.error = "Choose a time zone from the list.";
+      return;
+    }
+
+    applyResult(clockActions.addClock?.({ name, timezone }), state.addClock, refreshSnapshot, close, "Clock could not be saved. Try again.");
   }
 
   function confirmRemoveClock(): void {
@@ -359,12 +383,45 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
         }}
         onpress={(event: TerminalListPressEventPayload<ClockItem>) => {
           state.selectedClockPosition = clockPosition(event.value, event.index);
+          openClockDetails();
         }}
         wrap={true}
       >
         {(clock, ctx) => renderClockLabel(clock, ctx.index)}
       </List>
     ];
+  }
+
+  function clockDetailsOverlay(): JSX.Element | null {
+    if (state.overlay !== "clock-details" || isActive !== true) {
+      return null;
+    }
+
+    const clock = activeClock;
+    const titleLines = wrapLine(clock ? clockName(clock) : "Choose a clock first.", REMOVE_OVERLAY_TEXT_MAX_COLUMNS);
+    const timezoneLines = clock ? wrapLine(`Time zone: ${clockTimezone(clock)}`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS) : [];
+    const timeLines = clock ? wrapLine(`Time: ${clock.time}`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS) : [];
+
+    return (
+      <AppOverlay trapFocus={true} content={[
+          <FocusScope>
+            <Text>Clock details</Text>
+            {titleLines.map((line) => <Text>{line}</Text>)}
+            {timezoneLines.map((line) => <Text>{line}</Text>)}
+            {timeLines.map((line) => <Text>{line}</Text>)}
+            {state.actionError ? <Text>{state.actionError}</Text> : <Text></Text>}
+          </FocusScope>
+        ]}
+        bottomNav={
+          <View direction="row" gap={1}>
+            {createButton("clock-details-move-up", "Move up", () => moveSelectedClock(-1))}
+            {createButton("clock-details-move-down", "Move down", () => moveSelectedClock(1))}
+            {createButton("clock-details-remove", "Remove", openRemoveClock, "error")}
+            {createButton("clock-details-close", "Close", close)}
+          </View>
+        }
+      />
+    );
   }
 
   function addClockOverlay(): JSX.Element | null {
@@ -482,7 +539,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
       ...clockRows()
     ],
     actionBar,
-    overlays: [addClockOverlay(), removeClockOverlay()]
+    overlays: [addClockOverlay(), clockDetailsOverlay(), removeClockOverlay()]
   };
 }
 

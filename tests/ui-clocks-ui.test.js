@@ -148,7 +148,47 @@ test('Clocks add workflow exposes required name and timezone search copy before 
   assert.doesNotMatch(output, /\bTimezone\b/);
   assert.doesNotMatch(output, /Search timezone/);
   assert.match(output, /Clock name is required\./);
-  assert.deepEqual(calls, [{name: '', timezone: ''}]);
+  assert.deepEqual(calls, []);
+  session.destroy();
+});
+
+test('Clocks add workflow requires a selected timezone before calling the action', async () => {
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    state: {activeTab: 'Clocks'},
+    snapshot: snapshot(),
+    clockActions: {
+      addClock(values) {
+        calls.push(values);
+        return {ok: true};
+      }
+    }
+  });
+
+  session.click('clock-add-open');
+  session.focus('clock-add-name');
+  session.dispatchText('Local');
+  session.click('clock-add-save');
+
+  assert.match(visible(session.output()), /Choose a time zone from the list\./);
+  assert.deepEqual(calls, []);
+  session.destroy();
+});
+
+test('Clocks list press opens clock details with per-clock actions', async () => {
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot()});
+
+  session.focus('clock-items');
+  session.dispatchKey('ENTER');
+
+  const output = visible(session.output());
+  assert.match(output, /Clock details/);
+  assert.match(output, /UTC/);
+  assert.match(output, /Time zone: Etc\/UTC/);
+  assert.match(output, /Move up/);
+  assert.match(output, /Move down/);
+  assert.match(output, /Remove/);
+  assert.match(output, /Close/);
   session.destroy();
 });
 

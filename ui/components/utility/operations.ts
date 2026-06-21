@@ -7,6 +7,7 @@ import type {
   SyncUtilityState,
   TtsActions,
   TtsActionResult,
+  TtsUtilityState,
   UtilityRuntimeState
 } from "../../types";
 import {
@@ -154,6 +155,71 @@ function clearBabelResult(state: BabelUtilityState): void {
   state.dictionaryEntries = [];
 }
 
+function requiredText(value: string): string {
+  return value.trim();
+}
+
+function hasEmbeddedUrlUserinfo(value: string): boolean {
+  try {
+    const parsedUrl = new URL(value);
+
+    return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function validateSyncInitForm(form: SyncUtilityState["initForm"]): string {
+  const remoteUrl = requiredText(form.remoteUrl);
+  const branch = requiredText(form.branch);
+
+  if (remoteUrl.length === 0) {
+    return "Remote URL is required.";
+  }
+
+  if (hasEmbeddedUrlUserinfo(remoteUrl)) {
+    return "Remote URL must not include embedded credentials.";
+  }
+
+  if (branch.length === 0) {
+    return "Branch is required.";
+  }
+
+  if (form.confirmed !== true) {
+    return "Confirm setup before starting sync.";
+  }
+
+  return "";
+}
+
+export function validateTranslateInput(state: BabelUtilityState): string {
+  if (requiredText(state.text).length === 0) {
+    return "Text to translate is required.";
+  }
+
+  if (requiredText(state.source).length === 0) {
+    return "Source language is required.";
+  }
+
+  if (requiredText(state.target).length === 0) {
+    return "Target language is required.";
+  }
+
+  return "";
+}
+
+export function validateTtsInput(state: TtsUtilityState): string {
+  if (requiredText(state.inputFile).length === 0) {
+    return "Input file is required.";
+  }
+
+  if (requiredText(state.outputFile).length === 0) {
+    return "Output file is required.";
+  }
+
+  return "";
+}
+
 export function invalidateBabelInput(state: BabelUtilityState): void {
   state.inputVersion += 1;
   state.error = "";
@@ -182,13 +248,22 @@ export function runTranslate(state: UtilityRuntimeState, babelActions: BabelActi
     return;
   }
 
+  const validationError = validateTranslateInput(state.babel);
+
+  if (validationError.length > 0) {
+    clearBabelResult(state.babel);
+    state.babel.error = validationError;
+    state.babel.message = "";
+    return;
+  }
+
   state.babel.operation = "translate";
   state.babel.error = "";
   state.babel.message = "";
   clearBabelResult(state.babel);
 
   const requestVersion = state.babel.inputVersion;
-  const requestValues = { text: state.babel.text, source: state.babel.source, target: state.babel.target };
+  const requestValues = { text: state.babel.text.trim(), source: state.babel.source.trim(), target: state.babel.target.trim() };
 
   Promise.resolve(babelActions.translate(requestValues))
     .then(result => {
@@ -243,13 +318,21 @@ export function runTtsConversion(state: UtilityRuntimeState, ttsActions: TtsActi
     return;
   }
 
+  const validationError = validateTtsInput(state.tts);
+
+  if (validationError.length > 0) {
+    state.tts.error = validationError;
+    state.tts.message = "";
+    return;
+  }
+
   state.tts.operation = "create-audio";
   state.tts.error = "";
   state.tts.message = "Preparing file...";
 
   Promise.resolve(ttsActions.createAudio({
-    inputFile: state.tts.inputFile,
-    outputFile: state.tts.outputFile,
+    inputFile: state.tts.inputFile.trim(),
+    outputFile: state.tts.outputFile.trim(),
     voice: state.tts.voice,
     onProgress(message: string) {
       state.tts.message = cleanText(message, "Creating audio...");

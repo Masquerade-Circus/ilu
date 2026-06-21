@@ -4293,7 +4293,7 @@ test('Board WIP limit validates invalid input before model calls and accepts zer
   session.dispatchText('0');
   session.click('board-set-wip-save');
 
-  assert.deepEqual(calls, [{columnIndex: 1, wipLimit: '0'}]);
+  assert.deepEqual(calls, [{columnIndex: 1, wipLimit: 0}]);
   assert.equal(session.state().board.overlay, null);
   session.destroy();
 });

@@ -162,6 +162,30 @@ test('Translate utility clears stale translation when inputs change or translati
   session.destroy();
 });
 
+test('Translate utility validates required fields before calling the action', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const babelActions = {
+    async translate(values) {
+      calls.push(['translate', values]);
+      return {ok: true, translation: 'unused'};
+    },
+    async copyResult(values) {
+      calls.push(['legacy-copy', values]);
+      return {ok: false, error: 'legacy copy must not be called'};
+    }
+  };
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(), babelActions});
+
+  session.click('tab-translate');
+  session.click('translate-start');
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(calls, []);
+  assert.match(session.output(), /Text to translate is required\./);
+  session.destroy();
+});
+
 
 test('Translate utility ignores stale in-flight translation after input changes', async () => {
   const Ui = require(uiModulePath);
@@ -289,8 +313,8 @@ test('TTS utility handles missing credentials without API-key input and uses app
   session.click('tts-start');
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.equal(calls.length, 1);
-  assert.match(session.output(), /Set up Text to Speech before creating audio\./);
+  assert.equal(calls.length, 0);
+  assert.match(session.output(), /Input file is required\./);
   session.destroy();
 });
 

@@ -10,7 +10,7 @@ import type {
   TtsActions,
   UtilityRuntimeState
 } from "../../types";
-import { runSyncOperation, setTtsVoice } from "./operations";
+import { runSyncOperation, setTtsVoice, validateSyncInitForm } from "./operations";
 
 type RequestRender = () => void;
 
@@ -29,24 +29,19 @@ function createSyncInitOverlay(state: UtilityRuntimeState, syncActions: SyncActi
   function startSync(): void {
     form.error = "";
 
-    if (form.remoteUrl.trim().length === 0) {
-      form.error = "Remote URL is required.";
-      return;
-    }
+    const validationError = validateSyncInitForm(form);
 
-    if (form.branch.trim().length === 0) {
-      form.error = "Branch is required.";
-      return;
-    }
-
-    if (form.confirmed !== true) {
-      form.error = "Confirm setup before starting sync.";
+    if (validationError.length > 0) {
+      form.error = validationError;
+      if (validationError === "Remote URL must not include embedded credentials.") {
+        form.remoteUrl = "";
+      }
       return;
     }
 
     runSyncOperation(state, "init", () => syncActions.init({
-      remoteUrl: form.remoteUrl,
-      branch: form.branch,
+      remoteUrl: form.remoteUrl.trim(),
+      branch: form.branch.trim(),
       confirmed: form.confirmed
     }), () => {
       if (state.sync.error.length === 0) {

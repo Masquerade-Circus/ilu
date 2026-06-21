@@ -3,8 +3,10 @@ import {
   Editor,
   Fixed,
   FocusScope,
+  Hr,
   Input,
   List,
+  NumberInput,
   Pane,
   ScrollView,
   Split,
@@ -18,7 +20,8 @@ import type {
   TerminalInputChangeEventPayload,
   TerminalKeyBinding,
   TerminalListActiveEventPayload,
-  TerminalListPressEventPayload
+  TerminalListPressEventPayload,
+  TerminalNumberSubmitEventPayload
 } from "@valyrianjs/terminal";
 import type {
   BoardRuntimeState,
@@ -42,7 +45,6 @@ import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 import {
-  CARD_DETAILS_HEADING_STYLE,
   CARD_DETAILS_SURFACE_STYLE,
   CONTROL_BUTTON_STYLE
 } from "../../theme";
@@ -971,15 +973,26 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     state.pendingFocus = "board-wip-limit";
   }
 
-  function validWipLimit(value: string): boolean {
-    return /^0$|^[1-9]\d*$/.test(value.trim());
+  function validWipLimit(value: number): boolean {
+    return Number.isFinite(value) && Number.isInteger(value) && value >= 0;
   }
 
-  function saveWipLimit(): void {
-    const form = normalizeTitleFormState(state.wipLimit);
-    const wipLimit = form.title.trim();
+  function parsedWipLimitFromForm(form: TitleFormState): number | null {
+    const rawValue = form.title.trim();
+    const parsedValue = Number(rawValue);
 
-    if (!validWipLimit(wipLimit)) {
+    if (rawValue.length === 0 || !validWipLimit(parsedValue)) {
+      return null;
+    }
+
+    return parsedValue;
+  }
+
+  function saveWipLimit(rawValue?: string): void {
+    const form = normalizeTitleFormState(state.wipLimit);
+    const parsedLimit = typeof rawValue === "string" ? parsedWipLimitFromForm({ ...form, title: rawValue }) : parsedWipLimitFromForm(form);
+
+    if (parsedLimit === null || !validWipLimit(parsedLimit)) {
       state.wipLimit = { ...form, error: "Choose a WIP limit of 0 or higher." };
       state.pendingFocus = "board-wip-limit";
       return;
@@ -991,7 +1004,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return;
     }
 
-    const result = safeActionResult(boardActions.setWipLimit({ columnIndex: state.selectedColumnIndex, wipLimit }), "Column WIP limit could not be changed. Try again.");
+    const result = safeActionResult(boardActions.setWipLimit({ columnIndex: state.selectedColumnIndex, wipLimit: parsedLimit }), "Column WIP limit could not be changed. Try again.");
 
     if (!result.ok) {
       state.wipLimit = { ...form, error: result.error || "Column WIP limit could not be changed. Try again." };
@@ -1293,7 +1306,8 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
 
     const selection = { columnIndex: details.columnIndex, position: details.position };
     const removeIsArmed = cardRemoveIsArmed(selection);
-    const heading = wrappedTerminalText(`${details.column.title} | ${details.title}`, cardDetailsHeadingWidth(boardOverlayContentWidth()));
+    const headingWidth = cardDetailsHeadingWidth(boardOverlayContentWidth());
+    const heading = wrappedTerminalText(`${details.column.title} | ${details.title}`, headingWidth);
 
     return (
       <AppOverlay
@@ -1302,9 +1316,8 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         content={
           <FocusScope>
             <ScrollView id="board-card-details-scroll" height={Math.max(1, boardOverlayContentHeight() - 1)}>
-              <Pane style={CARD_DETAILS_HEADING_STYLE}>
-                <Text>{heading}</Text>
-              </Pane>
+              <Text>{heading}</Text>
+              <Hr width={headingWidth} />
               {details.description ? <Text>{details.description}</Text> : null}
               {removeIsArmed ? <Text state="warning">Select Delete card to confirm.</Text> : null}
             </ScrollView>
@@ -1479,6 +1492,8 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return null;
     }
 
+    const headingWidth = cardDetailsHeadingWidth(boardOverlayContentWidth());
+
     return (
       <AppOverlay
         trapFocus={true}
@@ -1486,9 +1501,8 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         content={
           <FocusScope>
             <ScrollView id="board-board-details-scroll" height={Math.max(1, boardOverlayContentHeight() - 1)}>
-              <Pane style={CARD_DETAILS_HEADING_STYLE}>
-                <Text>{wrappedTerminalText(`Board: ${board.title}`, cardDetailsHeadingWidth(boardOverlayContentWidth()))}</Text>
-              </Pane>
+              <Text>{wrappedTerminalText(`Board: ${board.title}`, headingWidth)}</Text>
+              <Hr width={headingWidth} />
               {board.description ? <Text>{board.description}</Text> : null}
             </ScrollView>
           </FocusScope>
@@ -1819,16 +1833,20 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
           <FocusScope>
             <Text>Set WIP limit</Text>
             <Text>{column ? `Column: ${column.title}` : "Choose a column first."}</Text>
-            <Input
+            <NumberInput
               id="board-wip-limit"
               value={form.title}
               placeholder="0"
+              min={0}
               style="input.base"
               styles={{ focus: "input.focus" }}
               oninput={(event: TerminalInputChangeEventPayload) => {
                 state.wipLimit = { ...normalizeTitleFormState(state.wipLimit), title: event.value, error: "" };
               }}
-              onsubmit={saveWipLimit}
+              onsubmit={(event: TerminalNumberSubmitEventPayload) => saveWipLimit(event.rawValue)}
+              {...{
+                __onInvalidSubmit: (event: { value: string }) => saveWipLimit(event.value)
+              }}
             />
             <Text>Use 0 for no limit.</Text>
             {form.error ? <Text state="error">{form.error}</Text> : null}

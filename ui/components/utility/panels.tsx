@@ -1,4 +1,4 @@
-import { Editor, FocusScope, Input, LogView, ScrollView, Text, View } from "@valyrianjs/terminal";
+import { Editor, FocusScope, Input, LogView, ScrollView, Spinner, Text, View } from "@valyrianjs/terminal";
 import type { TerminalEditorChangeEventPayload, TerminalInputChangeEventPayload } from "@valyrianjs/terminal";
 import { createActionBar } from "../ActionBar";
 import { createButton } from "../Button";
@@ -34,6 +34,7 @@ function createSyncContent(state: UtilityRuntimeState, _syncActions: SyncActions
   return (
     <FocusScope>
       <Text>Sync</Text>
+      {busy ? <Spinner frame={1} label="Sync in progress" /> : <Text></Text>}
       {state.sync.error ? <Text>{state.sync.error}</Text> : <Text></Text>}
       <LogView
         id="sync-details-scroll"
@@ -82,9 +83,12 @@ export function createTtsActionBar(state: UtilityRuntimeState, ttsActions: TtsAc
 }
 
 function createTranslateContent(state: UtilityRuntimeState, babelActions: BabelActions, onComplete?: RequestRender): JSX.Element {
+  const busy = state.babel.operation !== null;
+
   return (
     <FocusScope>
       <Text>Translate</Text>
+      {busy ? <Spinner frame={1} label="Translation in progress" /> : <Text></Text>}
       {state.babel.error ? <Text>{state.babel.error}</Text> : <Text></Text>}
       {state.babel.message ? <Text>{state.babel.message}</Text> : <Text></Text>}
       <Text>Text to translate</Text>
@@ -133,10 +137,13 @@ function createTranslateContent(state: UtilityRuntimeState, babelActions: BabelA
 }
 
 function createTtsContent(state: UtilityRuntimeState, _ttsActions: TtsActions, _onComplete?: RequestRender): JSX.Element {
+  const busy = state.tts.operation !== null;
+
   return (
     <FocusScope>
       <Text>Text to Speech</Text>
       <Text>Create audio</Text>
+      {busy ? <Spinner frame={1} label="Audio in progress" /> : <Text></Text>}
       {state.tts.error ? <Text>{state.tts.error}</Text> : <Text></Text>}
       {state.tts.message ? <Text>{state.tts.message}</Text> : <Text></Text>}
       <Text>Input file</Text>

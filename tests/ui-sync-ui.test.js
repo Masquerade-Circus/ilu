@@ -190,6 +190,40 @@ test('Sync init form requires explicit confirmation and keeps test remote under 
   session.destroy();
 });
 
+test('Sync init blocks embedded credentials before calling the action', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({
+    cols: 80,
+    rows: 24,
+    snapshot: baseSnapshot(),
+    state: {
+      utilities: {
+        sync: {
+          initForm: {
+            remoteUrl: 'https://user:token@example.test/repo.git',
+            branch: 'main',
+            confirmed: true
+          }
+        }
+      }
+    },
+    syncActions: createSyncActions(calls)
+  });
+
+  session.click('tab-sync');
+  session.click('sync-setup');
+  session.focus('sync-init-remote');
+  session.dispatchText('https://user:token@example.test/repo.git');
+  session.click('sync-init-confirm');
+  session.click('sync-init-start');
+
+  assert.deepEqual(calls, [['status']]);
+  assert.match(session.output(), /Remote URL must not include embedded credentials\./);
+  assert.doesNotMatch(session.output(), /token/);
+  session.destroy();
+});
+
 test('Esc keeps Sync app open when no secondary overlay is active', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
