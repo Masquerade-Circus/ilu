@@ -21,6 +21,7 @@ state "route_after_sync" as route_after_sync
 state "degraded_network" as degraded_network
 state "degraded_auth" as degraded_auth
 state "conflict" as conflict
+state "failed" as failed
 class disabled def
 class misconfigured def
 class healthy def
@@ -30,14 +31,15 @@ class route_after_sync def
 class degraded_network def
 class degraded_auth def
 class conflict def
+class failed def
 
 syncing: └┬ AEn-runSync<br> ├┬ success<br> │└ T-route_after_sync<br> └┬ failure<br>  └ T-route_after_sync
 
 [*] --> healthy
-disabled --> healthy: ENABLE<br>└ G-isEnabled
+disabled --> healthy: ENABLE
 disabled --> misconfigured: CONFIG_BROKEN
 misconfigured --> disabled: DISABLE
-misconfigured --> healthy: ENABLE<br>└ G-isEnabled
+misconfigured --> healthy: ENABLE
 healthy --> pending_remote: LOCAL_PERSISTED
 healthy --> disabled: DISABLE
 healthy --> misconfigured: CONFIG_BROKEN
@@ -50,10 +52,14 @@ route_after_sync --> healthy: healthy<br>└ G-isHealthySyncOutcome
 route_after_sync --> degraded_network: degraded_network<br>└ G-isNetworkOutcome
 route_after_sync --> degraded_auth: degraded_auth<br>└ G-isAuthOutcome
 route_after_sync --> conflict: conflict<br>└ G-isConflictOutcome
-route_after_sync --> misconfigured: misconfigured
+route_after_sync --> failed: failed
 degraded_network --> syncing: RETRY<br>└ G-hasPendingRemote
 degraded_network --> disabled: DISABLE
 degraded_auth --> syncing: RETRY<br>└ G-hasPendingRemote
 degraded_auth --> disabled: DISABLE
 conflict --> pending_remote: CONFLICT_RESOLVED
 conflict --> disabled: DISABLE
+failed --> pending_remote: LOCAL_PERSISTED
+failed --> syncing: SYNC_REQUESTED<br>└ G-hasPendingRemote
+failed --> syncing: RETRY<br>└ G-hasPendingRemote
+failed --> disabled: DISABLE

@@ -2,17 +2,19 @@
 
 ## Descripción del proyecto
 
-`ilu` es una CLI CommonJS de productividad personal. Expone el binario `ilu` desde `./bin/cli.js` y conserva comandos existentes para tareas como todo, notes, board, clocks, configuración y sync. El runner raíz actual es `node --test`.
+`ilu` es una CLI de productividad personal ejecutada desde TypeScript con `tsx`. Expone el binario `ilu` desde `./bin/cli.js`; ese archivo es el único JavaScript propio permitido y solo registra `tsx/cjs` para cargar el ejecutor real `cli.ts`. La CLI conserva comandos existentes para tareas como todo, notes, board, clocks, configuración y sync. El runner raíz actual es el runner de Node con preload de `tsx`.
 
-La TUI vive en `ui/` y usa `@valyrianjs/terminal` junto con `valyrian.js`. El objetivo de la migración actual es componentizar solo la capa `ui/` hacia TSX sin convertir el repo completo a TypeScript, ESM o Bun.
+La TUI vive en `ui/` y usa `@valyrianjs/terminal` junto con `valyrian.js`. `ui/app.tsx` sigue siendo el entrypoint real de la TUI. El repositorio completo usa un único `tsconfig.json`; no debe reaparecer `tsconfig.ui.json`, no deben quedar shims JavaScript finales y no se debe convertir el paquete a ESM global.
 
-## Acuerdos vigentes para la migración UI
+## Acuerdos vigentes para TypeScript y runtime
 
-- Migrar solo `ui/`; no reescribir CLI, modelos, sync, comandos root ni Inquirer.
-- Mantener `ui/app.tsx` como entrypoint real de la TUI. No dejar `ui/app.js` como shim final; los callers CommonJS deben registrar `tsx/cjs` y cargar `ui/app.tsx` directamente.
-- Mantener CLI CommonJS y no convertir todo el repo a TS/ESM.
-- Preferir `tsx` si el spike confirma compatibilidad; Bun solo comparación y no default salvo evidencia fuerte.
-- Normalizar imports/requires en la zona UI.
+- Mantener `bin/cli.js` como bootstrap mínimo con shebang, `require('tsx/cjs')` y carga de `../cli.ts`.
+- Mantener `cli.ts` como ejecutor real de CLI y `ui/app.tsx` como entrypoint real de TUI.
+- Mantener un solo `tsconfig.json` raíz; no crear ni restaurar `tsconfig.ui.json`.
+- No dejar archivos `.js` propios fuera de `bin/cli.js`.
+- No introducir Bun, bundlers, build obligatorio ni conversión ESM global.
+- Mantener `tsx` como dependencia runtime porque el paquete ejecuta TypeScript sin build previo.
+- Mantener el runner de Node para pruebas mediante `npm test`.
 - La selección de cards debe usar eventos semánticos/identidad de card; evita matemática frágil de coordenadas y parches tipo `clickAt` como fuente primaria.
 - No mover root `ilu` a TUI todavía.
 - No eliminar Inquirer todavía.
@@ -30,6 +32,6 @@ Antes de cambiar código que use `@valyrianjs/terminal`, lee `node_modules/@valy
 
 ## Validación esperada
 
-- Ejecuta pruebas relevantes con `node --test` o subsets de `tests/` cuando el cambio lo permita.
+- Ejecuta pruebas relevantes con `npm test`, `npm run typecheck` o subsets de `tests/` cuando el cambio lo permita.
 - Mantén fixtures y pruebas aisladas del `HOME` real.
 - No hagas commits ni operaciones VCS que modifiquen estado salvo instrucción explícita del usuario.

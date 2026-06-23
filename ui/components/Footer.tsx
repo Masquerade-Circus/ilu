@@ -44,7 +44,7 @@ function formatClockLines(clocks: ClockSnapshot, options: { compact?: boolean } 
     return ["No clocks configured"];
   }
 
-  const lines = clocks.items.map((clock) => {
+  const lines = clocks.items.map((clock: any) => {
     const time = formatClockTimeWithSeconds(clock.time);
     return options.compact === true ? `${clockDisplayName(clock)} ${time}` : `${clockDisplayName(clock)}: ${time}`;
   });
@@ -72,7 +72,7 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
     return [];
   }
 
-  const entries: ClockEntry[] = clocks.items.map((clock, index) => {
+  const entries: ClockEntry[] = clocks.items.map((clock: any, index: any) => {
     const text = `${clockDisplayName(clock)} ${formatClockTimeWithSeconds(clock.time)}`;
     return {
       text,
@@ -87,7 +87,7 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
 
   for (let count = entries.length; count > 0; count -= 1) {
     const selected = entries.slice(0, count);
-    const length = selected.reduce((total, entry) => total + entry.length, 0) + Math.max(0, selected.length - 1) * 2;
+    const length = selected.reduce((total: any, entry: any) => total + entry.length, 0) + Math.max(0, selected.length - 1) * 2;
 
     if (length <= width) {
       return selected;
@@ -105,7 +105,7 @@ function footerLeft(activeTab: string, syncStatus: SyncStatusState): string {
   return footerHints(activeTab, syncStatus).join("  ");
 }
 
-export function footerSegments(width: number, snapshot: UiSnapshot, activeTab = "Todo", syncStatus: SyncStatusState = "idle"): FooterSegment[] {
+export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle"): FooterSegment[] {
   const safeWidth = positiveWidth(width) ? width : 80;
   const left = footerLeft(activeTab, syncStatus);
 
@@ -121,14 +121,14 @@ export function footerSegments(width: number, snapshot: UiSnapshot, activeTab = 
   }
 
   const separatorWidth = 2;
-  const clocksLength = clocks.reduce((total, entry) => total + entry.length, 0) + clocks.length * separatorWidth;
+  const clocksLength = clocks.reduce((total: any, entry: any) => total + entry.length, 0) + clocks.length * separatorWidth;
   const padding = " ".repeat(Math.max(0, safeWidth - left.length - clocksLength));
 
-  return [{ text: `${left}${padding}` }, ...clocks.map((clock) => ({ text: clock.text, style: clock.style }))];
+  return [{ text: `${left}${padding}` }, ...clocks.map((clock: any) => ({ text: clock.text, style: clock.style }))];
 }
 
-export function footerLine(width: number, snapshot: UiSnapshot, activeTab = "Todo", syncStatus: SyncStatusState = "idle"): string {
-  return footerSegments(width, snapshot, activeTab, syncStatus).map((segment) => segment.text).join("");
+export function footerLine(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle"): string {
+  return footerSegments(width, snapshot, activeTab, syncStatus).map((segment: any) => segment.text).join("");
 }
 
 export const __private = { formatClockLines };

@@ -32,7 +32,7 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
         {bottomActionBar}
         {Array.isArray(footerSegments) && footerSegments.length > 0 ? (
           <Row separator="  ">
-            {footerSegments.map((segment, index) => (
+            {footerSegments.map((segment: any, index: any) => (
               <Text key={`footer-${index}`} style={segment.style ?? footerStyle}>{segment.text}</Text>
             ))}
           </Row>

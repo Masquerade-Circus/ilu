@@ -14,6 +14,7 @@ node bin/cli.js --help
 ```
 
 The main CLI entry point in this repo is `bin/cli.js`.
+That file is a minimal CommonJS bootstrap: it registers `tsx/cjs` and loads the real TypeScript CLI executor from `cli.ts`.
 
 ### Install globally
 
@@ -268,8 +269,14 @@ Run the test suite with:
 npm test
 ```
 
-Current `npm test` runs:
+Current `npm test` runs the Node test runner with `tsx` preloaded:
 
 ```bash
-node --test
+node --import tsx --test
+```
+
+Run the global TypeScript check with:
+
+```bash
+npm run typecheck
 ```

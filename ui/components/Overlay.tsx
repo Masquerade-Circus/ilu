@@ -42,7 +42,7 @@ export function createOverlaySurfaceFrame(options: OverlaySurfaceOptions, ...chi
 
 function slotNodes(slot: OverlaySlot | undefined): JSX.Element[] {
   if (Array.isArray(slot)) {
-    return slot.filter((node): node is JSX.Element => node !== null);
+    return slot.filter((node: any): node is JSX.Element => node !== null);
   }
 
   return slot === null || typeof slot === "undefined" ? [] : [slot];

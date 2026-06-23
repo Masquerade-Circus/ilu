@@ -5,12 +5,31 @@
   "author": "Masquerade <christian@masquerade-circus.net>",
   "repository": "git@github.com:Masquerade-Circus/ilu.git",
   "license": "Apache-2.0",
+  "files": [
+    "bin/",
+    "clocks/",
+    "notes/",
+    "scrumban/",
+    "sync/",
+    "sync-core/",
+    "todos/",
+    "translate/",
+    "tts/",
+    "types.d.ts",
+    "ui/",
+    "utils/",
+    "cli.ts",
+    "tsconfig.json",
+    "!**/*.test.ts",
+    "!**/tests/"
+  ],
   "bin": {
     "ilu": "./bin/cli.js"
   },
   "scripts": {
-    "test": "node --test",
-    "sync:diagram": "node ./sync/generate-diagrams.js"
+    "test": "node --import tsx --test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
@@ -20,7 +39,6 @@
     "colors": "^1.3.2",
     "commander": "^14.0.3",
     "iludb": "^1.0.0",
-    "inquirer": "^13.4.2",
     "lodash": "^4.17.11",
     "openai": "^6.34.0",
     "tsx": "^4.22.4",

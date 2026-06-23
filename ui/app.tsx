@@ -376,7 +376,7 @@ function flushPendingSync(): false | Promise<unknown> {
     if (result && typeof result === "object" && "then" in result && typeof result.then === "function") {
       return Promise.resolve(result).catch(() => false);
     }
-  } catch (_) {
+  } catch (_: any) {
     return false;
   }
 
@@ -407,7 +407,7 @@ function enableSyncStatusUpdates(session: TerminalSession, state: AppRuntimeStat
 
     try {
       cleanupResult = cleanupSyncRunner();
-    } catch (_) {
+    } catch (_: any) {
       cleanupResult = undefined;
     }
 
@@ -454,7 +454,7 @@ function shouldUseTuiSyncRunner(): boolean {
         && typeof config.remoteUrl === "string"
         && config.remoteUrl.trim().length > 0
     );
-  } catch (_) {
+  } catch (_: any) {
     return false;
   }
 }
@@ -601,7 +601,7 @@ function createApp(
         content={[
           <Text>Tab moves focus.</Text>,
           <Text>Enter activates.</Text>,
-          ...helpLines.map((line) => <Text>{line}</Text>),
+          ...helpLines.map((line: any) => <Text>{line}</Text>),
           <Text>Esc closes Help.</Text>
         ]}
         bottomNav={createButton("help-close", "Close", () => { state.overlay = null; })}
@@ -1057,7 +1057,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24 });
   sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, (command) => {
+  const keymap = createKeymap(state, (command: any) => {
     if (state.running === false) {
       if (session) {
         session.destroy();
@@ -1075,7 +1075,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     if (session) {
       applyPendingFocus(session, state);
     }
-  }, (command, context) => {
+  }, (command: any, context: any) => {
     if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
       return true;
     }
@@ -1104,13 +1104,13 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   const activeSession = session;
 
   return {
-    dispatchKey(key) {
+    dispatchKey(key: any) {
       const output = activeSession.dispatchKey(key);
       prepareActivePageState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
-    dispatchText(value) {
+    dispatchText(value: any) {
       const rawText = String(value);
       const text = normalizeHeadlessPasteText(rawText);
       const tree = activeSession.tree();
@@ -1138,7 +1138,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       applyPendingFocus(activeSession, state);
       return output;
     },
-    focus(id) {
+    focus(id: any) {
       const focused = activeSession.focus(id);
 
       if (focused) {
@@ -1158,7 +1158,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     ansiOutput() {
       return activeSession.ansiOutput();
     },
-    click(id) {
+    click(id: any) {
       const output = activeSession.click(id);
 
       if (output === activeSession.output() && !hasActiveOverlay(state) && handleHeadlessChromeClick(id, state)) {
@@ -1169,7 +1169,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       applyPendingFocus(activeSession, state);
       return activeSession.output();
     },
-    clickAt(x, y) {
+    clickAt(x: any, y: any) {
       const output = activeSession.clickAt(x, y);
       prepareActivePageState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
@@ -1249,7 +1249,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   const layout = resolveLayoutOptions({ ...options, stdout });
   sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, (command) => {
+  const keymap = createKeymap(state, (command: any) => {
     if (state.running === false) {
       if (session) {
         session.destroy();
@@ -1266,7 +1266,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
       syncTerminalTitle(session, state);
       applyPendingFocus(session, state);
     }
-  }, (command, context) => {
+  }, (command: any, context: any) => {
     if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
       return true;
     }

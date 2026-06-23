@@ -55,7 +55,7 @@ function isClockOverlayState(value: unknown): value is ClockOverlayState {
   return typeof value === "string" && (CLOCK_OVERLAY_STATES as readonly string[]).includes(value);
 }
 
-function safeText(value: unknown, fallback = ""): string {
+function safeText(value: unknown, fallback: any = ""): string {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -73,7 +73,7 @@ function normalizePositions(value: unknown): number[] {
     return [];
   }
 
-  return [...new Set(value.filter(item => typeof item === "number" && Number.isInteger(item) && item > 0))].sort((left, right) => left - right);
+  return [...new Set(value.filter((item: any) => typeof item === "number" && Number.isInteger(item) && item > 0))].sort((left: any, right: any) => left - right);
 }
 
 function timezoneChoicesForQuery(state: ClockRuntimeState): TimezoneChoice[] {
@@ -123,7 +123,7 @@ function clockTimezone(clock: ClockItem | null): string {
 }
 
 function itemPositions(items: ClockItem[]): number[] {
-  return items.map((item, index) => clockPosition(item, index));
+  return items.map((item: any, index: any) => clockPosition(item, index));
 }
 
 function normalizeSelectedClockPosition(items: ClockItem[], value: unknown): number | null {
@@ -154,7 +154,7 @@ function selectedClock(items: ClockItem[], state: ClockRuntimeState): ClockItem 
     return null;
   }
 
-  return items.find((item, index) => clockPosition(item, index) === selectedPosition) ?? null;
+  return items.find((item: any, index: any) => clockPosition(item, index) === selectedPosition) ?? null;
 }
 
 function wrapLine(value: string, maxLength: number): string[] {
@@ -214,10 +214,10 @@ export function prepareClockViewState(clocks: ClockSnapshot, state: ClockRuntime
   const items = Array.isArray(clocks.items) ? clocks.items : [];
   const positions = itemPositions(items);
   const normalizedSelectedPosition = normalizeSelectedClockPosition(items, state.selectedClockPosition);
-  const normalizedRemovePositions = normalizePositions(state.removeClockPositions).filter(position => positions.includes(position));
+  const normalizedRemovePositions = normalizePositions(state.removeClockPositions).filter((position: any) => positions.includes(position));
   const removePositionsChanged =
     state.removeClockPositions.length !== normalizedRemovePositions.length ||
-    state.removeClockPositions.some(position => !normalizedRemovePositions.includes(position));
+    state.removeClockPositions.some((position: any) => !normalizedRemovePositions.includes(position));
 
   if (state.selectedClockPosition !== normalizedSelectedPosition) {
     state.selectedClockPosition = normalizedSelectedPosition;
@@ -374,7 +374,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
       <List
         id="clock-items"
         items={items}
-        itemKey={(clock, index) => String(clockPosition(clock, index))}
+        itemKey={(clock: any, index: any) => String(clockPosition(clock, index))}
         showActive={true}
         virtualized={true}
         height={6}
@@ -387,7 +387,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
         }}
         wrap={true}
       >
-        {(clock, ctx) => renderClockLabel(clock, ctx.index)}
+        {(clock: any, ctx: any) => renderClockLabel(clock, ctx.index)}
       </List>
     ];
   }
@@ -406,9 +406,9 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
             <Text>Clock details</Text>
-            {titleLines.map((line) => <Text>{line}</Text>)}
-            {timezoneLines.map((line) => <Text>{line}</Text>)}
-            {timeLines.map((line) => <Text>{line}</Text>)}
+            {titleLines.map((line: any) => <Text>{line}</Text>)}
+            {timezoneLines.map((line: any) => <Text>{line}</Text>)}
+            {timeLines.map((line: any) => <Text>{line}</Text>)}
             {state.actionError ? <Text>{state.actionError}</Text> : <Text></Text>}
           </FocusScope>
         ]}
@@ -461,7 +461,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
             <List
               id="clock-add-timezone-choices"
               items={choices}
-              itemKey={(choice) => choice.value}
+              itemKey={(choice: any) => choice.value}
               showActive={true}
               virtualized={true}
               height={TIMEZONE_CHOICE_HEIGHT}
@@ -475,7 +475,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
                 state.addClock.timezone = event.value.value;
               }}
             >
-              {(choice) => choice.name}
+              {(choice: any) => choice.name}
             </List>
           </FocusScope>
         
@@ -497,7 +497,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
 
     const positions = currentRemovePositions();
     const count = positions.length;
-    const onlyClock = count === 1 ? items.find((clock, index) => clockPosition(clock, index) === positions[0]) ?? null : null;
+    const onlyClock = count === 1 ? items.find((clock: any, index: any) => clockPosition(clock, index) === positions[0]) ?? null : null;
     const promptLines = count === 1 && onlyClock
       ? wrapLine(`Remove “${clockName(onlyClock)}”?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS)
       : wrapLine(`Remove ${count} clocks?`, REMOVE_OVERLAY_TEXT_MAX_COLUMNS);
@@ -506,9 +506,9 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            {count > 0 ? promptLines.map((line) => <Text>{line}</Text>) : <Text>Choose a clock first.</Text>}
+            {count > 0 ? promptLines.map((line: any) => <Text>{line}</Text>) : <Text>Choose a clock first.</Text>}
             {state.actionError ? <Text>{state.actionError}</Text> : <Text></Text>}
-            {timezoneLines.length > 0 ? timezoneLines.map((line) => <Text>{line}</Text>) : <Text></Text>}
+            {timezoneLines.length > 0 ? timezoneLines.map((line: any) => <Text>{line}</Text>) : <Text></Text>}
           </FocusScope>
         
         ]}

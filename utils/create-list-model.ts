@@ -1,0 +1,162 @@
+let includes = require('lodash/includes');
+let loadDb = require('./load-db');
+let isUndefined = require('lodash/isUndefined');
+let notifySync = require('../sync/ilu-hooks');
+
+function detectDomain(dbName: any, collectionName: any) {
+    return dbName || collectionName || 'data';
+}
+
+function createNestedCollection(Model: any, key: any, options: any = {}) {
+    let nestedCollection: any = {
+        add(item: any) {
+            let current = Model.getCurrent();
+            let value = options.prepareAdd ? options.prepareAdd(item) : item;
+            current[key].push(value);
+            return Model.save(current);
+        },
+        remove(index: any) {
+            let current = Model.getCurrent();
+            if (typeof index === 'number') {
+                current[key].splice(index - 1, 1);
+            } else {
+                current[key] = [];
+            }
+            return Model.save(current);
+        },
+        edit(index: any, values: any) {
+            let current = Model.getCurrent();
+            let item = current[key][index - 1];
+            if (!isUndefined(item)) {
+                Object.assign(item, values);
+            }
+            return Model.save(current);
+        },
+        reorder({fromIndex, toIndex}: any = {}) {
+            if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 1 || toIndex < 1) {
+                return Model.getCurrent();
+            }
+
+            let current = Model.getCurrent();
+            let items = Array.isArray(current[key]) ? current[key] : [];
+
+            if (fromIndex > items.length || toIndex > items.length || fromIndex === toIndex) {
+                return current;
+            }
+
+            let moved = items.splice(fromIndex - 1, 1)[0];
+            items.splice(toIndex - 1, 0, moved);
+            return Model.save(current);
+        }
+    };
+
+    if (options.withCheck) {
+        nestedCollection.check = function (checked: any) {
+            let current = Model.getCurrent();
+            current[key].forEach((item: any, index: any) => {
+                item.done = includes(checked, index);
+            });
+            return Model.save(current);
+        };
+    }
+
+    return nestedCollection;
+}
+
+module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: any) {
+    let DB = loadDb(dbName);
+    let domain = detectDomain(dbName, collectionName);
+
+    function afterPersist(action: any) {
+        notifySync({domain, action});
+    }
+
+    let Model: any = {
+        collection: DB.getCollection(collectionName),
+        get(id: any) {
+            return Model.collection.get(id);
+        },
+        find(query: any = {}, options: any = {sort: {index: 1}}) {
+            return Model.collection.find(query, options);
+        },
+        findOne(query: any = {}, options: any = {sort: {index: 1}}) {
+            return Model.collection.findOne(query, options);
+        },
+        add(item: any) {
+            let index = Model.collection.count() + 1;
+
+            let doc = {
+                title: item.title.trim() || '',
+                description: item.description.trim() || '',
+                [itemKey]: [],
+                labels: [],
+                current: false,
+                index: index
+            };
+
+            let insertedDocument = Model.collection.add(doc);
+            return Model.use(insertedDocument.$id);
+        },
+        save(item: any) {
+            let saved = Model.collection.update(item);
+            afterPersist('save');
+            return saved;
+        },
+        remove(item: any) {
+            if (isUndefined(item)) {
+                Model.collection.find().forEach((item: any) => Model.collection.remove(item));
+                afterPersist('remove');
+                return;
+            }
+
+            Model.collection.remove(item);
+            Model.updateIndexes();
+            afterPersist('remove');
+        },
+        getCurrent() {
+            return Model.findOne({current: true});
+        },
+        getFirst() {
+            return Model.findOne();
+        },
+        getLast() {
+            let lists = Model.find();
+            return lists[lists.length - 1];
+        },
+        updateIndexes() {
+            let items = Model.find();
+            items.forEach((item: any, index: any) => {
+                item.index = index + 1;
+                Model.collection.update(item);
+            });
+        },
+        use(id: any) {
+            let prevCurrent = Model.find({current: true});
+            prevCurrent.forEach((item: any) => {
+                item.current = false;
+                Model.collection.update(item);
+            });
+
+            let current = Model.get(id);
+            current.current = true;
+            let saved = Model.collection.update(current);
+            afterPersist('use');
+            return saved;
+        }
+    };
+
+    Model[itemKey] = createNestedCollection(Model, itemKey, {
+        withCheck: itemHasCheck,
+        prepareAdd(item: any) {
+            item.done = false;
+            if (!item.labels) {
+                item.labels = [];
+            }
+            return item;
+        }
+    });
+
+    Model.labels = createNestedCollection(Model, 'labels');
+
+    return Model;
+};

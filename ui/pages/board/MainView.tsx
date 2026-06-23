@@ -121,7 +121,7 @@ function renderBoardSelector(board: BoardSnapshot, handlers: BoardSelectorHandle
 
   return (
     <View direction="row" gap={1}>
-      {boards.map((item, index) => {
+      {boards.map((item: any, index: any) => {
         const id = boardSwitchElementId(item, index);
         const label = typeof item.title === "string" && item.title.trim().length > 0 ? item.title.trim() : "Untitled board";
         const active = item.current === true || ((typeof board.id === "string" || typeof board.id === "number") && item.id === board.id);
@@ -360,7 +360,7 @@ export function closeBoardOverlay(state: BoardRuntimeState): void {
 
 function wrappedTerminalText(value: string, width: number): string {
   const safeWidth = positiveInteger(width) ? width : 1;
-  const words = value.trim().split(/\s+/).filter((word) => word.length > 0);
+  const words = value.trim().split(/\s+/).filter((word: any) => word.length > 0);
   const lines: string[] = [];
   let currentLine = "";
 
@@ -405,7 +405,7 @@ function cardDetailsHeadingWidth(totalWidth: number): number {
   return Math.max(1, totalWidth - paneHorizontalChrome);
 }
 
-function safeActionResult(result: unknown, fallback = "Card could not be saved. Try again."): BoardActionResult {
+function safeActionResult(result: unknown, fallback: any = "Card could not be saved. Try again."): BoardActionResult {
   if (typeof result === "object" && result !== null && typeof (result as Record<string, unknown>).ok === "boolean") {
     return result as BoardActionResult;
   }
@@ -423,7 +423,7 @@ function sameSelection(left: Selection | null | undefined, right: Selection | nu
   return Boolean(left && right && left.columnIndex === right.columnIndex && left.position === right.position);
 }
 
-export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive = true, context?: TerminalCommandContext): boolean {
+export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: any = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.column-left" && command.id !== "ilu.column-right" && command.id !== "ilu.board-column-header-left" && command.id !== "ilu.board-column-header-right") {
     return false;
   }
@@ -458,7 +458,7 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
     const result = safeActionResult(moveColumn({ columnIndex }), "Column could not be moved. Try again.");
 
     if (!result.ok) {
-      state.actionError = result.error || "Column could not be moved. Try again.";
+      state.actionError = String(result.error || "Column could not be moved. Try again.");
       state.overlay = "card-action-error";
       return true;
     }
@@ -500,7 +500,7 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
   const result = safeActionResult(boardActions.moveCard({ fromColumn, fromPosition: selection.position, toColumn }), "Card could not be moved. Try again.");
 
   if (!result.ok) {
-    state.actionError = result.error || "Card could not be moved. Try again.";
+    state.actionError = String(result.error || "Card could not be moved. Try again.");
     state.overlay = "card-action-error";
     return true;
   }
@@ -512,7 +512,7 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
   return true;
 }
 
-function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive = true, context?: TerminalCommandContext): boolean {
+function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: any = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.board-card-priority-up" && command.id !== "ilu.board-card-priority-down") {
     return false;
   }
@@ -550,7 +550,7 @@ function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: Boar
   const result = safeActionResult(boardActions.prioritizeCard({ columnIndex, position: selection.position, toPosition }), "Priority could not be changed. Try again.");
 
   if (!result.ok) {
-    state.actionError = result.error || "Priority could not be changed. Try again.";
+    state.actionError = String(result.error || "Priority could not be changed. Try again.");
     state.overlay = "card-action-error";
     return true;
   }
@@ -624,7 +624,7 @@ function openBoardColumnDetailsFromKeyboard(state: BoardRuntimeState, snapshotRe
   return true;
 }
 
-function handleBoardOpenDetailsKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, isActive = true, context?: TerminalCommandContext): boolean {
+function handleBoardOpenDetailsKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, isActive: any = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.board-open-details") {
     return false;
   }
@@ -645,7 +645,7 @@ export function handleBoardCommand(
   state: BoardRuntimeState,
   snapshotRef: SnapshotRef,
   boardActions: BoardActions,
-  isActive = true,
+  isActive: any = true,
   context?: TerminalCommandContext
 ): boolean {
   if (command.id === "ilu.add") {
@@ -693,7 +693,7 @@ export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState,
   const gap = 0;
   const boardWidth = Math.max(1, layout.width - 2);
   const columnWidth = Math.max(1, Math.floor(boardWidth / columns.length));
-  const columnNodes = columns.map((column, columnOffset) => {
+  const columnNodes = columns.map((column: any, columnOffset: any) => {
     return createBoardColumnNode(column, columnOffset, columnWidth, state, layout.openCardDetails, layout.openColumnDetails);
   });
 
@@ -755,12 +755,12 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return null;
     }
 
-    return currentBoardSummaries().find((item) => item.id === id) || null;
+    return currentBoardSummaries().find((item: any) => item.id === id) || null;
   }
 
   function currentBoardSummary(): BoardSummary | null {
     const boards = currentBoardSummaries();
-    const current = boards.find((item) => item.current === true);
+    const current = boards.find((item: any) => item.current === true);
 
     if (current) {
       return current;
@@ -769,7 +769,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const boardId = currentBoard().id;
 
     if (typeof boardId === "string" || typeof boardId === "number") {
-      return boards.find((item) => item.id === boardId) || null;
+      return boards.find((item: any) => item.id === boardId) || null;
     }
 
     return boards[0] || null;
@@ -862,7 +862,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const result = safeActionResult(boardActions.addBoard({ title, description }), "Board could not be saved. Try again.");
 
     if (!result.ok) {
-      state.addBoard = { ...form, error: result.error || "Board could not be saved. Try again." };
+      state.addBoard = { ...form, error: String(result.error || "Board could not be saved. Try again.") };
       state.pendingFocus = "board-add-board-title";
       return;
     }
@@ -898,7 +898,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const result = safeActionResult(boardActions.renameBoard({ boardId, title, description }), "Board could not be renamed. Try again.");
 
     if (!result.ok) {
-      state.renameBoard = { ...form, error: result.error || "Board could not be renamed. Try again." };
+      state.renameBoard = { ...form, error: String(result.error || "Board could not be renamed. Try again.") };
       state.pendingFocus = "board-rename-board-title";
       return;
     }
@@ -929,7 +929,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     }
 
     const columns = Array.isArray(current.columns) ? current.columns : [];
-    return columns.some((column) => {
+    return columns.some((column: any) => {
       if (typeof column.count === "number" && column.count > 0) {
         return true;
       }
@@ -1007,7 +1007,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const result = safeActionResult(boardActions.setWipLimit({ columnIndex: state.selectedColumnIndex, wipLimit: parsedLimit }), "Column WIP limit could not be changed. Try again.");
 
     if (!result.ok) {
-      state.wipLimit = { ...form, error: result.error || "Column WIP limit could not be changed. Try again." };
+      state.wipLimit = { ...form, error: String(result.error || "Column WIP limit could not be changed. Try again.") };
       state.pendingFocus = "board-wip-limit";
       return;
     }
@@ -1181,7 +1181,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const safe = safeActionResult(result || { ok: false, error: fallback }, fallback);
 
     if (!safe.ok) {
-      state.actionError = safe.error || fallback;
+      state.actionError = String(safe.error || fallback);
       state.overlay = "card-action-error";
       return false;
     }
@@ -1209,7 +1209,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const result = safeActionResult(boardActions.addCard({ title, description }));
 
     if (!result.ok) {
-      state.addCard = { ...form, error: result.error || "Card could not be saved. Try again." };
+      state.addCard = { ...form, error: String(result.error || "Card could not be saved. Try again.") };
       state.pendingFocus = "board-add-title";
       return;
     }
@@ -1260,13 +1260,13 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorFocusStyle="editor.focus"
         primaryActionId="board-add-save"
         cancelActionId="board-add-cancel"
-        onTitleInput={(value) => {
+        onTitleInput={(value: any) => {
           const next = normalizeAddCardState(state.addCard);
           next.title = value;
           next.error = "";
           state.addCard = next;
         }}
-        onEditorInput={(value) => {
+        onEditorInput={(value: any) => {
           const next = normalizeAddCardState(state.addCard);
           next.description = value;
           next.error = "";
@@ -1387,13 +1387,13 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorFocusStyle="editor.focus"
         primaryActionId="board-edit-save"
         cancelActionId="board-edit-cancel"
-        onTitleInput={(value) => {
+        onTitleInput={(value: any) => {
           const next = normalizeCardFormState(state.editCard);
           next.title = value;
           next.error = "";
           state.editCard = next;
         }}
-        onEditorInput={(value) => {
+        onEditorInput={(value: any) => {
           const next = normalizeCardFormState(state.editCard);
           next.description = value;
           next.error = "";

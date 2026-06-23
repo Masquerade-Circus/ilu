@@ -67,12 +67,12 @@ export function createNavButton(state: AppState, tab: string, options: TopNavOpt
 export function createTopNav(state: TopNavState, tabs: readonly string[], options: TopNavOptions = {}): JSX.Element {
   const width = positiveWidth(options.width) ? options.width : 80;
   const syncTab = tabs.includes("Sync") ? "Sync" : null;
-  const appTabs = tabs.filter((tab) => tab !== "Sync");
+  const appTabs = tabs.filter((tab: any) => tab !== "Sync");
 
   if (syncTab === null) {
     return (
       <View direction="row" gap={1}>
-        {appTabs.map((tab) => createNavButton(state, tab, options))}
+        {appTabs.map((tab: any) => createNavButton(state, tab, options))}
       </View>
     );
   }
@@ -84,7 +84,7 @@ export function createTopNav(state: TopNavState, tabs: readonly string[], option
   return (
     <Split direction="row" gap={0} width={width} height={1} sizes={[appWidth, syncWidth]}>
       <View direction="row" gap={1}>
-        {appTabs.map((tab) => createNavButton(state, tab, options))}
+        {appTabs.map((tab: any) => createNavButton(state, tab, options))}
       </View>
       <View direction="row" gap={0}>
         {createLabeledNavButton(state, syncTab, syncLabel, options)}

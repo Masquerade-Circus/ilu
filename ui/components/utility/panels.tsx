@@ -25,7 +25,7 @@ type RequestRender = () => void;
 type CopyText = (text: string) => BabelActionResult | Promise<BabelActionResult>;
 
 function logEntries(prefix: string, values: readonly string[]) {
-  return values.map((content, index) => ({ id: `${prefix}-${index}`, content }));
+  return values.map((content: any, index: any) => ({ id: `${prefix}-${index}`, content }));
 }
 
 function createSyncContent(state: UtilityRuntimeState, _syncActions: SyncActions, _onComplete?: RequestRender): JSX.Element {
@@ -42,7 +42,7 @@ function createSyncContent(state: UtilityRuntimeState, _syncActions: SyncActions
         entries={logEntries("sync", busy ? [...state.sync.details, "Pending sync"] : state.sync.details)}
         followTail={true}
         emptyText="No sync details yet."
-        renderEntry={(entry) => entry.content}
+        renderEntry={(entry: any) => entry.content}
       />
     </FocusScope>
   );
@@ -129,7 +129,7 @@ function createTranslateContent(state: UtilityRuntimeState, babelActions: BabelA
         <Text>{state.babel.translation || ""}</Text>
         <Text>Dictionary</Text>
         {state.babel.dictionaryEntries.length > 0
-          ? state.babel.dictionaryEntries.map(entry => <Text>{entry}</Text>)
+          ? state.babel.dictionaryEntries.map((entry: any) => <Text>{entry}</Text>)
           : <Text>No dictionary entries found.</Text>}
       </ScrollView>
     </FocusScope>

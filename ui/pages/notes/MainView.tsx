@@ -63,7 +63,7 @@ function isNoteOverlayState(value: unknown): value is NoteOverlayState {
   return typeof value === "string" && (NOTE_OVERLAY_STATES as readonly string[]).includes(value);
 }
 
-function safeText(value: unknown, fallback = ""): string {
+function safeText(value: unknown, fallback: any = ""): string {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -151,7 +151,7 @@ function selectedItem(panel: ListPanel, state: NotesRuntimeState): ListItem | nu
     return null;
   }
 
-  return items.find((item, index) => itemPosition(item, index) === selectedPosition) ?? null;
+  return items.find((item: any, index: any) => itemPosition(item, index) === selectedPosition) ?? null;
 }
 
 function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary | null {
@@ -162,7 +162,7 @@ function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary |
     return null;
   }
 
-  return lists.find((list) => list.id === selectedId) ?? null;
+  return lists.find((list: any) => list.id === selectedId) ?? null;
 }
 
 export function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRuntimeState): void {
@@ -175,7 +175,7 @@ export function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRunt
     return;
   }
 
-  const selectedExists = items.some((item, index) => itemPosition(item, index) === selectedPosition);
+  const selectedExists = items.some((item: any, index: any) => itemPosition(item, index) === selectedPosition);
 
   if (!selectedExists) {
     state.selectedNotePosition = firstPosition;
@@ -265,7 +265,7 @@ export function handleNotesCommand(
       return true;
     }
 
-    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
+    const currentPosition = itemPosition(item, items.findIndex((candidate: any) => candidate === item));
     const direction = command.id === "notes.move-note-up" ? "up" : "down";
     const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
 
@@ -301,7 +301,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
 
-  function resetForm(form: TextFormState, title = "", description = ""): void {
+  function resetForm(form: TextFormState, title: any = "", description: any = ""): void {
     form.title = title;
     form.description = description;
     form.error = "";
@@ -428,24 +428,24 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
       <List
         id="note-items"
         items={items}
-        itemKey={(item, index) => String(item.id ?? itemPosition(item, index))}
+        itemKey={(item: any, index: any) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
         height={4}
-        onactive={(event) => {
+        onactive={(event: any) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
-        onpress={(event) => {
+        onpress={(event: any) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
-        ondoublepress={(event) => {
+        ondoublepress={(event: any) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
           state.actionError = "";
           state.overlay = "note-details";
         }}
         wrap={true}
       >
-        {(item, ctx) => renderNoteLabel(item, ctx.index)}
+        {(item: any, ctx: any) => renderNoteLabel(item, ctx.index)}
       </List>
     ];
   }
@@ -458,7 +458,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
     return [
       <View direction="row" gap={1}>
         <Text>Lists</Text>
-        {lists.map((list, index) => {
+        {lists.map((list: any, index: any) => {
           const listId = normalizeEntityId(list.id);
           const isSelected = list.current === true || list.id === selectedListId;
           const label = safeText(list.title, "Untitled list");
@@ -494,19 +494,19 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
               <List
                 id="note-lists"
                 items={lists}
-                itemKey={(list) => String(list.id)}
+                itemKey={(list: any) => String(list.id)}
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onactive={(event) => {
+                onactive={(event: any) => {
                   state.selectedListId = event.value.id;
                 }}
-                onpress={(event) => {
+                onpress={(event: any) => {
                   state.selectedListId = event.value.id;
                 }}
                 wrap={true}
               >
-                {(list) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
+                {(list: any) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
               </List>
             ) : <Text>No lists yet.</Text>}
           </FocusScope>
@@ -539,11 +539,11 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
         editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
-        onTitleInput={(value) => {
+        onTitleInput={(value: any) => {
           form.title = value;
           form.error = "";
         }}
-        onEditorInput={(value) => {
+        onEditorInput={(value: any) => {
           form.description = value;
           form.error = "";
         }}
@@ -606,7 +606,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
               <Text>Note details</Text>
               <Text>{`Note title: ${activeItem.text}`}</Text>
               <Text>Note content</Text>
-              {contentLines.map((line) => <Text>{line}</Text>)}
+              {contentLines.map((line: any) => <Text>{line}</Text>)}
               {Array.isArray(activeItem.labels) && activeItem.labels.length > 0 ? <Text>{`Labels: ${activeItem.labels.join(", ")}`}</Text> : <Text></Text>}
             </ScrollView>
           </FocusScope>

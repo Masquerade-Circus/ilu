@@ -63,7 +63,7 @@ function isTodoOverlayState(value: unknown): value is TodoOverlayState {
   return typeof value === "string" && (TODO_OVERLAY_STATES as readonly string[]).includes(value);
 }
 
-function safeText(value: unknown, fallback = ""): string {
+function safeText(value: unknown, fallback: any = ""): string {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -159,7 +159,7 @@ function selectedItem(panel: ListPanel, state: TodoRuntimeState): ListItem | nul
     return null;
   }
 
-  return items.find((item, index) => itemPosition(item, index) === selectedPosition) ?? null;
+  return items.find((item: any, index: any) => itemPosition(item, index) === selectedPosition) ?? null;
 }
 
 function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | null {
@@ -170,7 +170,7 @@ function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | 
     return null;
   }
 
-  return lists.find((list) => list.id === selectedId) ?? null;
+  return lists.find((list: any) => list.id === selectedId) ?? null;
 }
 
 export function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRuntimeState): void {
@@ -183,7 +183,7 @@ export function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRunti
     return;
   }
 
-  const selectedExists = items.some((item, index) => itemPosition(item, index) === selectedPosition);
+  const selectedExists = items.some((item: any, index: any) => itemPosition(item, index) === selectedPosition);
 
   if (!selectedExists) {
     state.selectedTaskPosition = firstPosition;
@@ -287,7 +287,7 @@ export function handleTodoCommand(
       return true;
     }
 
-    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
+    const currentPosition = itemPosition(item, items.findIndex((candidate: any) => candidate === item));
     const direction = command.id === "todo.move-task-up" ? "up" : "down";
     const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
 
@@ -323,7 +323,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
 
-  function resetForm(form: TextFormState, title = "", description = ""): void {
+  function resetForm(form: TextFormState, title: any = "", description: any = ""): void {
     form.title = title;
     form.description = description;
     form.error = "";
@@ -467,24 +467,24 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
       <List
         id="todo-items"
         items={items}
-        itemKey={(item, index) => String(item.id ?? itemPosition(item, index))}
+        itemKey={(item: any, index: any) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
         height={4}
-        onactive={(event) => {
+        onactive={(event: any) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
-        onpress={(event) => {
+        onpress={(event: any) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
-        ondoublepress={(event) => {
+        ondoublepress={(event: any) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
           state.actionError = "";
           state.overlay = "task-details";
         }}
         wrap={true}
       >
-        {(item, ctx) => renderTaskLabel(item, ctx.index)}
+        {(item: any, ctx: any) => renderTaskLabel(item, ctx.index)}
       </List>
     ];
   }
@@ -497,7 +497,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
     return [
       <View direction="row" gap={1}>
         <Text>Lists</Text>
-        {lists.map((list, index) => {
+        {lists.map((list: any, index: any) => {
           const listId = normalizeEntityId(list.id);
           const isSelected = list.current === true || list.id === selectedListId;
           const label = safeText(list.title, "Untitled list");
@@ -533,19 +533,19 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
               <List
                 id="todo-lists"
                 items={lists}
-                itemKey={(list) => String(list.id)}
+                itemKey={(list: any) => String(list.id)}
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onactive={(event) => {
+                onactive={(event: any) => {
                   state.selectedListId = event.value.id;
                 }}
-                onpress={(event) => {
+                onpress={(event: any) => {
                   state.selectedListId = event.value.id;
                 }}
                 wrap={true}
               >
-                {(list) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
+                {(list: any) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
               </List>
             ) : <Text>No lists yet.</Text>}
           </FocusScope>
@@ -577,11 +577,11 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
         editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
-        onTitleInput={(value) => {
+        onTitleInput={(value: any) => {
           form.title = value;
           form.error = "";
         }}
-        onEditorInput={(value) => {
+        onEditorInput={(value: any) => {
           form.description = value;
           form.error = "";
         }}

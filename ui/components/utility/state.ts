@@ -9,7 +9,7 @@ import type {
 export const DEFAULT_SYNC_DETAILS = Object.freeze(["Status: Not set up"] as const);
 export const DEFAULT_VOICES = Object.freeze(["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"] as const);
 
-export function cleanText(value: unknown, fallback = ""): string {
+export function cleanText(value: unknown, fallback: any = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
@@ -18,7 +18,7 @@ export function cleanStringArray(value: unknown, fallback: readonly string[] = [
     return [...fallback];
   }
 
-  const values = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map(item => item.trim());
+  const values = value.filter((item: any): item is string => typeof item === "string" && item.trim().length > 0).map((item: any) => item.trim());
   return values.length > 0 ? values : [...fallback];
 }
 

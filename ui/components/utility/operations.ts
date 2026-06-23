@@ -31,6 +31,17 @@ const FAILURE_RESULT: SyncActionResult = Object.freeze({
 });
 const TTS_FAILURE: TtsActionResult = Object.freeze({ ok: false, error: "Could not create audio." });
 const BABEL_FAILURE: BabelActionResult = Object.freeze({ ok: false, error: "Could not translate the text." });
+const syncOperationTokens = new WeakMap<SyncUtilityState, number>();
+
+function nextSyncOperationToken(state: SyncUtilityState): number {
+  const nextToken = (syncOperationTokens.get(state) ?? 0) + 1;
+  syncOperationTokens.set(state, nextToken);
+  return nextToken;
+}
+
+function isCurrentSyncOperation(state: SyncUtilityState, token: number): boolean {
+  return syncOperationTokens.get(state) === token;
+}
 
 export function closeUtilityOverlay(state: UtilityRuntimeState): boolean {
   if (!hasActiveUtilityOverlay(state)) {
@@ -63,10 +74,13 @@ export function runSyncOperation(
   action: () => SyncActionResult | Promise<SyncActionResult>,
   onComplete: RequestRender = () => {}
 ): void {
-  if (state.sync.operation !== null) {
+  const currentOperation = state.sync.operation;
+
+  if (currentOperation !== null && (currentOperation !== "status" || operation === "status")) {
     return;
   }
 
+  const operationToken = nextSyncOperationToken(state.sync);
   state.sync.operation = operation;
   state.sync.error = "";
 
@@ -76,12 +90,24 @@ export function runSyncOperation(
     if (result && typeof result === "object" && "then" in result && typeof result.then === "function") {
       Promise.resolve(result)
         .then((resolved) => {
+          if (!isCurrentSyncOperation(state.sync, operationToken)) {
+            return;
+          }
+
           applySyncResult(state.sync, resolved);
         })
         .catch(() => {
+          if (!isCurrentSyncOperation(state.sync, operationToken)) {
+            return;
+          }
+
           applySyncResult(state.sync, FAILURE_RESULT);
         })
         .finally(() => {
+          if (!isCurrentSyncOperation(state.sync, operationToken)) {
+            return;
+          }
+
           state.sync.operation = null;
           onComplete();
         });
@@ -89,7 +115,7 @@ export function runSyncOperation(
     }
 
     applySyncResult(state.sync, result as SyncActionResult);
-  } catch (_) {
+  } catch {
     applySyncResult(state.sync, FAILURE_RESULT);
   }
 
@@ -130,7 +156,7 @@ export function prepareTtsVoiceOverlay(state: UtilityRuntimeState, ttsActions: T
   state.activeOverlay = "tts-voice";
 }
 
-function updateTtsVoices(state: UtilityRuntimeState, ttsActions: TtsActions, preferStoredVoice = false): void {
+function updateTtsVoices(state: UtilityRuntimeState, ttsActions: TtsActions, preferStoredVoice: boolean = false): void {
   const voices = cleanStringArray(ttsActions.voices, DEFAULT_VOICES);
   state.tts.voices = voices;
 
@@ -266,7 +292,7 @@ export function runTranslate(state: UtilityRuntimeState, babelActions: BabelActi
   const requestValues = { text: state.babel.text.trim(), source: state.babel.source.trim(), target: state.babel.target.trim() };
 
   Promise.resolve(babelActions.translate(requestValues))
-    .then(result => {
+    .then((result) => {
       if (state.babel.inputVersion !== requestVersion) {
         return;
       }
@@ -296,7 +322,7 @@ export function copyTranslation(state: UtilityRuntimeState, copyText: CopyText, 
   state.babel.message = "";
 
   Promise.resolve(copyText(state.babel.translation))
-    .then(result => {
+    .then((result) => {
       if (result.ok === true) {
         state.babel.message = cleanText(result.message, "Copied.");
         return;
@@ -339,7 +365,7 @@ export function runTtsConversion(state: UtilityRuntimeState, ttsActions: TtsActi
       onComplete();
     }
   }))
-    .then(result => {
+    .then((result) => {
       if (result.ok === true) {
         state.tts.error = "";
         state.tts.message = cleanText(result.message, "Audio ready.");
@@ -369,7 +395,7 @@ export function setTtsVoice(state: UtilityRuntimeState, ttsActions: TtsActions, 
   state.tts.message = "";
 
   Promise.resolve(ttsActions.setDefaultVoice({ voice }))
-    .then(result => {
+    .then((result) => {
       if (result.ok === true) {
         state.tts.voice = cleanText(result.voice, voice);
         state.tts.message = "Voice saved.";
