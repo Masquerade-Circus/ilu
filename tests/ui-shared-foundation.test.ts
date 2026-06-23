@@ -163,7 +163,7 @@ test('utility app surfaces use approved app wording without tool overlay copy', 
   session.destroy();
 });
 
-test('utility secondary overlays close before app exit', async () => {
+test('utility secondary overlays close with Escape while Ctrl+C stays delegated to focused inputs', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Sync'}, snapshot: baseSnapshot()});
 
@@ -171,14 +171,15 @@ test('utility secondary overlays close before app exit', async () => {
 
   assert.equal(session.state().utilities.activeOverlay, 'sync-init');
   assert.match(session.output(), /Remote URL/);
+  assert.match(session.output(), /Esc: Close/);
+  assert.doesNotMatch(session.output(), /Ctrl\+C: Exit/);
 
   session.dispatchKey('CTRL_C');
 
-  assert.equal(session.state().utilities.activeOverlay, null);
+  assert.equal(session.state().utilities.activeOverlay, 'sync-init');
   assert.equal(session.state().running, true);
-  assert.doesNotMatch(session.output(), /Remote URL/);
+  assert.match(session.output(), /Remote URL/);
 
-  session.click('sync-setup');
   session.dispatchKey('ESCAPE');
 
   assert.equal(session.state().utilities.activeOverlay, null);

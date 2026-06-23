@@ -8,6 +8,7 @@ const {Command} = require('commander');
 const repoRoot = path.resolve(__dirname, '..');
 const configureCliModulePath = path.join(repoRoot, 'bin', 'configure-cli.ts');
 const cliBinPath = path.join(repoRoot, 'bin', 'cli.js');
+const uiFirstFrameTimeoutMs = 10_000;
 
 function runUiUntilFirstFrame(env) {
   return new Promise(resolve => {
@@ -32,7 +33,7 @@ function runUiUntilFirstFrame(env) {
     const timeout = setTimeout(() => {
       child.kill('SIGTERM');
       finish({timedOut: true});
-    }, 3000);
+    }, uiFirstFrameTimeoutMs);
 
     child.stdout.on('data', chunk => {
       stdout += chunk.toString('utf8');

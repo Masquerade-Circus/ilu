@@ -1,6 +1,7 @@
 let isUndefined = require('lodash/isUndefined');
 let prompts = require('../utils/prompts');
 let {required, log} = require('../utils');
+let {integerPromptValidator} = require('../utils/prompt-integer-validation');
 let Model = require('./model');
 let BoardLists = require('./board-lists');
 let renderBoard = require('./board-renderer');
@@ -168,20 +169,6 @@ async function selectColumnAction(board: any, column: any, columnIndex: any) {
     ]);
 
     return answers.action;
-}
-
-function validateWipLimitInput(value: any) {
-    let normalizedValue = String(value || '').trim();
-
-    if (normalizedValue.length === 0) {
-        return true;
-    }
-
-    if (/^[1-9]\d*$/.test(normalizedValue)) {
-        return true;
-    }
-
-    return 'Please enter a valid integer greater than or equal to 1';
 }
 
 function isWipLimitReachedError(error: any) {
@@ -365,16 +352,17 @@ let Board = {
             if (action === 'set-wip') {
                 let wipAnswer = await prompts.prompt([
                     {
-                        type: 'input',
+                        type: 'number',
                         name: 'wipLimit',
-                        message: 'WIP limit (leave empty for none)',
-                        validate: validateWipLimitInput
+                        message: 'WIP limit (0 for none)',
+                        defaultValue: column.wipLimit || 0,
+                        min: 0,
+                        validate: integerPromptValidator('WIP limit must be 0 or a whole number.')
                     }
                 ]);
 
-                let wipLimit = String(wipAnswer.wipLimit || '').trim();
                 Model.columns.edit(columnIndex, {
-                    wipLimit: wipLimit.length === 0 ? null : parseInt(wipLimit, 10)
+                    wipLimit: wipAnswer.wipLimit === 0 ? null : wipAnswer.wipLimit
                 });
             }
 

@@ -94,9 +94,6 @@ type HeadlessSession = {
 };
 
 const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
-const BRACKETED_PASTE_START = "\u001b[200~";
-const BRACKETED_PASTE_END = "\u001b[201~";
-
 const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = require("./read-model");
 const { createBoardActions }: { createBoardActions: (options?: Record<string, unknown>) => BoardActions } = require("./board-actions");
 const { createTodoActions }: { createTodoActions: (options?: Record<string, unknown>) => TodoActions } = require("./todo-actions");
@@ -685,14 +682,15 @@ function createApp(
     const activeUtilityOverlay = state.activeTab === "Sync" || state.activeTab === "Translate" || state.activeTab === "Speech"
       ? createUtilityOverlay(state.utilities, syncActions, babelActions, ttsActions, { width: currentWidth(), rows: currentRows() }, requestRender)
       : null;
+    const footerControlMode = activeUtilityOverlay !== null ? "overlay" : "global";
 
     return createAppShell({
       activePanelNodes,
       actionBar,
       children: [activeUtilityOverlay, ...activePageOverlays, helpOverlay()],
       footerStyle: FOOTER_STYLE,
-      footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus),
-      footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus),
+      footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus, footerControlMode),
+      footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus, footerControlMode),
       panelStyle: PANEL_STYLE,
       topNav: createTopNav(state, TABS, { onSelect: selectTab, width: currentWidth() }),
       width: currentWidth()
@@ -775,6 +773,7 @@ function createKeymap(
     { key: "CTRL_7", command: { id: "ilu.tab", text: "Speech" }, scope: "global" },
     { key: "CTRL_K", command: { id: "ilu.help" }, scope: "global" },
     { key: "ESCAPE", command: { id: "ilu.escape" }, scope: "global" },
+    { key: "CTRL_C", command: { id: "input.copy" }, scope: "input", when: { focusedTag: "terminal-input" } },
     { key: "CTRL_C", command: { id: "ilu.cancel" }, scope: "global" }
   ];
 
@@ -924,37 +923,6 @@ function isFocusedTextEntry(node: TerminalElementNode | null): boolean {
   return node?.tag === "terminal-input" || node?.tag === "terminal-editor";
 }
 
-function normalizeHeadlessPasteText(value: string): string {
-  let output = "";
-  let cursor = 0;
-
-  while (cursor < value.length) {
-    const start = value.indexOf(BRACKETED_PASTE_START, cursor);
-
-    if (start < 0) {
-      output += value.slice(cursor);
-      break;
-    }
-
-    if (start === cursor && value.indexOf(BRACKETED_PASTE_END, start + BRACKETED_PASTE_START.length) < 0) {
-      break;
-    }
-
-    output += value.slice(cursor, start);
-    const textStart = start + BRACKETED_PASTE_START.length;
-    const end = value.indexOf(BRACKETED_PASTE_END, textStart);
-
-    if (end < 0) {
-      break;
-    }
-
-    output += value.slice(textStart, end).replace(/\r\n?/g, "\n");
-    cursor = end + BRACKETED_PASTE_END.length;
-  }
-
-  return output;
-}
-
 function pasteTextIntoFocusedEntry(session: TerminalSession, text: string): string {
   const previousClipboard = session.clipboard();
 
@@ -1096,6 +1064,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     cols: options.cols || 80,
     rows: options.rows || 24,
     keymap,
+    clipboard: false,
     theme: createTerminalTheme(runtime.terminal)
   });
   sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
@@ -1111,23 +1080,21 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return output;
     },
     dispatchText(value: any) {
-      const rawText = String(value);
-      const text = normalizeHeadlessPasteText(rawText);
+      const text = String(value);
       const tree = activeSession.tree();
       const focused = findFocusedNode(tree);
       const trackedFocused = findNodeById(tree, trackedFocusIds.get(state));
-      const isBracketedPaste = rawText.startsWith(BRACKETED_PASTE_START);
       const hasFocusedTextEntry = isFocusedTextEntry(focused) || isFocusedTextEntry(trackedFocused);
 
-      if (isBracketedPaste && !hasFocusedTextEntry) {
-        return activeSession.output();
-      }
-
-      if ((isFocusedTextEntry(focused) || isBracketedPaste) && hasFocusedTextEntry && text.length > 1) {
+      if (hasFocusedTextEntry && text.length > 1) {
         const output = pasteTextIntoFocusedEntry(activeSession, text);
         prepareActivePageState(state, snapshotRef.current);
         applyPendingFocus(activeSession, state);
         return output;
+      }
+
+      if (!hasFocusedTextEntry && text.length > 1) {
+        return activeSession.output();
       }
 
       let output = "";
@@ -1160,6 +1127,10 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     },
     click(id: any) {
       const output = activeSession.click(id);
+
+      if (typeof id === "string" && findNodeById(activeSession.tree(), id)) {
+        trackedFocusIds.set(state, id);
+      }
 
       if (output === activeSession.output() && !hasActiveOverlay(state) && handleHeadlessChromeClick(id, state)) {
         activeSession.update();

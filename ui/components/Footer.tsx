@@ -57,6 +57,7 @@ function formatClockLines(clocks: ClockSnapshot, options: { compact?: boolean } 
 }
 
 type ClockEntry = FooterSegment & { length: number };
+type FooterControlMode = "global" | "overlay";
 
 function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): ClockEntry[] {
   if (!positiveWidth(width)) {
@@ -97,17 +98,21 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
   return [];
 }
 
-function footerHints(_activeTab: string, _syncStatus: SyncStatusState = "idle"): string[] {
+function footerHints(_activeTab: string, _syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): string[] {
+  if (controlMode === "overlay") {
+    return ["Ctrl+K: Help", "Esc: Close"];
+  }
+
   return ["Ctrl+K: Help", "Ctrl+C: Exit"];
 }
 
-function footerLeft(activeTab: string, syncStatus: SyncStatusState): string {
-  return footerHints(activeTab, syncStatus).join("  ");
+function footerLeft(activeTab: string, syncStatus: SyncStatusState, controlMode: FooterControlMode): string {
+  return footerHints(activeTab, syncStatus, controlMode).join("  ");
 }
 
-export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle"): FooterSegment[] {
+export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): FooterSegment[] {
   const safeWidth = positiveWidth(width) ? width : 80;
-  const left = footerLeft(activeTab, syncStatus);
+  const left = footerLeft(activeTab, syncStatus, controlMode);
 
   if (left.length >= safeWidth) {
     return [];
@@ -127,8 +132,8 @@ export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: a
   return [{ text: `${left}${padding}` }, ...clocks.map((clock: any) => ({ text: clock.text, style: clock.style }))];
 }
 
-export function footerLine(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle"): string {
-  return footerSegments(width, snapshot, activeTab, syncStatus).map((segment: any) => segment.text).join("");
+export function footerLine(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): string {
+  return footerSegments(width, snapshot, activeTab, syncStatus, controlMode).map((segment: any) => segment.text).join("");
 }
 
 export const __private = { formatClockLines };

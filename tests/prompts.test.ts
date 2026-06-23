@@ -96,3 +96,35 @@ test('utils/prompts deriva la selección inicial de choices checked para checkbo
     ['task-1', 'note-1']
   );
 });
+
+test('utils/prompts deriva defaultValue nativo para checkbox desde choices checked', () => {
+  const prompts = require(promptsModulePath);
+
+  const choices = [
+    {name: 'done task', value: 'task-1', checked: true},
+    {name: 'pending task', value: 'task-2', checked: false},
+    {name: 'labeled note', value: 'note-1', checked: true}
+  ];
+
+  assert.deepEqual(prompts.defaultValuesFromChecked(choices), ['task-1', 'note-1']);
+});
+
+test('utils/prompts rechaza defaults de checkbox que no existan entre choices', () => {
+  const prompts = require(promptsModulePath);
+
+  assert.throws(
+    () => prompts.assertChoiceDefaults([{name: 'one', value: 1}], [2]),
+    /defaultValue does not match any choice/
+  );
+});
+
+test('utils/prompts normaliza número opcional sin aceptar NaN ni negativos', () => {
+  const prompts = require(promptsModulePath);
+
+  assert.deepEqual(
+    [Number.NaN, Number.POSITIVE_INFINITY, -1, 'abc'].map((value) => prompts.normalizeOptionalInteger(value)),
+    [null, null, null, null]
+  );
+  assert.equal(prompts.normalizeOptionalInteger(0), 0);
+  assert.equal(prompts.normalizeOptionalInteger(4), 4);
+});

@@ -469,7 +469,7 @@ test('board --columns allows updating a column WIP limit after selecting a colum
     promptAnswers: [
       {selection: 'column:2'},
       {action: 'set-wip'},
-      {wipLimit: '3'}
+      {wipLimit: 3}
     ]
   });
 
@@ -483,12 +483,31 @@ test('board --columns allows updating a column WIP limit after selecting a colum
   ]);
 });
 
-test('board --columns valida que set-wip solo acepte vacío o enteros mayores o iguales a 1', {concurrency: false}, async () => {
+test('board --columns usa prompt numérico nativo para set-wip', {concurrency: false}, async () => {
   const {Board, promptCalls, modelState} = loadBoardWithStubs({
     promptAnswers: [
       {selection: 'column:2'},
       {action: 'set-wip'},
-      {wipLimit: '5'}
+      {wipLimit: 5}
+    ]
+  });
+
+  await Board.columns();
+
+  assert.equal(promptCalls[2][0].type, 'number');
+  assert.equal(promptCalls[2][0].min, 0);
+  assert.equal(promptCalls[2][0].defaultValue, 2);
+  assert.deepEqual(modelState.columnEditCalls, [
+    {index: 2, values: {wipLimit: 5}}
+  ]);
+});
+
+test('board --columns rechaza WIP decimal desde la validación del prompt', {concurrency: false}, async () => {
+  const {Board, promptCalls, modelState} = loadBoardWithStubs({
+    promptAnswers: [
+      {selection: 'column:2'},
+      {action: 'set-wip'},
+      {wipLimit: 5}
     ]
   });
 
@@ -497,25 +516,19 @@ test('board --columns valida que set-wip solo acepte vacío o enteros mayores o 
   const validate = promptCalls[2][0].validate;
 
   assert.equal(typeof validate, 'function');
-  assert.equal(validate(''), true);
-  assert.equal(validate('  '), true);
-  assert.equal(validate('1'), true);
-  assert.equal(validate('12'), true);
-  assert.match(validate('abc'), /valid integer greater than or equal to 1/i);
-  assert.match(validate('0'), /valid integer greater than or equal to 1/i);
-  assert.match(validate('-1'), /valid integer greater than or equal to 1/i);
-  assert.match(validate('1.5'), /valid integer greater than or equal to 1/i);
+  assert.match(validate(1.5), /whole number|integer/i);
+  assert.equal(validate(2), true);
   assert.deepEqual(modelState.columnEditCalls, [
     {index: 2, values: {wipLimit: 5}}
   ]);
 });
 
-test('board --columns limpia el WIP cuando set-wip recibe vacío', {concurrency: false}, async () => {
+test('board --columns limpia el WIP cuando set-wip recibe cero', {concurrency: false}, async () => {
   const {Board, modelState} = loadBoardWithStubs({
     promptAnswers: [
       {selection: 'column:2'},
       {action: 'set-wip'},
-      {wipLimit: '   '}
+      {wipLimit: 0}
     ]
   });
 

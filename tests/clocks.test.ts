@@ -336,23 +336,43 @@ test('clock --priority reordena relojes guardados y show refleja el nuevo orden'
   ]);
 });
 
-test('clock priority prompt devuelve el origen navegado antes de arrastrar', {concurrency: false}, () => {
+test('clock priority prompt construye choices para prompts nativos', {concurrency: false}, () => {
   const priorityPrompt = require(priorityPromptModulePath);
   const clocks = [
     {name: 'CDMX', timezone: 'America/Mexico_City'},
     {name: 'Madrid', timezone: 'Europe/Madrid'},
     {name: 'UTC', timezone: 'Etc/UTC'}
   ];
-  let state = priorityPrompt.createState({clocks});
 
-  ['down', 'down', 'space', 'up', 'up', 'space', 'enter'].forEach(key => {
-    state = priorityPrompt.reducePriorityPrompt(state, key);
+  assert.deepEqual(priorityPrompt.createClockChoices(clocks), [
+    {name: '1. CDMX (America/Mexico_City)', value: 1},
+    {name: '2. Madrid (Europe/Madrid)', value: 2},
+    {name: '3. UTC (Etc/UTC)', value: 3}
+  ]);
+});
+
+test('clock priority prompt rechaza destino decimal desde la validación del prompt', {concurrency: false}, async () => {
+  const priorityPrompt = require(priorityPromptModulePath);
+  const calls = [];
+  const promptsModule = {
+    async prompt(questions) {
+      calls.push(questions[0]);
+      return calls.length === 1 ? {fromPosition: 1} : {toPosition: 2};
+    }
+  };
+
+  const result = await priorityPrompt({
+    clocks: [
+      {name: 'CDMX', timezone: 'America/Mexico_City'},
+      {name: 'UTC', timezone: 'Etc/UTC'}
+    ],
+    promptsModule
   });
 
-  assert.deepEqual(state.clocks.map(clock => clock.name), ['UTC', 'CDMX', 'Madrid']);
-  assert.equal(state.status, 'confirmed');
-  assert.equal(state.dragging, false);
-  assert.deepEqual(state.pendingMove, {fromPosition: 3, toPosition: 1});
+  assert.deepEqual(result, {fromPosition: 1, toPosition: 2});
+  assert.equal(typeof calls[1].validate, 'function');
+  assert.match(calls[1].validate(1.5), /whole number|integer/i);
+  assert.equal(calls[1].validate(2), true);
 });
 
 test('clock actions enruta opts.priority antes del show por defecto', {concurrency: false}, async () => {

@@ -1,146 +1,131 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const {PassThrough} = require('node:stream');
 
 const repoRoot = path.resolve(__dirname, '..');
 const priorityPromptModulePath = path.join(repoRoot, 'scrumban', 'board-priority-prompt.ts');
 
-function createInteractiveStream() {
-  const stream = new PassThrough();
-  stream.isTTY = true;
-  stream.isRaw = false;
-  stream.setRawMode = (value) => {
-    stream.isRaw = value;
-  };
-  return stream;
-}
-
-test('priority prompt reducer inicia sobre la columna completa y toma, mueve y suelta una card', () => {
+test('priority prompt construye choices desde la columna completa', () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const {createState, reducePriorityPrompt} = require(priorityPromptModulePath);
-  let state = createState({
-    columnTitle: 'Ready',
-    cards: [
-      {title: 'One', position: 1},
-      {title: 'Two', position: 2},
-      {title: 'Three', position: 3}
-    ]
-  });
+  const {createCardChoices} = require(priorityPromptModulePath);
 
-  state = reducePriorityPrompt(state, 'space');
-   state = reducePriorityPrompt(state, 'down');
-   state = reducePriorityPrompt(state, 'space');
-
-  assert.equal(state.dragging, false);
-  assert.equal(state.cursorIndex, 1);
-  assert.deepEqual(state.cards.map(card => card.title), ['Two', 'One', 'Three']);
-  assert.deepEqual(state.pendingMove, {
-    fromPosition: 1,
-    toPosition: 2
-  });
+  assert.deepEqual(createCardChoices([
+    {title: 'One', position: 1},
+    {title: 'Two', position: 2}
+  ]), [
+    {name: '1. One', value: 1},
+    {name: '2. Two', value: 2}
+  ]);
 });
 
-test('priority prompt reducer conserva el origen al navegar antes de arrastrar una card', () => {
-  delete require.cache[require.resolve(priorityPromptModulePath)];
-
-  const {createState, reducePriorityPrompt} = require(priorityPromptModulePath);
-  let state = createState({
-    columnTitle: 'Ready',
-    cards: [
-      {title: 'One', position: 1},
-      {title: 'Two', position: 2},
-      {title: 'Three', position: 3}
-    ]
-  });
-
-  state = reducePriorityPrompt(state, 'down');
-  state = reducePriorityPrompt(state, 'down');
-  state = reducePriorityPrompt(state, 'space');
-  state = reducePriorityPrompt(state, 'up');
-  state = reducePriorityPrompt(state, 'up');
-  state = reducePriorityPrompt(state, 'space');
-  state = reducePriorityPrompt(state, 'enter');
-
-  assert.equal(state.status, 'confirmed');
-  assert.equal(state.dragging, false);
-  assert.equal(state.cursorIndex, 0);
-  assert.deepEqual(state.cards.map(card => card.title), ['Three', 'One', 'Two']);
-  assert.deepEqual(state.pendingMove, {
-    fromPosition: 3,
-    toPosition: 1
-  });
-});
-
-test('priority prompt reducer solo confirma con enter cuando no está arrastrando', () => {
-  delete require.cache[require.resolve(priorityPromptModulePath)];
-
-  const {createState, reducePriorityPrompt} = require(priorityPromptModulePath);
-  let state = createState({
-    columnTitle: 'Ready',
-    cards: [
-      {title: 'One', position: 1},
-      {title: 'Two', position: 2}
-    ]
-  });
-
-  state = reducePriorityPrompt(state, 'space');
-  state = reducePriorityPrompt(state, 'enter');
-
-  assert.equal(state.status, 'idle');
-
-  state = reducePriorityPrompt(state, 'space');
-  state = reducePriorityPrompt(state, 'enter');
-
-  assert.equal(state.status, 'confirmed');
-});
-
-test('priority prompt reducer cancela con escape sin generar movimiento pendiente', () => {
-  delete require.cache[require.resolve(priorityPromptModulePath)];
-
-  const {createState, reducePriorityPrompt} = require(priorityPromptModulePath);
-  let state = createState({
-    columnTitle: 'Ready',
-    cards: [
-      {title: 'One', position: 1},
-      {title: 'Two', position: 2}
-    ]
-  });
-
-  state = reducePriorityPrompt(state, 'space');
-  state = reducePriorityPrompt(state, 'escape');
-
-  assert.equal(state.status, 'cancelled');
-  assert.equal(state.pendingMove, null);
-});
-
-test('priority prompt reconoce Space aunque keypress solo entregue sequence', async () => {
+test('priority prompt rechaza columnas con menos de dos cards', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
   const promptBoardPriority = require(priorityPromptModulePath);
-  const input = createInteractiveStream();
-  const output = new PassThrough();
-  const resultPromise = promptBoardPriority({
+
+  await assert.rejects(
+    promptBoardPriority({columnTitle: 'Ready', cards: [{title: 'One', position: 1}]}),
+    /at least two cards/
+  );
+});
+
+test('priority prompt usa prompts nativos para elegir origen y destino', async () => {
+  delete require.cache[require.resolve(priorityPromptModulePath)];
+
+  const promptBoardPriority = require(priorityPromptModulePath);
+  const calls = [];
+  const promptsModule = {
+    async prompt(questions) {
+      calls.push(questions[0]);
+      return calls.length === 1 ? {fromPosition: 3} : {toPosition: 1};
+    }
+  };
+
+  const result = await promptBoardPriority({
     columnTitle: 'Ready',
     cards: [
       {title: 'One', position: 1},
       {title: 'Two', position: 2},
       {title: 'Three', position: 3}
     ],
-    input,
-    output
+    promptsModule
   });
 
-  input.emit('keypress', ' ', {sequence: ' '});
-  input.emit('keypress', '\u001b[B', {name: 'down', sequence: '\u001b[B'});
-  input.emit('keypress', ' ', {sequence: ' '});
-  input.emit('keypress', '\r', {name: 'return', sequence: '\r'});
+  assert.deepEqual(result, {fromPosition: 3, toPosition: 1});
+  assert.equal(calls[0].type, 'search');
+  assert.equal(calls[1].type, 'number');
+  assert.deepEqual(calls[1].defaultValue, 3);
+});
 
-  const result = await resultPromise;
+test('priority prompt rechaza destino decimal desde la validación del prompt', async () => {
+  delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  assert.deepEqual(result, {
-    fromPosition: 1,
-    toPosition: 2
+  const promptBoardPriority = require(priorityPromptModulePath);
+  const calls = [];
+  const promptsModule = {
+    async prompt(questions) {
+      calls.push(questions[0]);
+      return calls.length === 1 ? {fromPosition: 1} : {toPosition: 2};
+    }
+  };
+
+  const result = await promptBoardPriority({
+    columnTitle: 'Ready',
+    cards: [
+      {title: 'One', position: 1},
+      {title: 'Two', position: 2}
+    ],
+    promptsModule
   });
+
+  assert.deepEqual(result, {fromPosition: 1, toPosition: 2});
+  assert.equal(typeof calls[1].validate, 'function');
+  assert.match(calls[1].validate(1.5), /whole number|integer/i);
+  assert.equal(calls[1].validate(2), true);
+});
+
+test('priority prompt devuelve null cuando origen y destino coinciden', async () => {
+  delete require.cache[require.resolve(priorityPromptModulePath)];
+
+  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptsModule = {
+    async prompt(questions) {
+      return questions[0].name === 'fromPosition' ? {fromPosition: 1} : {toPosition: 1};
+    }
+  };
+
+  const result = await promptBoardPriority({
+    columnTitle: 'Ready',
+    cards: [
+      {title: 'One', position: 1},
+      {title: 'Two', position: 2}
+    ],
+    promptsModule
+  });
+
+  assert.equal(result, null);
+});
+
+test('priority prompt rechaza destino fuera de rango antes de devolver movimiento', async () => {
+  delete require.cache[require.resolve(priorityPromptModulePath)];
+
+  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptsModule = {
+    async prompt(questions) {
+      return questions[0].name === 'fromPosition' ? {fromPosition: 1} : {toPosition: 9};
+    }
+  };
+
+  await assert.rejects(
+    promptBoardPriority({
+      columnTitle: 'Ready',
+      cards: [
+        {title: 'One', position: 1},
+        {title: 'Two', position: 2}
+      ],
+      promptsModule
+    }),
+    /valid destination position/
+  );
 });

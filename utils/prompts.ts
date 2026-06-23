@@ -15,6 +15,8 @@ type PromptQuestion = {
     validate?: (value: any) => boolean | string | void | Promise<boolean | string | void>;
     default?: any;
     defaultValue?: any;
+    min?: number;
+    max?: number;
     mask?: string | boolean;
 };
 
@@ -74,23 +76,31 @@ function initialSelectionFromChecked(choices: PromptChoice[] = []) {
         .filter((_choice, index) => choices[index].checked === true);
 }
 
+function defaultValuesFromChecked(choices: PromptChoice[] = []) {
+    return choices
+        .filter((choice) => choice.checked === true)
+        .map((choice) => choice.value);
+}
+
+function assertChoiceDefaults(choices: PromptChoice[] = [], defaultValues: any[] = []) {
+    for (let defaultValue of defaultValues) {
+        if (!choices.some((choice) => Object.is(choice.value, defaultValue))) {
+            throw new TypeError('SelectionList defaultValue does not match any choice');
+        }
+    }
+}
+
+function normalizeOptionalInteger(value: any) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+        return null;
+    }
+
+    return value;
+}
+
 async function loadCreatePromptRunner() {
     let terminal = await import('@valyrianjs/terminal');
     return terminal.createPromptRunner;
-}
-
-async function loadSelectionListRuntime() {
-    let terminal = await import('@valyrianjs/terminal');
-    let valyrian = await import('valyrian.js');
-
-    return {
-        Button: terminal.Button,
-        Screen: terminal.Screen,
-        SelectionList: terminal.SelectionList,
-        Text: terminal.Text,
-        mountTerminal: terminal.mountTerminal,
-        v: valyrian.v
-    };
 }
 
 async function withRunner<T>(run: (prompt: any) => Promise<T>) {
@@ -128,6 +138,30 @@ async function password(question: PromptQuestion) {
     }));
 }
 
+async function number(question: PromptQuestion) {
+    return withRunner((prompt) => {
+        let options: any = {
+            message: question.message,
+            validate: question.validate
+        };
+        let defaultValue = normalizeOptionalInteger(promptDefault(question));
+
+        if (defaultValue !== null) {
+            options.defaultValue = defaultValue;
+        }
+
+        if (typeof question.min === 'number') {
+            options.min = question.min;
+        }
+
+        if (typeof question.max === 'number') {
+            options.max = question.max;
+        }
+
+        return prompt.number(options);
+    });
+}
+
 async function confirm(question: PromptQuestion) {
     return withRunner((prompt) => prompt.confirm({
         message: question.message,
@@ -144,97 +178,16 @@ async function select(question: PromptQuestion) {
 }
 
 async function selectionList(question: PromptQuestion) {
-    let initialSelection = initialSelectionFromChecked(question.choices || []);
-
-    if (initialSelection.length > 0) {
-        return selectionListWithInitialSelection(question);
-    }
+    let choices = question.choices || [];
+    let defaultValue = defaultValuesFromChecked(choices);
+    assertChoiceDefaults(choices, defaultValue);
 
     return withRunner((prompt) => prompt.selectionList({
         message: question.message,
-        choices: toValyrianChoices(question.choices || []),
+        choices: toValyrianChoices(choices),
+        defaultValue,
         validate: question.validate
     }));
-}
-
-async function validateSelection(question: PromptQuestion, value: any[]) {
-    if (typeof question.validate !== 'function') {
-        return true;
-    }
-
-    let result = await question.validate(value);
-
-    if (result === false) {
-        return 'Selection failed validation.';
-    }
-
-    if (typeof result === 'string') {
-        return result;
-    }
-
-    return true;
-}
-
-async function selectionListWithInitialSelection(question: PromptQuestion) {
-    assertInteractiveTerminal();
-
-    let runtime = await loadSelectionListRuntime();
-    let choices = toValyrianChoices(question.choices || []);
-    let selected = choices.filter((_choice, index) => (question.choices || [])[index].checked === true);
-    let errorMessage = '';
-    let session: any = null;
-
-    try {
-        return await new Promise<any[]>((resolve, reject) => {
-            let finishSelection = () => {
-                let values = selected.map((choice) => choice.value);
-
-                void validateSelection(question, values).then((result) => {
-                    if (result !== true) {
-                        errorMessage = result;
-
-                        if (session !== null) {
-                            session.update();
-                        }
-
-                        return;
-                    }
-
-                    resolve(values);
-                }).catch(reject);
-            };
-
-            session = runtime.mountTerminal(() => runtime.v(runtime.Screen, {__onInterrupt: () => reject(new Error('PromptAbortError'))},
-                runtime.v(runtime.Text, {}, question.message),
-                runtime.v(runtime.SelectionList as any, {
-                    id: 'ilu-prompt-selection-list',
-                    __enterPressId: 'ilu-prompt-done',
-                    items: choices,
-                    selected,
-                    showActive: true,
-                    renderItem: (choice: any) => choice.label,
-                    onselect: (event: any) => {
-                        selected = event.selected;
-                        errorMessage = '';
-                    }
-                }),
-                runtime.v(runtime.Button, {id: 'ilu-prompt-done', label: 'Done', onpress: finishSelection}),
-                errorMessage ? runtime.v(runtime.Text, {style: {color: 'red'}}, errorMessage) : null
-            ));
-
-            session.focus('ilu-prompt-selection-list');
-        });
-    } catch (error: any) {
-        if (error instanceof Error && error.message === 'PromptAbortError') {
-            failInteractivePrompt('Interactive prompt cancelled or closed before completion.');
-        }
-
-        throw error;
-    } finally {
-        if (session !== null) {
-            session.destroy();
-        }
-    }
 }
 
 async function search(question: PromptQuestion) {
@@ -263,6 +216,9 @@ async function prompt(questions: PromptQuestion[]) {
             case 'password':
                 answers[question.name] = await password(question);
                 break;
+            case 'number':
+                answers[question.name] = await number(question);
+                break;
             case 'confirm':
                 answers[question.name] = await confirm(question);
                 break;
@@ -288,10 +244,14 @@ module.exports = {
     prompt,
     input,
     password,
+    number,
     confirm,
     select,
     selectionList,
     search,
     toValyrianChoices,
-    initialSelectionFromChecked
+    initialSelectionFromChecked,
+    defaultValuesFromChecked,
+    assertChoiceDefaults,
+    normalizeOptionalInteger
 };

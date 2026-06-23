@@ -1061,6 +1061,26 @@ test('Ctrl+C exits from Help instead of acting as overlay help copy', async () =
   session.destroy();
 });
 
+test('Ctrl+C in a focused input uses Valyrian copy and keeps the UI running', async () => {
+  const Ui = require(uiModulePath);
+  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+
+  try {
+    session.click('board-add-card');
+    session.focus('board-add-title');
+    for (const char of 'Ship card') {
+      session.dispatchKey(char);
+    }
+    session.dispatchKey('CTRL_A');
+    session.dispatchKey('CTRL_C');
+
+    assert.equal(session.state().running, true);
+    assert.equal(session.clipboard(), 'Ship card');
+  } finally {
+    session.destroy();
+  }
+});
+
 test('Ctrl+K puts help above an already open page overlay and Close targets help', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
@@ -3330,7 +3350,7 @@ test('Board Add card description Shift+Enter inserts a newline without saving', 
   session.destroy();
 });
 
-test('Board Add card description handles bracketed paste as editor text', async () => {
+test('Board Add card description handles multi-line paste as editor text', async () => {
   const Ui = require(uiModulePath);
 
   const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
@@ -3338,16 +3358,15 @@ test('Board Add card description handles bracketed paste as editor text', async 
   try {
     session.click('board-add-card');
     session.focus('board-add-description');
-    session.dispatchText('\x1b[200~Line one\nLine two\x1b[201~');
+    session.dispatchText('Line one\nLine two');
 
     assert.equal(session.state().board.addCard.description, 'Line one\nLine two');
-    assert.doesNotMatch(session.state().board.addCard.description, /\[200~|\[201~/);
   } finally {
     session.destroy();
   }
 });
 
-test('Board Add card title handles bracketed paste as input text without submitting', async () => {
+test('Board Add card title handles multi-line paste as input text without submitting', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
   const boardActions = {
@@ -3362,10 +3381,9 @@ test('Board Add card title handles bracketed paste as input text without submitt
   try {
     session.click('board-add-card');
     session.focus('board-add-title');
-    session.dispatchText('\x1b[200~Line one\nLine two\x1b[201~');
+    session.dispatchText('Line one\nLine two');
 
     assert.equal(session.state().board.addCard.title, 'Line one\nLine two');
-    assert.doesNotMatch(session.state().board.addCard.title, /\[200~|\[201~/);
     assert.equal(session.state().board.overlay, 'add-card');
     assert.deepEqual(calls, []);
   } finally {
@@ -3373,29 +3391,13 @@ test('Board Add card title handles bracketed paste as input text without submitt
   }
 });
 
-test('Board Add card title ignores incomplete bracketed paste instead of leaking control text', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
-
-  try {
-    session.click('board-add-card');
-    session.focus('board-add-title');
-    session.dispatchText('\x1b[200~Half pasted title');
-
-    assert.equal(session.state().board.addCard.title, '');
-    assert.doesNotMatch(session.output(), /\[200~|Half pasted title/);
-  } finally {
-    session.destroy();
-  }
-});
-
-test('Board ignores bracketed paste when focus is not a text entry', async () => {
+test('Board ignores multi-line paste when focus is not a text entry', async () => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({state: {activeTab: 'Board'}, snapshot: richSnapshot()});
 
   try {
     assert.equal(session.focus('board-card-list-1'), true);
-    session.dispatchText('\x1b[200~Injected text\x1b[201~');
+    session.dispatchText('Injected text\nSecond line');
 
     assert.equal(session.state().board.overlay, null);
     assert.deepEqual(session.state().board.selectedCard, null);
