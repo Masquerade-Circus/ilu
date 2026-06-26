@@ -1,11 +1,7 @@
 let includes = require('lodash/includes');
 let loadDb = require('./load-db');
 let isUndefined = require('lodash/isUndefined');
-let notifySync = require('../sync/ilu-hooks');
-
-function detectDomain(dbName: any, collectionName: any) {
-    return dbName || collectionName || 'data';
-}
+let {createCollectionPersistenceNotifier} = require('./persistence-sync');
 
 function createNestedCollection(Model: any, key: any, options: any = {}) {
     let nestedCollection: any = {
@@ -65,11 +61,7 @@ function createNestedCollection(Model: any, key: any, options: any = {}) {
 
 module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: any) {
     let DB = loadDb(dbName);
-    let domain = detectDomain(dbName, collectionName);
-
-    function afterPersist(action: any) {
-        notifySync({domain, action});
-    }
+    let afterPersist = createCollectionPersistenceNotifier(dbName, collectionName);
 
     let Model: any = {
         collection: DB.getCollection(collectionName),

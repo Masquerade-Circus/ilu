@@ -14,7 +14,7 @@ function ensureFixture(name, content = 'Hello from a fixture.') {
 }
 
 test('TTS UI adapter rejects missing credentials before service, OpenAI, or ffmpeg calls', async () => {
-  const {createTtsActions} = require('../ui/tts-actions');
+  const {createTtsActions} = require('../ui/modules/tts/actions');
   const calls = [];
   const inputFile = ensureFixture('missing-credentials.txt');
   const actions = createTtsActions({
@@ -34,7 +34,7 @@ test('TTS UI adapter rejects missing credentials before service, OpenAI, or ffmp
 });
 
 test('TTS UI adapter validates input extension, existence, output path, and voice before conversion', async () => {
-  const {createTtsActions} = require('../ui/tts-actions');
+  const {createTtsActions} = require('../ui/modules/tts/actions');
   const calls = [];
   const goodFile = ensureFixture('input.md');
   const badFile = ensureFixture('input.pdf');
@@ -56,7 +56,7 @@ test('TTS UI adapter validates input extension, existence, output path, and voic
 });
 
 test('TTS UI adapter creates audio through injected service and reports progress safely', async () => {
-  const {createTtsActions} = require('../ui/tts-actions');
+  const {createTtsActions} = require('../ui/modules/tts/actions');
   const inputFile = ensureFixture('ready.txt');
   const outputFile = path.join(tmpDir, 'ready.mp3');
   const progress = [];
@@ -79,7 +79,7 @@ test('TTS UI adapter creates audio through injected service and reports progress
 });
 
 test('TTS UI adapter redacts conversion failures and persists supported voices only', async () => {
-  const {createTtsActions} = require('../ui/tts-actions');
+  const {createTtsActions} = require('../ui/modules/tts/actions');
   const inputFile = ensureFixture('failure.txt');
   const outputFile = path.join(tmpDir, 'failure.mp3');
   const saved = [];

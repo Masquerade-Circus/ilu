@@ -5,7 +5,7 @@ const path = require('node:path');
 const repoRoot = path.resolve(__dirname, '..');
 require('tsx/cjs');
 
-const {createBoardKeyBindings} = require('../ui/pages/board/MainView.tsx');
+const {createBoardKeyBindings} = require('../ui/modules/board/MainView.tsx');
 const Ui = require('../ui/app.tsx');
 
 function bindingSignature(binding) {

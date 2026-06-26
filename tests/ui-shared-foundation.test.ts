@@ -478,10 +478,10 @@ test('StateText applies semantic tone styles to ANSI output without depending on
   assert.match(ansi, /\x1b\[/, `expected StateText semantic styles to produce ANSI spans:\n${JSON.stringify(ansi)}`);
 });
 
-test('UtilityHost render paths do not start status or voice preparation side effects', () => {
+test('utility app render paths do not start status or voice preparation side effects', () => {
   const {renderTerminal, Screen} = require('@valyrianjs/terminal');
-  const {createUtilityPanel} = require('../ui/components/utility/panels.tsx');
-  const {createUtilityOverlay} = require('../ui/components/utility/overlays.tsx');
+  const {createSyncMainView} = require('../ui/modules/sync/MainView.tsx');
+  const {createTtsMainView, createTtsVoiceOverlay} = require('../ui/modules/tts/MainView.tsx');
   const syncActions = {
     status: failMutator('sync.status'),
     retry: failMutator('sync.retry'),
@@ -504,9 +504,9 @@ test('UtilityHost render paths do not start status or voice preparation side eff
   };
 
   const output = renderTerminal(Screen({}, [
-    ...createUtilityPanel('Sync', state, syncActions, babelActions, ttsActions),
-    ...createUtilityPanel('Speech', state, syncActions, babelActions, ttsActions),
-    createUtilityOverlay(state, syncActions, babelActions, ttsActions, {width: 80, rows: 24})
+    ...createSyncMainView(state, syncActions),
+    ...createTtsMainView(state, ttsActions),
+    createTtsVoiceOverlay(state, ttsActions, {width: 80, rows: 24})
   ]), {cols: 80, rows: 24});
 
   assert.match(output, /Sync/);

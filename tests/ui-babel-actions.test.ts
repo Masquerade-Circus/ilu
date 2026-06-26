@@ -21,7 +21,7 @@ function withBlockedClipboardy(fn) {
 }
 
 test('Babel UI adapter rejects empty and too-long text without provider or clipboard calls', async () => {
-  const {createBabelActions} = require('../ui/babel-actions');
+  const {createBabelActions} = require('../ui/modules/babel/actions');
   const calls = [];
   const actions = createBabelActions({
     provider: async () => {
@@ -44,7 +44,7 @@ test('Babel UI adapter rejects empty and too-long text without provider or clipb
 });
 
 test('Babel UI adapter returns translation and dictionary without copying automatically', async () => {
-  const {createBabelActions} = require('../ui/babel-actions');
+  const {createBabelActions} = require('../ui/modules/babel/actions');
   const calls = [];
   const actions = createBabelActions({
     provider: async request => {
@@ -76,7 +76,7 @@ test('Babel UI adapter returns translation and dictionary without copying automa
 
 test('Babel UI actions do not load a process clipboard adapter', async () => {
   await withBlockedClipboardy(async () => {
-    const {createBabelActions} = require('../ui/babel-actions');
+    const {createBabelActions} = require('../ui/modules/babel/actions');
     const actions = createBabelActions({
       provider: async () => ({sentences: [{trans: 'Hola'}], src: 'en'})
     });
@@ -92,7 +92,7 @@ test('Babel UI actions do not load a process clipboard adapter', async () => {
 });
 
 test('Babel UI adapter does not copy through an Ilu clipboard adapter', async () => {
-  const {createBabelActions} = require('../ui/babel-actions');
+  const {createBabelActions} = require('../ui/modules/babel/actions');
   const writes = [];
   const actions = createBabelActions({
     provider: async () => ({sentences: [{trans: 'Hola'}], src: 'en'}),
@@ -107,7 +107,7 @@ test('Babel UI adapter does not copy through an Ilu clipboard adapter', async ()
 });
 
 test('Babel UI adapter redacts provider failures and missing translations', async () => {
-  const {createBabelActions} = require('../ui/babel-actions');
+  const {createBabelActions} = require('../ui/modules/babel/actions');
   const unsafe = createBabelActions({
     provider: async () => {
       throw new Error('provider token=abc failed at /home/person/project stack');
@@ -125,7 +125,7 @@ test('Babel UI adapter redacts provider failures and missing translations', asyn
 
 
 test('Babel UI adapter converts default provider HTTP failures without exiting the process', async () => {
-  const {createBabelActions} = require('../ui/babel-actions');
+  const {createBabelActions} = require('../ui/modules/babel/actions');
   const logs = [];
   const actions = createBabelActions({
     fetchImpl: async () => ({

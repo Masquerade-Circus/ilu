@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {createNoteActions} = require('../ui/note-actions');
+const {createNoteActions} = require('../ui/modules/notes/actions');
 
 function createNoteModel() {
   const calls = [];

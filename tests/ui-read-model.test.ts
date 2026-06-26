@@ -400,6 +400,46 @@ test('buildReadSnapshot exposes board descriptions and default column metadata f
   assert.equal(snapshot.board.columns[1].wipLimit, 2);
 });
 
+test('buildReadSnapshot preserves null current ids when source records have no stable ids', () => {
+  const {buildReadSnapshot} = require(readModelPath);
+  const board = {
+    title: 'Imported board',
+    description: 'Needs id repair',
+    current: true,
+    columns: [{title: 'Backlog', cards: [{title: 'Recovered card'}]}]
+  };
+
+  const snapshot = buildReadSnapshot({
+    models: buildModels({
+      todos: listModel({current: {title: 'Imported todos', tasks: [{title: 'Recovered task'}]}}),
+      notes: listModel({current: {title: 'Imported notes', notes: [{title: 'Recovered note'}]}}),
+      boards: {
+        getCurrent() {
+          return board;
+        },
+        getFirst() {
+          return board;
+        },
+        find() {
+          return [board];
+        }
+      }
+    })
+  });
+
+  assert.equal(snapshot.todo.currentListId, null);
+  assert.equal(snapshot.notes.currentListId, null);
+  assert.deepEqual(snapshot.todo.lists, [{id: null, title: 'Imported todos', current: true}]);
+  assert.deepEqual(snapshot.notes.lists, [{id: null, title: 'Imported notes', current: true}]);
+  assert.equal(snapshot.board.id, null);
+  assert.deepEqual(snapshot.board.boards, [
+    {id: null, title: 'Imported board', description: 'Needs id repair', current: true}
+  ]);
+  assert.equal(snapshot.todo.items[0].text, 'Recovered task');
+  assert.equal(snapshot.notes.items[0].text, 'Recovered note');
+  assert.equal(snapshot.board.columns[0].cards[0].title, 'Recovered card');
+});
+
 test('buildReadSnapshot exposes all clocks for Clocks page management without footer truncation markers', () => {
   const {buildReadSnapshot} = require(readModelPath);
   const clocks = Array.from({length: 6}, (_, index) => ({name: `Clock ${index + 1}`, timezone: 'Etc/UTC'}));

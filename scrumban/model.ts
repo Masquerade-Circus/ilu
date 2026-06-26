@@ -1,5 +1,5 @@
 let loadDb = require('../utils/load-db');
-let notifySync = require('../sync/ilu-hooks');
+let {createPersistenceNotifier} = require('../utils/persistence-sync');
 
 let DEFAULT_COLUMNS = [
     {id: 'backlog', title: 'Backlog', wipLimit: null},
@@ -10,9 +10,7 @@ let DEFAULT_COLUMNS = [
 
 let DEFAULT_COLUMN_ID = DEFAULT_COLUMNS[0].id;
 
-function afterPersist(action: any) {
-    notifySync({domain: 'boards', action});
-}
+let afterPersist = createPersistenceNotifier('boards');
 
 function sanitizeColumnId(value: any) {
     return String(value || '')

@@ -46,7 +46,7 @@ function createFakeCommands(overrides: any = {}) {
 }
 
 test('Sync UI adapter maps detailed statuses to approved safe labels', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const cases = [
     [{status: 'healthy', hasPendingRemote: false}, 'Synced'],
     [{status: 'healthy', hasPendingRemote: true}, 'Pending sync'],
@@ -68,7 +68,7 @@ test('Sync UI adapter maps detailed statuses to approved safe labels', async () 
 });
 
 test('Sync UI adapter redacts unsafe command failures', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands({
     status() {
       throw new Error('failed at /home/person/.ssh/key token=abc123\n    at provider stack');
@@ -88,7 +88,7 @@ test('Sync UI adapter redacts unsafe command failures', async () => {
 });
 
 test('Sync retry, enable, and disable call command functions only after explicit action', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands();
   const actions = createSyncActions({commands: fake.commands});
 
@@ -102,7 +102,7 @@ test('Sync retry, enable, and disable call command functions only after explicit
 });
 
 test('Sync init rejects missing remote URL, branch, and confirmation without command calls', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands();
   const actions = createSyncActions({commands: fake.commands});
   const cases = [
@@ -126,7 +126,7 @@ test('Sync init rejects missing remote URL, branch, and confirmation without com
 });
 
 test('Sync init rejects any embedded URL userinfo before command calls', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands();
   const actions = createSyncActions({commands: fake.commands});
   const cases = [
@@ -150,7 +150,7 @@ test('Sync init rejects any embedded URL userinfo before command calls', async (
 });
 
 test('Sync init preserves command safety path and refreshes status after setup', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands({
     status() {
       return {status: 'pending_remote', hasPendingRemote: true};
@@ -170,7 +170,7 @@ test('Sync init preserves command safety path and refreshes status after setup',
 
 
 test('Sync UI adapter classifies setup and init safety stops without leaking internals', async () => {
-  const {createSyncActions} = require('../ui/sync-actions');
+  const {createSyncActions} = require('../ui/modules/sync/actions');
   const setupFake = createFakeCommands({
     status() {
       throw new Error('Sync runtime requires remoteUrl when sync is enabled at /home/person/project');

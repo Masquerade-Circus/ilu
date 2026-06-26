@@ -1,6 +1,80 @@
+import type {
+  BoardColumn,
+  BoardId,
+  BoardSnapshot,
+  BoardSummary,
+  ClockSnapshot,
+  ListItem,
+  ListPanel,
+  ListSummary,
+  UiEntityId,
+  UiSnapshot,
+  UiSnapshotDomain
+} from "./types";
+
 const DEFAULT_LIMIT = 4;
 
-function loadModels() {
+type ReadEntity = {
+  $id?: unknown;
+  id?: unknown;
+  index?: unknown;
+  title?: unknown;
+  description?: unknown;
+  content?: unknown;
+  done?: unknown;
+  labels?: unknown;
+  current?: unknown;
+  [key: string]: unknown;
+};
+
+type ReadList = ReadEntity & {
+  tasks?: unknown;
+  notes?: unknown;
+};
+
+type ReadBoard = ReadEntity & {
+  columns?: unknown;
+  defaultColumnId?: unknown;
+};
+
+type ReadColumn = ReadEntity & {
+  cards?: unknown;
+  wipLimit?: unknown;
+};
+
+type ReadClock = {
+  name?: unknown;
+  timezone?: unknown;
+};
+
+type ReadModel<T> = {
+  getCurrent?: () => T | null | undefined;
+  getFirst?: () => T | null | undefined;
+  find?: () => unknown;
+};
+
+type ReadModels = {
+  todos: ReadModel<ReadList>;
+  notes: ReadModel<ReadList>;
+  boards: ReadModel<ReadBoard>;
+  clocks: { find?: () => unknown };
+};
+
+type ReadSnapshotOptions = {
+  models?: ReadModels;
+  limit?: unknown;
+  now?: unknown;
+};
+
+type ListPanelOptions = {
+  model: ReadModel<ReadList>;
+  itemKey: "tasks" | "notes";
+  descriptionKeys: string[];
+  emptyTitle: string;
+  unavailableMessage: string;
+};
+
+function loadModels(): ReadModels {
   return {
     todos: require('../todos/model'),
     notes: require('../notes/model'),
@@ -9,7 +83,7 @@ function loadModels() {
   };
 }
 
-function safeText(value: any, fallback: any = '') {
+function safeText(value: unknown, fallback = ''): string {
   if (typeof value !== 'string') {
     return fallback;
   }
@@ -18,11 +92,11 @@ function safeText(value: any, fallback: any = '') {
   return trimmed || fallback;
 }
 
-function hasOwnField(value: any, key: any) {
+function hasOwnField(value: unknown, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function exactContentText(item: any, key: any) {
+function exactContentText(item: ReadEntity, key: string): string | null {
   if (!hasOwnField(item, key)) {
     return null;
   }
@@ -31,64 +105,66 @@ function exactContentText(item: any, key: any) {
   return typeof value === 'string' ? value : null;
 }
 
-function asArray(value: any) {
-  return Array.isArray(value) ? value : [];
+function asArray<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
 }
 
-function labelText(label: any) {
+function labelText(label: unknown): string {
   if (typeof label === 'string') {
     return safeText(label);
   }
 
   if (label && typeof label === 'object') {
-    return safeText(label.title);
+    return safeText((label as ReadEntity).title);
   }
 
   return '';
 }
 
-function safeLabels(value: any) {
-  return asArray(value).map(labelText).filter((label: any) => label.length > 0);
+function safeLabels(value: unknown): string[] {
+  return asArray(value).map(labelText).filter((label) => label.length > 0);
 }
 
-function entityId(value: any, fallback: any = null) {
-  if (!value || typeof value !== 'object') {
+function entityId(value: unknown, fallback: UiEntityId | null = null): UiEntityId | null {
+  if (typeof value !== 'object' || value === null) {
     return fallback;
   }
 
-  if (typeof value.$id === 'number' || typeof value.$id === 'string') {
-    return value.$id;
+  const source = value as ReadEntity;
+
+  if (typeof source.$id === 'number' || typeof source.$id === 'string') {
+    return source.$id;
   }
 
-  if (typeof value.id === 'number' || typeof value.id === 'string') {
-    return value.id;
+  if (typeof source.id === 'number' || typeof source.id === 'string') {
+    return source.id;
   }
 
-  if (Number.isInteger(value.index) && value.index > 0) {
-    return value.index;
+  if (Number.isInteger(source.index) && Number(source.index) > 0) {
+    return source.index as number;
   }
 
   return fallback;
 }
 
-function selectCurrentOrFirst(model: any) {
+function selectCurrentOrFirst<T>(model: ReadModel<T>): T | null {
   const current = typeof model.getCurrent === 'function' ? model.getCurrent() : null;
   if (current) {
     return current;
   }
 
-  return typeof model.getFirst === 'function' ? model.getFirst() : null;
+  return typeof model.getFirst === 'function' ? model.getFirst() ?? null : null;
 }
 
-function limitedItems(items: any, limit: any) {
+function limitedItems<T>(items: unknown, limit: number): { visible: T[]; remaining: number } {
   const safeItems = asArray(items);
   return {
-    visible: safeItems.slice(0, limit),
+    visible: safeItems.slice(0, limit) as T[],
     remaining: Math.max(safeItems.length - limit, 0)
   };
 }
 
-function itemText(item: any) {
+function itemText(item: unknown): string {
   if (typeof item === 'string') {
     return safeText(item, 'Untitled');
   }
@@ -97,17 +173,20 @@ function itemText(item: any) {
     return 'Untitled';
   }
 
-  return safeText(item.title, safeText(item.description, 'Untitled'));
+  const source = item as ReadEntity;
+  return safeText(source.title, safeText(source.description, 'Untitled'));
 }
 
-function itemDescription(item: any, keys: any = ['description']) {
-  if (!item || typeof item !== 'object') {
+function itemDescription(item: unknown, keys: string[] = ['description']): string {
+  if (typeof item !== 'object' || item === null) {
     return '';
   }
 
+  const source = item as ReadEntity;
+
   for (const key of keys) {
     if (key === 'content') {
-      const content = exactContentText(item, key);
+      const content = exactContentText(source, key);
 
       if (content !== null) {
         return content;
@@ -116,7 +195,7 @@ function itemDescription(item: any, keys: any = ['description']) {
       continue;
     }
 
-    const value = safeText(item[key]);
+    const value = safeText(source[key]);
 
     if (value.length > 0) {
       return value;
@@ -126,39 +205,39 @@ function itemDescription(item: any, keys: any = ['description']) {
   return '';
 }
 
-function itemSnapshot(item: any, index: any, descriptionKeys: any) {
+function itemSnapshot(item: unknown, index: number, descriptionKeys: string[]): ListItem {
   return {
     id: entityId(item, index + 1),
     position: index + 1,
     text: itemText(item),
     description: itemDescription(item, descriptionKeys),
-    done: Boolean(item && typeof item === 'object' && item.done === true),
-    labels: item && typeof item === 'object' ? safeLabels(item.labels) : []
+    done: Boolean(item && typeof item === 'object' && (item as ReadEntity).done === true),
+    labels: item && typeof item === 'object' ? safeLabels((item as ReadEntity).labels) : []
   };
 }
 
-function sameEntityId(left: any, right: any) {
+function sameEntityId(left: UiEntityId | null, right: UiEntityId | null): boolean {
   return left !== null && right !== null && left === right;
 }
 
-function listSummaries(model: any, currentList: any) {
-  const lists = typeof model.find === 'function' ? asArray(model.find()) : currentList ? [currentList] : [];
+function listSummaries(model: ReadModel<ReadList>, currentList: ReadList | null): ListSummary[] {
+  const lists = typeof model.find === 'function' ? asArray<ReadList>(model.find()) : currentList ? [currentList] : [];
   const currentId = entityId(currentList);
 
   return lists
-    .map((list: any, index: any) => {
-      const id = entityId(list, index + 1);
+    .map((list): ListSummary => {
+      const id = entityId(list);
 
       return {
         id,
         title: safeText(list && list.title, 'Untitled list'),
-        current: sameEntityId(id, currentId) || Boolean(list && list.current === true)
+        current: list === currentList || sameEntityId(id, currentId) || Boolean(list && list.current === true)
       };
     })
-    .filter((list: any) => list.id !== null || list.title.length > 0);
+    .filter((list) => list.id !== null || list.title.length > 0);
 }
 
-function buildListPanel({model, itemKey, descriptionKeys, emptyTitle, unavailableMessage}: any) {
+function buildListPanel({model, itemKey, descriptionKeys, emptyTitle, unavailableMessage}: ListPanelOptions): ListPanel {
   try {
     const list = selectCurrentOrFirst(model);
     const lists = listSummaries(model, list);
@@ -173,31 +252,37 @@ function buildListPanel({model, itemKey, descriptionKeys, emptyTitle, unavailabl
       title: safeText(list.title, emptyTitle),
       currentListId: entityId(list),
       lists,
-      items: items.map((item: any, index: any) => itemSnapshot(item, index, descriptionKeys)),
+      items: items.map((item, index) => itemSnapshot(item, index, descriptionKeys)),
       remaining: 0
     };
-  } catch (error: any) {
+  } catch (_error: unknown) {
     return {title: emptyTitle, currentListId: null, lists: [], items: [], remaining: 0, error: unavailableMessage};
   }
 }
 
-function normalizeWipLimit(value: any) {
-  return Number.isInteger(value) && value >= 1 ? value : null;
+function normalizeWipLimit(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
 }
 
-function columnId(column: any) {
-  if (!column || typeof column !== 'object') {
+function normalizeLimit(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DEFAULT_LIMIT;
+}
+
+function columnId(column: unknown): BoardId | null {
+  if (typeof column !== 'object' || column === null) {
     return null;
   }
 
-  if (typeof column.id === 'number' || typeof column.id === 'string') {
-    return column.id;
+  const source = column as ReadColumn;
+
+  if (typeof source.id === 'number' || typeof source.id === 'string') {
+    return source.id;
   }
 
   return null;
 }
 
-function cardSnapshot(card: any, index: any) {
+function cardSnapshot(card: unknown, index: number): { title: string; description: string; position: number } {
   return {
     title: itemText(card),
     description: itemDescription(card),
@@ -205,18 +290,18 @@ function cardSnapshot(card: any, index: any) {
   };
 }
 
-function boardId(board: any) {
+function boardId(board: unknown): BoardId | null {
   return entityId(board);
 }
 
-function boardSummaries(model: any, currentBoard: any) {
-  const boards = typeof model.find === 'function' ? asArray(model.find()) : currentBoard ? [currentBoard] : [];
+function boardSummaries(model: ReadModel<ReadBoard>, currentBoard: ReadBoard | null): BoardSummary[] {
+  const boards = typeof model.find === 'function' ? asArray<ReadBoard>(model.find()) : currentBoard ? [currentBoard] : [];
   const currentId = boardId(currentBoard);
 
   return boards
-    .map((board: any) => {
+    .map((board): BoardSummary => {
       const description = itemDescription(board);
-      const summary: any = {
+      const summary: BoardSummary = {
         id: boardId(board),
         title: safeText(board && board.title, 'Untitled board'),
         current: sameEntityId(boardId(board), currentId) || Boolean(board && board.current === true)
@@ -228,10 +313,10 @@ function boardSummaries(model: any, currentBoard: any) {
 
       return summary;
     })
-    .filter((board: any) => board.id !== null || board.title.length > 0);
+    .filter((board) => board.id !== null || board.title.length > 0);
 }
 
-function buildBoardPanel(model: any, limit: any) {
+function buildBoardPanel(model: ReadModel<ReadBoard>, limit: number): BoardSnapshot {
   const emptyTitle = 'No board yet';
 
   try {
@@ -242,14 +327,14 @@ function buildBoardPanel(model: any, limit: any) {
       return {title: emptyTitle, boards, columns: [], totalCards: 0};
     }
 
-    const boardColumns = asArray(board.columns);
-    const columns = boardColumns.map((column: any, index: any) => {
-      const cards = asArray(column && column.cards);
+    const boardColumns = asArray<ReadColumn>(board.columns);
+    const columns = boardColumns.map((column, index): BoardColumn & { remaining: number } => {
+      const cards = asArray(column.cards);
 
       const id = columnId(column);
 
       return {
-        id,
+        ...(id !== null ? { id } : {}),
         index: index + 1,
         title: safeText(column && column.title, 'Untitled column'),
         count: cards.length,
@@ -266,15 +351,15 @@ function buildBoardPanel(model: any, limit: any) {
       title: safeText(board.title, emptyTitle),
       boards,
       columns,
-      totalCards: boardColumns.reduce((count: any, column: any) => count + asArray(column && column.cards).length, 0),
+      totalCards: boardColumns.reduce((count: number, column) => count + asArray(column.cards).length, 0),
       remainingColumns: 0
     };
-  } catch (error: any) {
+  } catch (_error: unknown) {
     return {title: emptyTitle, boards: [], columns: [], totalCards: 0, error: 'Board is unavailable right now.'};
   }
 }
 
-function formatClockTime(clock: any, now: any) {
+function formatClockTime(clock: ReadClock, now: Date): string {
   try {
     return new Intl.DateTimeFormat('en-GB', {
       hour: '2-digit',
@@ -284,17 +369,17 @@ function formatClockTime(clock: any, now: any) {
       hourCycle: 'h23',
       timeZone: safeText(clock && clock.timezone)
     }).format(now);
-  } catch (error: any) {
+  } catch (_error: unknown) {
     return 'Time unavailable';
   }
 }
 
-function buildClocksPanel(model: any, _limit: any, now: any) {
+function buildClocksPanel(model: { find?: () => unknown }, _limit: number, now: Date): ClockSnapshot {
   try {
-    const clocks = typeof model.find === 'function' ? asArray(model.find()) : [];
+    const clocks = typeof model.find === 'function' ? asArray<ReadClock>(model.find()) : [];
 
     return {
-      items: clocks.map((clock: any, index: any) => ({
+      items: clocks.map((clock, index) => ({
         name: safeText(clock && clock.name, 'Clock'),
         timezone: safeText(clock && clock.timezone),
         position: index + 1,
@@ -302,12 +387,12 @@ function buildClocksPanel(model: any, _limit: any, now: any) {
       })),
       remaining: 0
     };
-  } catch (error: any) {
+  } catch (_error: unknown) {
     return {items: [], remaining: 0, error: 'Clocks are unavailable right now.'};
   }
 }
 
-function buildTodoSnapshot(models: any) {
+function buildTodoSnapshot(models: ReadModels): ListPanel {
   return buildListPanel({
     model: models.todos,
     itemKey: 'tasks',
@@ -317,7 +402,7 @@ function buildTodoSnapshot(models: any) {
   });
 }
 
-function buildNotesSnapshot(models: any) {
+function buildNotesSnapshot(models: ReadModels): ListPanel {
   return buildListPanel({
     model: models.notes,
     itemKey: 'notes',
@@ -327,9 +412,9 @@ function buildNotesSnapshot(models: any) {
   });
 }
 
-function buildReadSnapshot(options: any = {}) {
+function buildReadSnapshot(options: ReadSnapshotOptions = {}): UiSnapshot {
   const models = options.models || loadModels();
-  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : DEFAULT_LIMIT;
+  const limit = normalizeLimit(options.limit);
   const now = options.now instanceof Date ? options.now : new Date();
 
   return {
@@ -340,9 +425,9 @@ function buildReadSnapshot(options: any = {}) {
   };
 }
 
-function buildReadSnapshotDomain(domain: any, options: any = {}) {
+function buildReadSnapshotDomain(domain: unknown, options: ReadSnapshotOptions = {}): Partial<UiSnapshot> | null {
   const models = options.models || loadModels();
-  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : DEFAULT_LIMIT;
+  const limit = normalizeLimit(options.limit);
   const now = options.now instanceof Date ? options.now : new Date();
 
   if (domain === 'todo') {

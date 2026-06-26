@@ -1,11 +1,9 @@
 let fs = require('node:fs');
 let path = require('node:path');
 let localPaths = require('../utils/local-paths');
-let notifySync = require('../sync/ilu-hooks');
+let {createPersistenceNotifier} = require('../utils/persistence-sync');
 
-function afterPersist(action: any) {
-    notifySync({domain: 'clocks', action});
-}
+let afterPersist = createPersistenceNotifier('clocks');
 
 function getFilePath() {
     return localPaths.dbFilePath('clocks');

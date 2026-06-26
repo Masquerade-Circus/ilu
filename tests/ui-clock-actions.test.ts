@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {createClockActions, searchTimezoneChoices} = require('../ui/clock-actions');
+const {createClockActions, searchTimezoneChoices} = require('../ui/modules/clocks/actions');
 
 function createClockModel(items = [
   {name: 'UTC', timezone: 'Etc/UTC'},

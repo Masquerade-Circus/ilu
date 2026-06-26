@@ -13,6 +13,10 @@ type OverlaySurfaceOptions = {
   surfaceStyle?: TerminalStyleValue;
 };
 
+type OverlayRuntimeState = {
+  activeOverlay: string | null;
+};
+
 export type AppOverlayProps = Partial<TerminalOverlayProps> & OverlaySurfaceOptions & {
   title?: OverlaySlot;
   topNav?: OverlaySlot;
@@ -28,6 +32,19 @@ export function createOverlayProps(props: Partial<TerminalOverlayProps> = {}): T
   const backdrop = props.backdrop ?? true;
 
   return { ...props, margin, style, trapFocus, backdrop };
+}
+
+export function hasActiveOverlay(state: OverlayRuntimeState): boolean {
+  return state.activeOverlay !== null;
+}
+
+export function closeActiveOverlay(state: OverlayRuntimeState): boolean {
+  if (!hasActiveOverlay(state)) {
+    return false;
+  }
+
+  state.activeOverlay = null;
+  return true;
 }
 
 export function createOverlaySurface(...children: Array<JSX.Element | null>): JSX.Element {

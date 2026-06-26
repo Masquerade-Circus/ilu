@@ -8,7 +8,7 @@ require('tsx/cjs');
 
 const Ui = require('../ui/app.tsx');
 const {buildReadSnapshot} = require('../ui/read-model');
-const {createInitialNotesState, handleNotesCommand} = require('../ui/pages/notes/MainView.tsx');
+const {createInitialNotesState, handleNotesCommand} = require('../ui/modules/notes/MainView.tsx');
 
 function visible(output) {
   return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
@@ -428,6 +428,60 @@ test('Notes top list selector preserves local selection when switch action fails
   assert.equal(session.state().notesState.selectedNotePosition, 1);
   assert.match(visible(session.output()), /Switch failed/);
   session.destroy();
+});
+
+test('Todo and Notes list selectors render null-id lists but block switch actions', async () => {
+  const calls = [];
+  const nullIdSnapshot = {
+    ...snapshot(),
+    todo: {
+      ...snapshot().todo,
+      currentListId: null,
+      lists: [{id: null, title: 'Imported todos', current: true}, {id: 2, title: 'Later', current: false}]
+    },
+    notes: {
+      ...snapshot().notes,
+      currentListId: null,
+      lists: [{id: null, title: 'Imported notes', current: true}, {id: 'n2', title: 'Archive', current: false}]
+    }
+  };
+
+  const todoSession = await Ui.createHeadlessSession({
+    snapshot: nullIdSnapshot,
+    todoActions: {
+      useList(values) {
+        calls.push(['todo', values]);
+        return {ok: true};
+      }
+    }
+  });
+
+  todoSession.click('todo-list-switch-list-1');
+  todoSession.click('todo-list-switch-2');
+
+  assert.deepEqual(calls, [['todo', {listId: 2}]]);
+  assert.equal(todoSession.state().todo.selectedListId, 2);
+  assert.match(visible(todoSession.output()), /Imported todos/);
+  todoSession.destroy();
+
+  const notesSession = await Ui.createHeadlessSession({
+    state: {activeTab: 'Notes'},
+    snapshot: nullIdSnapshot,
+    noteActions: {
+      useList(values) {
+        calls.push(['notes', values]);
+        return {ok: true};
+      }
+    }
+  });
+
+  notesSession.click('note-list-switch-list-1');
+  notesSession.click('note-list-switch-n2');
+
+  assert.deepEqual(calls, [['todo', {listId: 2}], ['notes', {listId: 'n2'}]]);
+  assert.equal(notesSession.state().notesState.selectedListId, 'n2');
+  assert.match(visible(notesSession.output()), /Imported notes/);
+  notesSession.destroy();
 });
 
 test('Notes click selects a note without opening details', async () => {

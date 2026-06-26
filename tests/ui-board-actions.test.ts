@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {createBoardActions} = require('../ui/board-actions');
+const {createBoardActions} = require('../ui/modules/board/actions');
 
 function createInjectedModel(overrides: any = {}) {
   const calls = [];

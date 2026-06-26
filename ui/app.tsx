@@ -2,205 +2,44 @@ import { Text } from "@valyrianjs/terminal";
 import type {
   TerminalCommand,
   TerminalCommandContext,
-  TerminalElementNode,
   TerminalKeyBinding,
   TerminalKeymapOptions,
-  TerminalMountOptions,
-  TerminalNode,
-  TerminalOutputStream,
   TerminalSession,
   TerminalTheme
 } from "@valyrianjs/terminal";
-import type { AppState, BabelActionResult, BabelActions, BoardActions, ClockActions, NoteActions, RefreshSnapshot, SyncActions, SyncStatusState, TodoActions, TtsActions, UiSnapshot, UiSnapshotDomain } from "./types";
-
-type TerminalRuntimeModule = typeof import("@valyrianjs/terminal");
-type ValyrianRuntime = { v: (tag: unknown, props?: Record<string, unknown>, ...children: unknown[]) => JSX.Element };
-type Runtime = { terminal: TerminalRuntimeModule; valyrian: ValyrianRuntime };
-type SyncStatusEvent = { state?: unknown; message?: unknown; context?: unknown };
-type TuiSyncRunnerClient = { notifyLocalMutation: (context?: unknown) => Promise<unknown>; flush?: () => Promise<unknown>; shutdown?: () => Promise<unknown>; dispose?: () => void; hasPendingWork?: () => boolean; onEvent?: (listener: (event: SyncStatusEvent) => void) => () => void };
-type NotifySyncHook = ((context?: unknown) => void) & { onSyncStatus?: (listener: (event: SyncStatusEvent) => void) => () => void; flushPending?: () => boolean | Promise<boolean>; configureSyncRunner?: (runner: TuiSyncRunnerClient | null) => () => void };
-type Tab = "Todo" | "Notes" | "Board" | "Clocks" | "Sync" | "Translate" | "Speech";
-type AppRuntimeState = AppState & {
-  activeTab: Tab;
-  overlay: string | null;
-  running: boolean;
-  syncStatus: SyncStatusState;
-};
-
-type SnapshotRef = {
-  current: UiSnapshot;
-  refresh: (domain?: UiSnapshotDomain) => UiSnapshot;
-};
-
-type SnapshotOptions = Record<string, unknown>;
-type BuildSnapshot = (domain?: UiSnapshotDomain) => UiSnapshot | Partial<UiSnapshot>;
-
-type AppOptions = {
-  state?: Partial<AppRuntimeState> & Record<string, unknown>;
-  snapshot?: UiSnapshot;
-  buildSnapshot?: BuildSnapshot;
-  snapshotOptions?: SnapshotOptions;
-  cols?: number;
-  rows?: number;
-  boardActions?: BoardActions;
-  todoActions?: TodoActions;
-  noteActions?: NoteActions;
-  clockActions?: ClockActions;
-  syncActions?: SyncActions;
-  babelActions?: BabelActions;
-  ttsActions?: TtsActions;
-  stdin?: TerminalMountOptions["stdin"];
-  stdout?: TerminalOutputStream;
-};
-
-type LayoutOptions = {
-  cols?: number;
-  rows?: number;
-  stdout?: TerminalOutputStream;
-};
-
-type RuntimeLayout = {
-  cols: number;
-  rows: number;
-};
-
-type SessionActions = {
-  boardActions?: BoardActions;
-  todoActions?: TodoActions;
-  noteActions?: NoteActions;
-  clockActions?: ClockActions;
-  syncActions?: SyncActions;
-  babelActions?: BabelActions;
-  ttsActions?: TtsActions;
-  refreshSnapshot?: RefreshSnapshot;
-  requestRender?: () => void;
-  syncTerminalTitle?: () => void;
-  copyTextToClipboard?: (text: string) => BabelActionResult;
-  currentLayout?: () => Partial<RuntimeLayout>;
-};
-
-type HeadlessSession = {
-  dispatchKey: (key: string) => string;
-  dispatchText: (value: unknown) => string;
-  focus: (id: string) => boolean;
-  focusedId: () => string | null;
-  output: () => string;
-  ansiOutput: () => string;
-  click: (id: string) => string;
-  clickAt: (x: number, y: number) => string;
-  clipboard: () => string;
-  state: () => AppRuntimeState;
-  destroy: () => void | Promise<void>;
-};
+import type { BabelActionResult, SyncStatusState, UiSnapshot, UiSnapshotDomain } from "./types";
+import type { AppOptions, AppRuntimeState, BuildSnapshot, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotOptions, SnapshotRef, SyncStatusEvent, Tab, TerminalRuntimeModule, TuiSyncRunnerClient } from "./app-runtime";
+const { DEFAULT_STATE, HELP_LINES_BY_TAB, TABS, normalizeSyncStatus, normalizeTab, positiveInteger, resolveRuntimeLayout, syncTerminalTitle, terminalTitleForTab }: typeof import("./app-runtime") = require("./app-runtime");
+const { findFocusedNode, findNodeById, isFocusedTextEntry, pasteTextIntoFocusedEntry }: typeof import("./app-headless-tree") = require("./app-headless-tree");
 
 const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
 const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = require("./read-model");
-const { createBoardActions }: { createBoardActions: (options?: Record<string, unknown>) => BoardActions } = require("./board-actions");
-const { createTodoActions }: { createTodoActions: (options?: Record<string, unknown>) => TodoActions } = require("./todo-actions");
-const { createNoteActions }: { createNoteActions: (options?: Record<string, unknown>) => NoteActions } = require("./note-actions");
-const { createClockActions }: { createClockActions: (options?: Record<string, unknown>) => ClockActions } = require("./clock-actions");
-const { createSyncActions }: { createSyncActions: (options?: Record<string, unknown>) => SyncActions } = require("./sync-actions");
 const { createTuiSyncClient }: { createTuiSyncClient: (options?: Record<string, unknown>) => TuiSyncRunnerClient } = require("../sync/tui-sync-client");
-const { createBabelActions }: { createBabelActions: (options?: Record<string, unknown>) => BabelActions } = require("./babel-actions");
-const { createTtsActions }: { createTtsActions: (options?: Record<string, unknown>) => TtsActions } = require("./tts-actions");
 const notifySyncHook: NotifySyncHook = require("../sync/ilu-hooks");
 const { createAppShell }: typeof import("./components/AppShell") = require("./components/AppShell.tsx");
 const { FOOTER_STYLE, footerLine, footerSegments }: typeof import("./components/Footer") = require("./components/Footer.tsx");
 const { createButton }: typeof import("./components/Button") = require("./components/Button.tsx");
 const { AppOverlay }: typeof import("./components/Overlay") = require("./components/Overlay.tsx");
 const { createTopNav }: typeof import("./components/TopNav") = require("./components/TopNav.tsx");
-const {
-  closeUtilityOverlay,
-  createInitialUtilityState,
-  createSyncActionBar,
-  createTranslateActionBar,
-  createTtsActionBar,
-  createUtilityOverlay,
-  createUtilityPanel,
-  prepareUtilityApp
-}: typeof import("./components/UtilityHost") = require("./components/UtilityHost.tsx");
 const { PANEL_STYLE, TERMINAL_THEME }: typeof import("./theme") = require("./theme.ts");
 const {
-  clearBoardUiOverlay,
-  createBoardKeyBindings,
-  createBoardMainView,
-  createInitialBoardState,
-  getBoardPendingFocus,
-  handleBoardCommand,
-  openBoardAddCardModal
-}: typeof import("./pages/board/MainView") = require("./pages/board/MainView.tsx");
-const {
-  createClocksMainView,
-  createInitialClockState,
-  handleClockCommand,
-  renderClockNodes,
-  prepareClockViewState
-}: typeof import("./pages/clocks/MainView") = require("./pages/clocks/MainView.tsx");
-const {
-  createInitialNotesState,
-  createNotesKeyBindings,
-  createNotesMainView,
-  handleNotesCommand,
-  renderNotesNodes,
-  prepareNotesViewState
-}: typeof import("./pages/notes/MainView") = require("./pages/notes/MainView.tsx");
-const {
-  createInitialTodoState,
-  createTodoKeyBindings,
-  createTodoMainView,
-  handleTodoCommand,
-  renderTodoNodes,
-  prepareTodoViewState
-}: typeof import("./pages/todos/MainView") = require("./pages/todos/MainView.tsx");
-
-const TABS = Object.freeze(["Todo", "Notes", "Board", "Clocks", "Sync", "Translate", "Speech"] as const);
-const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Object.freeze({
-  Todo: Object.freeze([
-    "Use ↑/↓ to choose a task. Use Enter/Space to toggle it.",
-    "Use Shift+↑/↓ to reorder.",
-    "Use Actions to manage tasks."
-  ]),
-  Notes: Object.freeze([
-    "Use ↑/↓ to choose a note. Use Enter to open it.",
-    "Use Shift+↑/↓ to reorder.",
-    "Use Actions to manage notes."
-  ]),
-  Board: Object.freeze([
-    "Use ↑/↓ to choose a card. Use Enter/Space to select it.",
-    "Use O to open card or column details.",
-    "Use ←/→ to move cards or columns.",
-    "Use Shift+↑/↓ to change priority.",
-    "Use Actions to add cards, columns, or boards."
-  ]),
-  Clocks: Object.freeze([
-    "Use ↑/↓ to choose a clock.",
-    "Use Actions to manage clocks."
-  ]),
-  Sync: Object.freeze([
-    "Use Actions to manage sync.",
-    "Setup asks for the remote, branch, and confirmation."
-  ]),
-  Translate: Object.freeze([
-    "Write the text, source, and target.",
-    "Use Actions to translate.",
-    "Use Actions to copy the result."
-  ]),
-  Speech: Object.freeze([
-    "Set the input, output, and voice.",
-    "Use Actions to convert text.",
-    "Use Actions to choose a voice."
-  ])
-});
-const DEFAULT_STATE: Omit<AppRuntimeState, "board" | "utilities" | "todo" | "notesState" | "clocksState"> = Object.freeze({
-  activeTab: "Todo",
-  overlay: null,
-  running: true,
-  syncStatus: "idle"
-});
-
-function isTab(value: unknown): value is Tab {
-  return typeof value === "string" && (TABS as readonly string[]).includes(value);
-}
+  closeRegisteredOverlays,
+  closeUtilityOverlay,
+  createActiveModuleView,
+  createActiveUtilityOverlay,
+  createDefaultModuleActions,
+  createInitialRegisteredState,
+  createModuleKeyBindings,
+  handleModuleCommand,
+  initialFocusForActiveModule,
+  isUtilityTab,
+  openRegisteredBoardAddCard,
+  pendingFocusForActiveModule,
+  prepareActiveModuleState,
+  prepareActiveUtilityApp,
+  setPendingFocusForTab,
+  clearPendingFocusForActiveModule
+}: typeof import("./module-registry") = require("./module-registry");
 
 async function loadTerminalRuntime(): Promise<Runtime> {
   const terminal = await terminalImport;
@@ -213,50 +52,12 @@ function createTerminalTheme(terminal: TerminalRuntimeModule): TerminalTheme {
   return terminal.mergeTerminalTheme(TERMINAL_THEME);
 }
 
-function normalizeTab(tab: unknown): Tab {
-  return isTab(tab) ? tab : DEFAULT_STATE.activeTab;
-}
-
-function terminalTitleForTab(tab: Tab): string {
-  return `Ilu - ${tab}`;
-}
-
-function syncTerminalTitle(session: TerminalSession | null, state: AppRuntimeState): void {
-  if (!session || typeof session.setTitle !== "function") {
-    return;
-  }
-
-  session.setTitle(terminalTitleForTab(state.activeTab));
-}
-
-function isSyncStatusState(value: unknown): value is SyncStatusState {
-  return typeof value === "string" && ["idle", "syncing", "pending", "synced", "failed", "setup"].includes(value);
-}
-
-function normalizeSyncStatus(value: unknown): SyncStatusState {
-  return isSyncStatusState(value) ? value : "idle";
-}
-
 const overlayFocusSignatures = new WeakMap<AppRuntimeState, string>();
 const trackedFocusIds = new WeakMap<AppRuntimeState, string>();
 
 function closeAllOverlays(state: AppRuntimeState): void {
   state.overlay = null;
-  state.todo.overlay = null;
-  state.todo.actionError = "";
-  state.notesState.overlay = null;
-  state.notesState.actionError = "";
-  state.clocksState.overlay = null;
-  state.clocksState.actionError = "";
-  state.clocksState.addClock.error = "";
-  clearBoardUiOverlay(state.board);
-  state.utilities.activeOverlay = null;
-  state.utilities.sync.error = "";
-  state.utilities.sync.initForm.error = "";
-  state.utilities.babel.error = "";
-  state.utilities.babel.message = "";
-  state.utilities.tts.error = "";
-  state.utilities.tts.message = "";
+  closeRegisteredOverlays(state);
 }
 
 function overlayFocusSignature(state: AppRuntimeState): string {
@@ -271,69 +72,12 @@ function overlayFocusSignature(state: AppRuntimeState): string {
   ].join("|");
 }
 
-function utilityInitialFocusId(state: AppRuntimeState): string | null {
-  if (state.utilities.activeOverlay === "sync-init") {
-    return "sync-init-remote";
-  }
-
-  if (state.utilities.activeOverlay === "tts-voice") {
-    return "tts-voice-list";
-  }
-
-  if (state.activeTab === "Sync") {
-    return "sync-retry";
-  }
-
-  if (state.activeTab === "Translate") {
-    return "translate-text";
-  }
-
-  if (state.activeTab === "Speech") {
-    return "tts-input-file";
-  }
-
-  return null;
-}
-
 function overlayInitialFocusId(state: AppRuntimeState): string | null {
   if (state.overlay === "help") {
     return "help-close";
   }
 
-  if (state.activeTab === "Todo") {
-    const overlay = state.todo.overlay;
-
-    if (overlay === "add-task") return "todo-add-title";
-    if (overlay === "edit-task") return "todo-edit-title";
-    if (overlay === "task-details") return "todo-details-scroll";
-    if (overlay === "remove-task-confirm") return "todo-remove-confirm";
-    if (overlay === "manage-lists") return "todo-lists";
-    if (overlay === "add-list") return "todo-add-list-title";
-    if (overlay === "rename-list") return "todo-rename-list-title";
-    if (overlay === "remove-list-confirm") return "todo-remove-list-confirm";
-  }
-
-  if (state.activeTab === "Notes") {
-    const overlay = state.notesState.overlay;
-
-    if (overlay === "add-note") return "note-add-title";
-    if (overlay === "edit-note") return "note-edit-title";
-    if (overlay === "note-details") return "note-details-scroll";
-    if (overlay === "remove-note-confirm") return "note-remove-confirm";
-    if (overlay === "manage-lists") return "note-lists";
-    if (overlay === "add-list") return "note-add-list-title";
-    if (overlay === "rename-list") return "note-rename-list-title";
-    if (overlay === "remove-list-confirm") return "note-remove-list-confirm";
-  }
-
-  if (state.activeTab === "Clocks") {
-    const overlay = state.clocksState.overlay;
-
-    if (overlay === "add-clock") return "clock-add-name";
-    if (overlay === "remove-clock-confirm") return "clock-remove-confirm";
-  }
-
-  return utilityInitialFocusId(state);
+  return initialFocusForActiveModule(state);
 }
 
 function applySyncStatus(state: AppRuntimeState, event: SyncStatusEvent): boolean {
@@ -373,7 +117,7 @@ function flushPendingSync(): false | Promise<unknown> {
     if (result && typeof result === "object" && "then" in result && typeof result.then === "function") {
       return Promise.resolve(result).catch(() => false);
     }
-  } catch (_: any) {
+  } catch (_error: unknown) {
     return false;
   }
 
@@ -404,7 +148,7 @@ function enableSyncStatusUpdates(session: TerminalSession, state: AppRuntimeStat
 
     try {
       cleanupResult = cleanupSyncRunner();
-    } catch (_: any) {
+    } catch (_error: unknown) {
       cleanupResult = undefined;
     }
 
@@ -451,7 +195,7 @@ function shouldUseTuiSyncRunner(): boolean {
         && typeof config.remoteUrl === "string"
         && config.remoteUrl.trim().length > 0
     );
-  } catch (_: any) {
+  } catch (_error: unknown) {
     return false;
   }
 }
@@ -508,14 +252,10 @@ function enableClockFooterTicker(session: TerminalSession, snapshotRef: Snapshot
 
 function createInitialState(overrides: Partial<AppRuntimeState> & Record<string, unknown> = {}): AppRuntimeState {
   const source = typeof overrides === "object" && overrides !== null ? overrides as Record<string, unknown> : {};
-  const boardSource = typeof source.board === "object" && source.board !== null ? source.board as Record<string, unknown> : source;
+  const registeredState = createInitialRegisteredState(source);
   const next: AppRuntimeState = {
     ...DEFAULT_STATE,
-    todo: createInitialTodoState(typeof source.todo === "object" && source.todo !== null ? source.todo as Record<string, unknown> : source),
-    notesState: createInitialNotesState(typeof source.notesState === "object" && source.notesState !== null ? source.notesState as Record<string, unknown> : source),
-    board: createInitialBoardState(boardSource),
-    clocksState: createInitialClockState(typeof source.clocksState === "object" && source.clocksState !== null ? source.clocksState as Record<string, unknown> : source),
-    utilities: createInitialUtilityState(typeof source.utilities === "object" && source.utilities !== null ? source.utilities as Record<string, unknown> : source)
+    ...registeredState
   };
 
   next.activeTab = normalizeTab(source.activeTab);
@@ -525,16 +265,8 @@ function createInitialState(overrides: Partial<AppRuntimeState> & Record<string,
   return next;
 }
 
-function positiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
-}
-
 function resolveLayoutOptions(options: LayoutOptions = {}): RuntimeLayout {
-  const stdout = options.stdout || process.stdout;
-  const rows = positiveInteger(options.rows) ? options.rows : stdout && positiveInteger(stdout.rows) ? stdout.rows : undefined;
-  const cols = positiveInteger(options.cols) ? options.cols : stdout && positiveInteger(stdout.columns) ? stdout.columns : 80;
-
-  return { cols, rows: positiveInteger(rows) ? rows : 24 };
+  return resolveRuntimeLayout(options);
 }
 
 function createApp(
@@ -545,13 +277,6 @@ function createApp(
   actions: SessionActions = {}
 ): JSX.Element {
   const { v } = runtime.valyrian;
-  const boardActions: BoardActions = actions.boardActions || createBoardActions();
-  const todoActions: TodoActions = actions.todoActions || createTodoActions();
-  const noteActions: NoteActions = actions.noteActions || createNoteActions();
-  const clockActions: ClockActions = actions.clockActions || createClockActions();
-  const syncActions: SyncActions = actions.syncActions || createSyncActions();
-  const babelActions: BabelActions = actions.babelActions || createBabelActions();
-  const ttsActions: TtsActions = actions.ttsActions || createTtsActions();
   const refreshSnapshot = typeof actions.refreshSnapshot === "function" ? actions.refreshSnapshot : () => {};
   const requestRender = typeof actions.requestRender === "function" ? actions.requestRender : () => {};
   const syncActiveTerminalTitle = typeof actions.syncTerminalTitle === "function" ? actions.syncTerminalTitle : () => {};
@@ -581,8 +306,8 @@ function createApp(
 
   function selectTab(tab: string): void {
     closeAllOverlays(state);
-    state.board.pendingFocus = tab === "Board" ? getBoardPendingFocus(state.board) : null;
-    prepareUtilityApp(state.utilities, tab, syncActions, ttsActions, requestRender);
+    setPendingFocusForTab(state, normalizeTab(tab));
+    prepareActiveUtilityApp(state, actions, requestRender);
     syncActiveTerminalTitle();
   }
 
@@ -598,7 +323,7 @@ function createApp(
         content={[
           <Text>Tab moves focus.</Text>,
           <Text>Enter activates.</Text>,
-          ...helpLines.map((line: any) => <Text>{line}</Text>),
+          ...helpLines.map((line: string) => <Text>{line}</Text>),
           <Text>Esc closes Help.</Text>
         ]}
         bottomNav={createButton("help-close", "Close", () => { state.overlay = null; })}
@@ -609,85 +334,16 @@ function createApp(
   function App(): JSX.Element {
     const snapshot = currentSnapshot();
     const utilityActions: JSX.Element[] = [];
-    let activePanelNodes: JSX.Element[];
-    let actionBar: JSX.Element | null = null;
-    let activePageOverlays: Array<JSX.Element | null> = [];
-
-    if (state.activeTab === "Todo") {
-      const todoView = createTodoMainView({
-        panel: snapshot.todo,
-        state: state.todo,
-        isActive: true,
-        todoActions,
-        refreshSnapshot,
-        utilityActions
-      });
-      activePanelNodes = todoView.activePanelNodes;
-      actionBar = todoView.actionBar;
-      activePageOverlays = todoView.overlays;
-    } else if (state.activeTab === "Notes") {
-      const notesView = createNotesMainView({
-        panel: snapshot.notes,
-        state: state.notesState,
-        isActive: true,
-        noteActions,
-        refreshSnapshot,
-        utilityActions
-      });
-      activePanelNodes = notesView.activePanelNodes;
-      actionBar = notesView.actionBar;
-      activePageOverlays = notesView.overlays;
-    } else if (state.activeTab === "Clocks") {
-      const clocksView = createClocksMainView({
-        clocks: snapshot.clocks,
-        state: state.clocksState,
-        isActive: true,
-        clockActions,
-        refreshSnapshot,
-        utilityActions
-      });
-      activePanelNodes = clocksView.activePanelNodes;
-      actionBar = clocksView.actionBar;
-      activePageOverlays = clocksView.overlays;
-    } else if (state.activeTab === "Board") {
-      const boardView = createBoardMainView({
-        board: snapshot.board,
-        state: state.board,
-        isActive: true,
-        width: currentWidth(),
-        boardActions,
-        refreshSnapshot,
-        utilityActions
-      });
-      activePanelNodes = boardView.activePanelNodes;
-      actionBar = boardView.actionBar;
-      activePageOverlays = boardView.overlays;
-    } else {
-      activePanelNodes = createUtilityPanel(state.activeTab, state.utilities, syncActions, babelActions, ttsActions, requestRender);
-
-      if (state.activeTab === "Sync") {
-        actionBar = createSyncActionBar(state.utilities, syncActions, requestRender);
-      } else if (state.activeTab === "Translate") {
-        actionBar = createTranslateActionBar(state.utilities, babelActions, (text: string) => {
-          if (typeof actions.copyTextToClipboard === "function") {
-            return actions.copyTextToClipboard(text);
-          }
-
-          return { ok: false, error: "Could not copy the translation." };
-        }, requestRender);
-      } else if (state.activeTab === "Speech") {
-        actionBar = createTtsActionBar(state.utilities, ttsActions, requestRender);
-      }
-    }
-    const activeUtilityOverlay = state.activeTab === "Sync" || state.activeTab === "Translate" || state.activeTab === "Speech"
-      ? createUtilityOverlay(state.utilities, syncActions, babelActions, ttsActions, { width: currentWidth(), rows: currentRows() }, requestRender)
+    const activeView = createActiveModuleView({ state, snapshot, actions, refreshSnapshot, requestRender, utilityActions, width: currentWidth() });
+    const activeUtilityOverlay = isUtilityTab(state.activeTab)
+      ? createActiveUtilityOverlay({ state, actions, layout: { width: currentWidth(), rows: currentRows() }, requestRender })
       : null;
     const footerControlMode = activeUtilityOverlay !== null ? "overlay" : "global";
 
     return createAppShell({
-      activePanelNodes,
-      actionBar,
-      children: [activeUtilityOverlay, ...activePageOverlays, helpOverlay()],
+      activePanelNodes: activeView.activePanelNodes,
+      actionBar: activeView.actionBar,
+      children: [activeUtilityOverlay, ...activeView.overlays, helpOverlay()],
       footerStyle: FOOTER_STYLE,
       footerText: footerLine(currentWidth(), snapshot, state.activeTab, state.syncStatus, footerControlMode),
       footerSegments: footerSegments(currentWidth(), snapshot, state.activeTab, state.syncStatus, footerControlMode),
@@ -708,14 +364,14 @@ function handleCommand(command: TerminalCommand, state: AppRuntimeState): boolea
   if (command.id === "ilu.board") {
     closeAllOverlays(state);
     state.activeTab = "Board";
-    state.board.pendingFocus = getBoardPendingFocus(state.board);
+    setPendingFocusForTab(state, "Board");
     return true;
   }
 
   if (command.id === "ilu.tab") {
     closeAllOverlays(state);
     state.activeTab = normalizeTab(command.text);
-    state.board.pendingFocus = state.activeTab === "Board" ? getBoardPendingFocus(state.board) : null;
+    setPendingFocusForTab(state, state.activeTab);
     state.utilities.activeOverlay = null;
     return true;
   }
@@ -761,9 +417,7 @@ function createKeymap(
   handleLocalCommand?: (command: TerminalCommand, context: TerminalCommandContext) => boolean
 ): TerminalKeymapOptions {
   const bindings: TerminalKeyBinding[] = [
-    ...createTodoKeyBindings(),
-    ...createNotesKeyBindings(),
-    ...createBoardKeyBindings(),
+    ...createModuleKeyBindings(),
     { key: "CTRL_1", command: { id: "ilu.tab", text: "Todo" }, scope: "global" },
     { key: "CTRL_2", command: { id: "ilu.tab", text: "Notes" }, scope: "global" },
     { key: "CTRL_3", command: { id: "ilu.tab", text: "Board" }, scope: "global" },
@@ -828,23 +482,24 @@ function createSnapshotRef(options: AppOptions = {}): SnapshotRef {
 }
 
 function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeState): boolean {
-  const explicitPendingFocus = state.activeTab === "Board" ? state.board.pendingFocus : null;
-
   if (!session || typeof session.focus !== "function") {
     return false;
   }
+
+  const explicitPendingFocus = pendingFocusForActiveModule(state);
 
   if (explicitPendingFocus) {
     const focused = session.focus(explicitPendingFocus);
 
     if (focused) {
-      state.board.pendingFocus = null;
+      clearPendingFocusForActiveModule(state);
       overlayFocusSignatures.set(state, overlayFocusSignature(state));
       trackedFocusIds.set(state, explicitPendingFocus);
       session.update();
+      return true;
     }
 
-    return focused;
+    return false;
   }
 
   const signature = overlayFocusSignature(state);
@@ -871,67 +526,6 @@ function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeSta
   return focused;
 }
 
-function isTerminalElementNode(node: TerminalNode): node is TerminalElementNode {
-  return node.type === "element";
-}
-
-function findFocusedNode(nodes: TerminalNode[]): TerminalElementNode | null {
-  for (const node of nodes) {
-    if (!isTerminalElementNode(node)) {
-      continue;
-    }
-
-    if (node.props.__focused) {
-      return node;
-    }
-
-    const child = findFocusedNode(node.children);
-
-    if (child) {
-      return child;
-    }
-  }
-
-  return null;
-}
-
-function findNodeById(nodes: TerminalNode[], id: string | null | undefined): TerminalElementNode | null {
-  if (typeof id !== "string" || id.length === 0) {
-    return null;
-  }
-
-  for (const node of nodes) {
-    if (!isTerminalElementNode(node)) {
-      continue;
-    }
-
-    if (node.props.id === id) {
-      return node;
-    }
-
-    const child = findNodeById(node.children, id);
-
-    if (child) {
-      return child;
-    }
-  }
-
-  return null;
-}
-
-function isFocusedTextEntry(node: TerminalElementNode | null): boolean {
-  return node?.tag === "terminal-input" || node?.tag === "terminal-editor";
-}
-
-function pasteTextIntoFocusedEntry(session: TerminalSession, text: string): string {
-  const previousClipboard = session.clipboard();
-
-  session.setClipboard(text);
-  const output = session.dispatchKey("CTRL_V");
-  session.setClipboard(previousClipboard);
-  return output;
-}
-
 function copyTextWithSessionClipboard(session: TerminalSession | null, text: string): BabelActionResult {
   if (typeof text !== "string" || text.trim().length === 0) {
     return { ok: false, error: "Could not copy the translation." };
@@ -946,28 +540,6 @@ function copyTextWithSessionClipboard(session: TerminalSession | null, text: str
 }
 
 
-function prepareActivePageState(state: AppRuntimeState, snapshot: UiSnapshot): void {
-  if (state.activeTab === "Todo") {
-    prepareTodoViewState(snapshot.todo, state.todo);
-    return;
-  }
-
-  if (state.activeTab === "Notes") {
-    prepareNotesViewState(snapshot.notes, state.notesState);
-    return;
-  }
-
-  if (state.activeTab === "Clocks") {
-    prepareClockViewState(snapshot.clocks, state.clocksState);
-  }
-}
-
-function prepareActiveUtilityApp(state: AppRuntimeState, actions: SessionActions, requestRender?: () => void): void {
-  const syncActions = actions.syncActions || createSyncActions();
-  const ttsActions = actions.ttsActions || createTtsActions();
-  prepareUtilityApp(state.utilities, state.activeTab, syncActions, ttsActions, requestRender);
-}
-
 function shouldPrepareUtilityAfterCommand(command: TerminalCommand, state: AppRuntimeState): boolean {
   if ((command.id === "ilu.help" || command.id === "ilu.escape") && state.utilities.activeOverlay !== null) {
     return false;
@@ -978,13 +550,7 @@ function shouldPrepareUtilityAfterCommand(command: TerminalCommand, state: AppRu
 
 function createSessionActions(options: AppOptions, snapshotRef: SnapshotRef, requestRender?: () => void): SessionActions {
   return {
-    boardActions: options.boardActions || createBoardActions(),
-    todoActions: options.todoActions || createTodoActions(),
-    noteActions: options.noteActions || createNoteActions(),
-    clockActions: options.clockActions || createClockActions(),
-    syncActions: options.syncActions || createSyncActions(),
-    babelActions: options.babelActions || createBabelActions(),
-    ttsActions: options.ttsActions || createTtsActions(),
+    ...createDefaultModuleActions(options),
     refreshSnapshot: (domain?: UiSnapshotDomain) => snapshotRef.refresh(domain),
     requestRender
   };
@@ -998,7 +564,7 @@ async function renderSmoke(options: AppOptions = {}): Promise<string> {
   const rows = options.rows || 24;
   const layout = resolveLayoutOptions({ cols, rows });
   const sessionActions = createSessionActions(options, snapshotRef);
-  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveModuleState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions);
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
   const session = runtime.terminal.mountTerminal(app, { runtime: "headless", cols, rows, theme: createTerminalTheme(runtime.terminal) });
@@ -1020,12 +586,12 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     }
   };
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
-  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveModuleState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ cols: options.cols || 80, rows: options.rows || 24 });
   sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, (command: any) => {
+  const keymap = createKeymap(state, (command: TerminalCommand) => {
     if (state.running === false) {
       if (session) {
         session.destroy();
@@ -1034,7 +600,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       return;
     }
 
-    prepareActivePageState(state, snapshotRef.current);
+    prepareActiveModuleState(state, snapshotRef.current);
 
     if (shouldPrepareUtilityAfterCommand(command, state)) {
       prepareActiveUtilityApp(state, sessionActions, requestRender);
@@ -1043,20 +609,8 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     if (session) {
       applyPendingFocus(session, state);
     }
-  }, (command: any, context: any) => {
-    if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
-      return true;
-    }
-
-    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes, sessionActions.noteActions, sessionActions.refreshSnapshot)) {
-      return true;
-    }
-
-    if (handleClockCommand(command, state.clocksState, state.activeTab === "Clocks", context)) {
-      return true;
-    }
-
-    return handleBoardCommand(command, state.board, snapshotRef, sessionActions.boardActions || createBoardActions(), state.activeTab === "Board", context);
+  }, (command: TerminalCommand, context: TerminalCommandContext) => {
+    return handleModuleCommand(command, state, context, sessionActions, snapshotRef);
   });
 
   session = runtime.terminal.mountTerminal(app, {
@@ -1073,13 +627,13 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
   const activeSession = session;
 
   return {
-    dispatchKey(key: any) {
+    dispatchKey(key: string) {
       const output = activeSession.dispatchKey(key);
-      prepareActivePageState(state, snapshotRef.current);
+      prepareActiveModuleState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
-    dispatchText(value: any) {
+    dispatchText(value: unknown) {
       const text = String(value);
       const tree = activeSession.tree();
       const focused = findFocusedNode(tree);
@@ -1088,7 +642,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
 
       if (hasFocusedTextEntry && text.length > 1) {
         const output = pasteTextIntoFocusedEntry(activeSession, text);
-        prepareActivePageState(state, snapshotRef.current);
+        prepareActiveModuleState(state, snapshotRef.current);
         applyPendingFocus(activeSession, state);
         return output;
       }
@@ -1101,11 +655,11 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       for (const char of text) {
         output = activeSession.dispatchKey(char);
       }
-      prepareActivePageState(state, snapshotRef.current);
+      prepareActiveModuleState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
-    focus(id: any) {
+    focus(id: string) {
       const focused = activeSession.focus(id);
 
       if (focused) {
@@ -1125,7 +679,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     ansiOutput() {
       return activeSession.ansiOutput();
     },
-    click(id: any) {
+    click(id: string) {
       const output = activeSession.click(id);
 
       if (typeof id === "string" && findNodeById(activeSession.tree(), id)) {
@@ -1136,13 +690,13 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
         activeSession.update();
       }
 
-      prepareActivePageState(state, snapshotRef.current);
+      prepareActiveModuleState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return activeSession.output();
     },
-    clickAt(x: any, y: any) {
+    clickAt(x: number, y: number) {
       const output = activeSession.clickAt(x, y);
-      prepareActivePageState(state, snapshotRef.current);
+      prepareActiveModuleState(state, snapshotRef.current);
       applyPendingFocus(activeSession, state);
       return output;
     },
@@ -1188,14 +742,13 @@ function handleHeadlessChromeClick(id: string, state: AppRuntimeState): boolean 
     if (nextTab) {
       closeAllOverlays(state);
       state.activeTab = nextTab;
-      state.board.pendingFocus = nextTab === "Board" ? getBoardPendingFocus(state.board) : null;
+      setPendingFocusForTab(state, nextTab);
       return true;
     }
   }
 
-  if (id === "board-add-card" && state.activeTab === "Board") {
-    openBoardAddCardModal(state.board);
-    return true;
+  if (id === "board-add-card") {
+    return openRegisteredBoardAddCard(state);
   }
 
   return false;
@@ -1215,12 +768,12 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   };
   const sessionActions = createSessionActions(options, snapshotRef, requestRender);
   sessionActions.syncTerminalTitle = () => syncTerminalTitle(session, state);
-  prepareActivePageState(state, snapshotRef.current);
+  prepareActiveModuleState(state, snapshotRef.current);
   prepareActiveUtilityApp(state, sessionActions, requestRender);
   const layout = resolveLayoutOptions({ ...options, stdout });
   sessionActions.currentLayout = () => session?.size() || layout;
   const app = createApp(runtime, state, snapshotRef, layout, sessionActions);
-  const keymap = createKeymap(state, (command: any) => {
+  const keymap = createKeymap(state, (command: TerminalCommand) => {
     if (state.running === false) {
       if (session) {
         session.destroy();
@@ -1237,20 +790,8 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
       syncTerminalTitle(session, state);
       applyPendingFocus(session, state);
     }
-  }, (command: any, context: any) => {
-    if (handleTodoCommand(command, state.todo, state.activeTab === "Todo", context, sessionActions.todoActions, snapshotRef.current.todo, sessionActions.refreshSnapshot)) {
-      return true;
-    }
-
-    if (handleNotesCommand(command, state.notesState, state.activeTab === "Notes", context, snapshotRef.current.notes, sessionActions.noteActions, sessionActions.refreshSnapshot)) {
-      return true;
-    }
-
-    if (handleClockCommand(command, state.clocksState, state.activeTab === "Clocks", context)) {
-      return true;
-    }
-
-    return handleBoardCommand(command, state.board, snapshotRef, sessionActions.boardActions || createBoardActions(), state.activeTab === "Board", context);
+  }, (command: TerminalCommand, context: TerminalCommandContext) => {
+    return handleModuleCommand(command, state, context, sessionActions, snapshotRef);
   });
 
   session = runtime.terminal.mountTerminal(app, {

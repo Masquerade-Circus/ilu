@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {createTodoActions} = require('../ui/todo-actions');
+const {createTodoActions} = require('../ui/modules/todos/actions');
 
 function createTodoModel() {
   const calls = [];
