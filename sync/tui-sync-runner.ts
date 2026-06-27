@@ -33,7 +33,10 @@ function createTuiSyncRunner(options: any = {}) {
     };
   const close = typeof options.close === 'function'
     ? options.close
-    : () => process.exit(0);
+    : () => {};
+  const onCloseError = typeof options.onCloseError === 'function'
+    ? options.onCloseError
+    : () => {};
 
   let active = false;
   let pendingContext: any = null;
@@ -166,7 +169,11 @@ function createTuiSyncRunner(options: any = {}) {
 
   async function shutdown(id: any) {
     await flush(id);
-    close();
+    try {
+      close();
+    } catch (error: any) {
+      onCloseError(error);
+    }
   }
 
   async function handleMessage(message: any) {
@@ -212,7 +219,11 @@ function createTuiSyncRunner(options: any = {}) {
 }
 
 if (require.main === module) {
-  const runner = createTuiSyncRunner();
+  const runner = createTuiSyncRunner({
+    close() {
+      process.exit(0);
+    }
+  });
   process.on('message', (message: any) => {
     runner.handleMessage(message).catch(() => {
       if (typeof process.send === 'function') {

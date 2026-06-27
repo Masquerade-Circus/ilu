@@ -182,13 +182,37 @@ test('sync init rechaza remotes con credenciales embebidas antes de tocar bootst
   const remotes = [
     'https://user:password@example.test/repo.git',
     'https://token@example.test/repo.git',
-    'https://ghp_TOKEN@example.test/repo.git'
+    'https://ghp_TOKEN@example.test/repo.git',
+    'ssh://git:token@example.test/repo.git'
   ];
 
   for (const remote of remotes) {
     await assert.rejects(
       () => commands.init([], {remote}),
       /Remote URL must not include embedded credentials/i,
+      remote
+    );
+  }
+
+  assert.deepEqual(calls, []);
+});
+
+test('sync init rechaza remotes con formato ambiguo antes de tocar bootstrap', async () => {
+  const {commands, calls} = loadCommandsWithStubs();
+  const remotes = [
+    'https://',
+    'ftp://example.test/repo.git',
+    'git@github.com',
+    'git@github.com:',
+    'github.com/org/repo.git',
+    'repo with spaces.git',
+    './tmp/repo.git\nnext'
+  ];
+
+  for (const remote of remotes) {
+    await assert.rejects(
+      () => commands.init([], {remote}),
+      /Invalid sync remote URL/i,
       remote
     );
   }

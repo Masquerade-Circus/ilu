@@ -84,3 +84,28 @@ test('createTranslator avisa cuando el proveedor no regresa una traducción', as
   assert.deepEqual(warnings, ['No translation was found'.yellow]);
   assert.equal(clipboardWrites, 0);
 });
+
+test('createTranslator valida texto antes de llamar al proveedor', async () => {
+  const { createTranslator } = loadTranslatorModule();
+  let providerCalls = 0;
+  const translator = createTranslator({
+    provider: async () => {
+      providerCalls += 1;
+      return { sentences: [{ trans: 'x' }], src: 'en' };
+    },
+    clipboard: { async write() {} },
+    log: Object.assign(() => {}, { warning() {} }),
+    osLang: 'es'
+  });
+
+  await assert.rejects(
+    () => translator.action({ text: ['x'.repeat(5001)] }, { source: 'en', target: 'es' }),
+    /Maximum number of characters exceeded: 5000/
+  );
+  await assert.rejects(
+    () => translator.action({ text: [] }, { source: 'en', target: 'es' }),
+    /Text is required/
+  );
+
+  assert.equal(providerCalls, 0);
+});

@@ -9,6 +9,7 @@ const factoryModulePath = path.join(repoRoot, 'utils', 'create-list-model.ts');
 function createCollection() {
   const items = [];
   let sequence = 1;
+  let updateCount = 0;
 
   function matchesQuery(item, query: any = {}) {
     return Object.entries(query).every(([key, value]) => item[key] === value);
@@ -35,9 +36,13 @@ function createCollection() {
       return this.find(query)[0];
     },
     update(item) {
+      updateCount += 1;
       const index = items.findIndex(current => current.$id === item.$id);
       items[index] = item;
       return item;
+    },
+    updateCount() {
+      return updateCount;
     },
     remove(item) {
       const index = items.findIndex(current => current.$id === item.$id);
@@ -51,6 +56,7 @@ function createCollection() {
 function loadFactory() {
   const originalLoad = Module._load;
   const fakeCollection = createCollection();
+  const syncCalls = [];
 
   delete require.cache[require.resolve(factoryModulePath)];
 
@@ -61,6 +67,14 @@ function loadFactory() {
           return fakeCollection;
         }
       });
+    }
+
+    if (request === './persistence-sync') {
+      return {
+        createCollectionPersistenceNotifier(dbName, collectionName) {
+          return action => syncCalls.push({dbName, collectionName, action});
+        }
+      };
     }
 
     if (request === 'lodash/isUndefined') {
@@ -75,10 +89,11 @@ function loadFactory() {
   };
 
   try {
-    return {
-      createListModel: require(factoryModulePath),
-      fakeCollection
-    };
+      return {
+        createListModel: require(factoryModulePath),
+        fakeCollection,
+        syncCalls
+      };
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(factoryModulePath)];
@@ -135,6 +150,27 @@ test('create-list-model agrega, edita y elimina items anidados y labels', () => 
   assert.deepEqual(current.labels, []);
 });
 
+test('create-list-model rechaza operaciones anidadas inválidas sin persistir cambios', () => {
+  const {createListModel, fakeCollection} = loadFactory();
+  const Model = createListModel({
+    dbName: 'todos',
+    collectionName: 'todos',
+    itemKey: 'tasks',
+    itemHasCheck: true
+  });
+
+  Model.add({title: 'Today', description: ''});
+  Model.tasks.add({title: 'One'});
+  const before = JSON.stringify(Model.getCurrent().tasks);
+
+  assert.throws(() => Model.tasks.edit(2, {title: 'Bad'}), /Invalid tasks position/i);
+  assert.throws(() => Model.tasks.remove(2), /Invalid tasks position/i);
+  assert.throws(() => Model.tasks.remove(0), /Invalid tasks position/i);
+
+  assert.equal(JSON.stringify(Model.getCurrent().tasks), before);
+  assert.equal(fakeCollection.count(), 1);
+});
+
 test('create-list-model expone check solo para colecciones que lo necesitan', () => {
   const {createListModel} = loadFactory();
   const TodosModel = createListModel({
@@ -189,8 +225,8 @@ test('create-list-model reorders nested tasks and preserves item fields', () => 
   );
 });
 
-test('create-list-model reorders nested notes and ignores invalid moves without corruption', () => {
-  const {createListModel} = loadFactory();
+test('create-list-model rechaza reorder inválido sin persistir ni notificar sync', () => {
+  const {createListModel, fakeCollection, syncCalls} = loadFactory();
   const Model = createListModel({
     dbName: 'notes',
     collectionName: 'notes',
@@ -203,8 +239,12 @@ test('create-list-model reorders nested notes and ignores invalid moves without 
   Model.notes.add({title: 'Gamma', content: 'Three', labels: ['z']});
 
   Model.notes.reorder({fromIndex: 2, toIndex: 3});
-  Model.notes.reorder({fromIndex: 1, toIndex: 0});
-  Model.notes.reorder({fromIndex: 9, toIndex: 1});
+  const updateCount = fakeCollection.updateCount();
+  const syncCount = syncCalls.length;
+
+  assert.throws(() => Model.notes.reorder({fromIndex: 1, toIndex: 0}), /Invalid notes position/i);
+  assert.throws(() => Model.notes.reorder({fromIndex: 9, toIndex: 1}), /Invalid notes position/i);
+  assert.throws(() => Model.notes.reorder({fromIndex: '1', toIndex: 2}), /Invalid notes position/i);
 
   assert.deepEqual(
     Model.getCurrent().notes.map(item => ({title: item.title, content: item.content, labels: item.labels})),
@@ -214,4 +254,6 @@ test('create-list-model reorders nested notes and ignores invalid moves without 
       {title: 'Beta', content: 'Two', labels: ['y']}
     ]
   );
+  assert.equal(fakeCollection.updateCount(), updateCount);
+  assert.equal(syncCalls.length, syncCount);
 });

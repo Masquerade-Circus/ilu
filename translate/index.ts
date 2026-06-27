@@ -88,7 +88,16 @@ function getOsLang() {
 }
 
 function validate(text: any) {
-    let finalText = (text || []).join(' ');
+    let finalText = Array.isArray(text)
+        ? text.join(' ').trim()
+        : typeof text === 'string'
+            ? text.trim()
+            : '';
+
+    if (finalText.length === 0) {
+        throw new Error('Text is required');
+    }
+
     if (finalText.length > 5000) {
         throw new Error('Maximum number of characters exceeded: 5000');
     }
@@ -105,8 +114,9 @@ function createTranslator({
         validate,
         osLang,
         async action(args: any, opts: any) {
+            let text = validate(args.text);
             let response = await provider({
-                text: args.text,
+                text,
                 source: opts.source,
                 target: opts.target
             });

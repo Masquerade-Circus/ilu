@@ -82,6 +82,22 @@ function getColumn(board: any, index: any) {
     return board.columns[index - 1];
 }
 
+function assertColumn(board: any, index: any) {
+    if (!Number.isInteger(index) || index < 1 || index > board.columns.length) {
+        throw new Error('Invalid column position');
+    }
+
+    return getColumn(board, index);
+}
+
+function assertCard(column: any, position: any) {
+    if (!Number.isInteger(position) || position < 1 || position > column.cards.length) {
+        throw new Error('Invalid card position');
+    }
+
+    return column.cards[position - 1];
+}
+
 function getColumnIndexById(board: any, columnId: any) {
     return board.columns.findIndex((column: any) => column.id === columnId);
 }
@@ -219,11 +235,7 @@ Model.columns = {
     },
     edit(index: any, values: any) {
         let current = Model.getCurrent();
-        let column = getColumn(current, index);
-
-        if (!column) {
-            return current;
-        }
+        let column = assertColumn(current, index);
 
         if (Object.prototype.hasOwnProperty.call(values, 'title')) {
             column.title = values.title.trim() || '';
@@ -237,33 +249,23 @@ Model.columns = {
     },
     setDefault(index: any) {
         let current = Model.getCurrent();
-        let column = getColumn(current, index);
-
-        if (!column) {
-            return current;
-        }
+        let column = assertColumn(current, index);
 
         current.defaultColumnId = column.id;
         return Model.save(current);
     },
     reorder({fromIndex, toIndex}: any) {
         let current = Model.getCurrent();
+        assertColumn(current, fromIndex);
+        assertColumn(current, toIndex);
         let [column] = current.columns.splice(fromIndex - 1, 1);
-
-        if (!column) {
-            return current;
-        }
 
         current.columns.splice(toIndex - 1, 0, column);
         return Model.save(current);
     },
     remove(index: any) {
         let current = Model.getCurrent();
-        let column = getColumn(current, index);
-
-        if (!column) {
-            return current;
-        }
+        let column = assertColumn(current, index);
 
         if (column.cards.length > 0) {
             throw new Error('Cannot remove a column with cards');
@@ -289,19 +291,15 @@ Model.cards = {
         let current = Model.getCurrent();
         let defaultColumn = getDefaultColumn(current);
         let column = typeof columnIndex === 'number'
-            ? getColumn(current, columnIndex)
+            ? assertColumn(current, columnIndex)
             : defaultColumn;
         column.cards.push(prepareCard(values));
         return Model.save(current);
     },
     edit({columnIndex, position, values}: any) {
         let current = Model.getCurrent();
-        let column = getColumn(current, columnIndex);
-        let card = column && column.cards[position - 1];
-
-        if (!card) {
-            return current;
-        }
+        let column = assertColumn(current, columnIndex);
+        let card = assertCard(column, position);
 
         if (Object.prototype.hasOwnProperty.call(values, 'title')) {
             card.title = values.title.trim() || '';
@@ -315,7 +313,8 @@ Model.cards = {
     },
     remove({columnIndex, positions}: any) {
         let current = Model.getCurrent();
-        let column = getColumn(current, columnIndex);
+        let column = assertColumn(current, columnIndex);
+        [...positions].forEach((position: any) => assertCard(column, position));
         [...positions]
             .sort((left: any, right: any) => right - left)
             .forEach((position: any) => {
@@ -325,7 +324,7 @@ Model.cards = {
     },
     moveMany({cards, toColumn}: any) {
         let current = Model.getCurrent();
-        let targetColumn = getColumn(current, toColumn);
+        let targetColumn = assertColumn(current, toColumn);
         let seenSelections = new Set();
         let selections = [...cards]
             .filter((card: any) => {
@@ -341,9 +340,10 @@ Model.cards = {
             .map((card: any) => ({
                 fromColumn: card.fromColumn,
                 fromPosition: card.fromPosition,
-                column: getColumn(current, card.fromColumn)
-            }))
-            .filter((selection: any) => selection.column && selection.column.cards[selection.fromPosition - 1]);
+                column: assertColumn(current, card.fromColumn)
+            }));
+
+        selections.forEach((selection: any) => assertCard(selection.column, selection.fromPosition));
         let incomingSelections = selections.filter((selection: any) => selection.fromColumn !== toColumn);
 
         if (targetColumn.wipLimit !== null && targetColumn.cards.length + incomingSelections.length > targetColumn.wipLimit) {
@@ -389,18 +389,19 @@ Model.cards = {
     },
     move({fromColumn, fromPosition, toColumn, toPosition}: any) {
         let current = Model.getCurrent();
-        let originColumn = getColumn(current, fromColumn);
-        let targetColumn = getColumn(current, toColumn);
+        let originColumn = assertColumn(current, fromColumn);
+        let targetColumn = assertColumn(current, toColumn);
+        let card = assertCard(originColumn, fromPosition);
+
+        if (typeof toPosition === 'number' && (toPosition < 1 || toPosition > targetColumn.cards.length + 1)) {
+            throw new Error('Invalid card position');
+        }
 
         if (fromColumn !== toColumn && !hasCapacity(targetColumn)) {
             throw new Error('Cannot move a card into a column that is already at its WIP limit');
         }
 
-        let [card] = originColumn.cards.splice(fromPosition - 1, 1);
-
-        if (!card) {
-            return current;
-        }
+        originColumn.cards.splice(fromPosition - 1, 1);
 
         let insertAt = typeof toPosition === 'number' ? toPosition - 1 : targetColumn.cards.length;
         targetColumn.cards.splice(insertAt, 0, card);

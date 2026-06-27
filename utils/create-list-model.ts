@@ -4,6 +4,17 @@ let isUndefined = require('lodash/isUndefined');
 let {createCollectionPersistenceNotifier} = require('./persistence-sync');
 
 function createNestedCollection(Model: any, key: any, options: any = {}) {
+    function assertPosition(index: any) {
+        let current = Model.getCurrent();
+        let items = Array.isArray(current && current[key]) ? current[key] : [];
+
+        if (!Number.isInteger(index) || index < 1 || index > items.length) {
+            throw new Error(`Invalid ${key} position`);
+        }
+
+        return {current, items};
+    }
+
     let nestedCollection: any = {
         add(item: any) {
             let current = Model.getCurrent();
@@ -12,31 +23,27 @@ function createNestedCollection(Model: any, key: any, options: any = {}) {
             return Model.save(current);
         },
         remove(index: any) {
-            let current = Model.getCurrent();
             if (typeof index === 'number') {
+                let {current} = assertPosition(index);
                 current[key].splice(index - 1, 1);
+                return Model.save(current);
             } else {
+                let current = Model.getCurrent();
                 current[key] = [];
+                return Model.save(current);
             }
-            return Model.save(current);
         },
         edit(index: any, values: any) {
-            let current = Model.getCurrent();
+            let {current} = assertPosition(index);
             let item = current[key][index - 1];
-            if (!isUndefined(item)) {
-                Object.assign(item, values);
-            }
+            Object.assign(item, values);
             return Model.save(current);
         },
         reorder({fromIndex, toIndex}: any = {}) {
-            if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 1 || toIndex < 1) {
-                return Model.getCurrent();
-            }
+            let {current, items} = assertPosition(fromIndex);
+            assertPosition(toIndex);
 
-            let current = Model.getCurrent();
-            let items = Array.isArray(current[key]) ? current[key] : [];
-
-            if (fromIndex > items.length || toIndex > items.length || fromIndex === toIndex) {
+            if (fromIndex === toIndex) {
                 return current;
             }
 

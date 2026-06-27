@@ -88,7 +88,7 @@ test('board model routes persistence notifications through consumer hooks lazily
     Model.cards.add({title: 'Card'});
     Model.cards.edit({columnIndex: 1, position: 1, values: {title: 'Card 2'}});
     Model.cards.move({fromColumn: 1, fromPosition: 1, toColumn: 2});
-    Model.cards.remove({columnIndex: 1, positions: [1]});
+    Model.cards.remove({columnIndex: 2, positions: [1]});
 
     await new Promise(resolve => setImmediate(resolve));
 

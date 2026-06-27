@@ -132,7 +132,8 @@ test('Sync init rejects any embedded URL userinfo before command calls', async (
   const cases = [
     'https://user:password@example.test/repo.git',
     'https://token@example.test/repo.git',
-    'https://ghp_TOKEN@example.test/repo.git'
+    'https://ghp_TOKEN@example.test/repo.git',
+    'ssh://git:token@example.test/repo.git'
   ];
 
   for (const remoteUrl of cases) {

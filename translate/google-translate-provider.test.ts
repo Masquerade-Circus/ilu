@@ -37,10 +37,9 @@ test('google translate provider encapsula la llamada HTTP actual', async () => {
   assert.deepEqual(result, { sentences: [{ trans: 'Hola' }], src: 'en' });
 });
 
-test('google translate provider reporta errores HTTP con log y exit inyectables', async () => {
+test('google translate provider reporta errores HTTP sin cerrar el proceso', async () => {
   const { createGoogleTranslateProvider } = loadProviderModule();
   const loggedErrors = [];
-  const exits = [];
 
   const provider = createGoogleTranslateProvider({
     fetchImpl: async () => ({
@@ -51,21 +50,16 @@ test('google translate provider reporta errores HTTP con log y exit inyectables'
       cross(message, color) {
         loggedErrors.push({ message, color });
       }
-    },
-    exit(code) {
-      exits.push(code);
-      throw new Error(`exit:${code}`);
     }
   });
 
   await assert.rejects(
     () => provider({ text: 'hello', source: 'en', target: 'es' }),
-    /exit:1/
+    /Google Translate request failed with status 503/
   );
 
   assert.equal(loggedErrors.length, 1);
   assert.equal(loggedErrors[0].color, 'red');
-  assert.deepEqual(exits, [1]);
 });
 
 test('google translate provider usa global fetch por defecto', async () => {

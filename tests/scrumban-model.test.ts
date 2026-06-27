@@ -9,6 +9,7 @@ const modelModulePath = path.join(repoRoot, 'scrumban', 'model.ts');
 function createCollection() {
   const items = [];
   let sequence = 1;
+  let updateCount = 0;
 
   function matchesQuery(item, query: any = {}) {
     return Object.entries(query).every(([key, value]) => item[key] === value);
@@ -35,9 +36,13 @@ function createCollection() {
       return this.find(query)[0];
     },
     update(item) {
+      updateCount += 1;
       const index = items.findIndex(current => current.$id === item.$id);
       items[index] = item;
       return item;
+    },
+    updateCount() {
+      return updateCount;
     },
     remove(item) {
       const index = items.findIndex(current => current.$id === item.$id);
@@ -51,6 +56,7 @@ function createCollection() {
 function loadModel() {
   const originalLoad = Module._load;
   const fakeCollection = createCollection();
+  const syncCalls = [];
 
   delete require.cache[require.resolve(modelModulePath)];
 
@@ -63,14 +69,23 @@ function loadModel() {
       });
     }
 
+    if (request === '../utils/persistence-sync') {
+      return {
+        createPersistenceNotifier(collectionName) {
+          return action => syncCalls.push({collectionName, action});
+        }
+      };
+    }
+
     return originalLoad.apply(this, arguments);
   };
 
   try {
-    return {
-      Model: require(modelModulePath),
-      fakeCollection
-    };
+      return {
+        Model: require(modelModulePath),
+        fakeCollection,
+        syncCalls
+      };
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(modelModulePath)];
@@ -290,6 +305,41 @@ test('scrumban model rejects invalid WIP limits when adding columns', () => {
   }, /wip limit must be null or an integer greater than or equal to 1/i);
 });
 
+test('scrumban model rejects invalid column positions without persisting a no-op success', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+
+  assert.throws(() => Model.columns.edit(99, {title: 'Missing'}), /invalid column position/i);
+  assert.throws(() => Model.columns.setDefault(99), /invalid column position/i);
+  assert.throws(() => Model.columns.reorder({fromIndex: 99, toIndex: 1}), /invalid column position/i);
+  assert.throws(() => Model.columns.reorder({fromIndex: 1, toIndex: 99}), /invalid column position/i);
+  assert.throws(() => Model.columns.remove(99), /invalid column position/i);
+
+  assert.deepEqual(Model.getCurrent().columns.map(column => column.title), [
+    'Backlog',
+    'Ready',
+    'In Progress',
+    'Done'
+  ]);
+});
+
+test('scrumban model rejects invalid card positions without mutating cards', () => {
+  const {Model} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.cards.add({title: 'One', description: ''}, {columnIndex: 1});
+  const before = Model.getCurrent().columns.map(column => column.cards.map(card => card.title));
+
+  assert.throws(() => Model.cards.add({title: 'Bad', description: ''}, {columnIndex: 99}), /invalid column position/i);
+  assert.throws(() => Model.cards.edit({columnIndex: 1, position: 99, values: {title: 'Bad'}}), /invalid card position/i);
+  assert.throws(() => Model.cards.remove({columnIndex: 1, positions: [99]}), /invalid card position/i);
+  assert.throws(() => Model.cards.move({fromColumn: 1, fromPosition: 99, toColumn: 2}), /invalid card position/i);
+  assert.throws(() => Model.cards.move({fromColumn: 1, fromPosition: 1, toColumn: 99}), /invalid column position/i);
+
+  assert.deepEqual(Model.getCurrent().columns.map(column => column.cards.map(card => card.title)), before);
+});
+
 test('scrumban model moves cards forward and auto-pulls earlier columns while capacity allows', () => {
   const {Model} = loadModel();
 
@@ -386,6 +436,38 @@ test('scrumban model moveMany validates destination WIP before mutating', () => 
     [],
     []
   ]);
+});
+
+test('scrumban model moveMany rechaza selecciones inválidas sin persistir ni notificar sync', () => {
+  const {Model, fakeCollection, syncCalls} = loadModel();
+
+  Model.add({title: 'Product', description: ''});
+  Model.cards.add({title: 'A', description: ''}, {columnIndex: 1});
+  Model.cards.add({title: 'B', description: ''}, {columnIndex: 1});
+  const before = Model.getCurrent().columns.map(column => column.cards.map(card => card.title));
+  const updateCount = fakeCollection.updateCount();
+  const syncCount = syncCalls.length;
+
+  assert.throws(() => {
+    Model.cards.moveMany({
+      cards: [
+        {fromColumn: 1, fromPosition: 1},
+        {fromColumn: 1, fromPosition: 99}
+      ],
+      toColumn: 2
+    });
+  }, /invalid card position/i);
+
+  assert.throws(() => {
+    Model.cards.moveMany({
+      cards: [{fromColumn: 99, fromPosition: 1}],
+      toColumn: 2
+    });
+  }, /invalid column position/i);
+
+  assert.deepEqual(Model.getCurrent().columns.map(column => column.cards.map(card => card.title)), before);
+  assert.equal(fakeCollection.updateCount(), updateCount);
+  assert.equal(syncCalls.length, syncCount);
 });
 
 test('scrumban model keeps auto-pull based on visual column order after reorder', () => {

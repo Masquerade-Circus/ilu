@@ -240,6 +240,33 @@ test('TUI sync runner flush waits for active and queued mutation before shutdown
   assert.equal(closed, true);
 });
 
+test('TUI sync runner closes after shutdown flush even when close throws', async () => {
+  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const sent = [];
+  const closeErrors = [];
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      getSyncStatus() {
+        return {status: 'healthy', hasPendingRemote: false};
+      }
+    },
+    send: (message) => sent.push(message),
+    onCloseError(error) {
+      closeErrors.push(error.message);
+    },
+    close() {
+      throw new Error('close failed');
+    }
+  });
+
+  await runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-throws'}});
+
+  assert.deepEqual(sent.filter(message => message.type === 'sync:result').map(message => message.payload), [
+    {id: 'shutdown-throws', ok: true, status: {status: 'healthy', hasPendingRemote: false}}
+  ]);
+  assert.deepEqual(closeErrors, ['close failed']);
+});
+
 test('TUI sync client forks runner with ignored stdout and stderr', () => {
   const {createTuiSyncClient} = require('../sync/tui-sync-client');
   const forkCalls = [];

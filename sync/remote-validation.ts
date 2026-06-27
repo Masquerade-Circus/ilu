@@ -6,11 +6,46 @@ function hasEmbeddedUrlUserinfo(value: any) {
   try {
     const parsedUrl = new URL(value);
 
-    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    if (parsedUrl.protocol === 'ssh:') {
+      return parsedUrl.password.length > 0;
+    }
+
+    if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+      return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
+    }
+
+    return false;
+  } catch (_error: any) {
+    return false;
+  }
+}
+
+function isSupportedRemoteUrl(value: any) {
+  if (/^[\x21-\x7e]+@[A-Za-z0-9.-]+:.+/.test(value)) {
+    return !value.endsWith(':') && !/\s/.test(value);
+  }
+
+  if (value.startsWith('/') || value.startsWith('./')) {
+    return !/[\s\x00-\x1f]/.test(value);
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+    const supportedProtocols = new Set(['file:', 'http:', 'https:', 'ssh:']);
+
+    if (!supportedProtocols.has(parsedUrl.protocol)) {
       return false;
     }
 
-    return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
+    if ((parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'ssh:') && parsedUrl.hostname.length === 0) {
+      return false;
+    }
+
+    if (parsedUrl.protocol === 'file:' && parsedUrl.pathname.trim().length === 0) {
+      return false;
+    }
+
+    return true;
   } catch (_error: any) {
     return false;
   }
@@ -25,6 +60,10 @@ function validateSyncRemoteUrl(value: any) {
 
   if (hasEmbeddedUrlUserinfo(remoteUrl)) {
     throw new Error('Remote URL must not include embedded credentials');
+  }
+
+  if (!isSupportedRemoteUrl(remoteUrl)) {
+    throw new Error('Invalid sync remote URL');
   }
 
   return remoteUrl;
@@ -57,6 +96,7 @@ function validateSyncBranch(value: any) {
 
 module.exports = {
   hasEmbeddedUrlUserinfo,
+  isSupportedRemoteUrl,
   validateSyncBranch,
   validateSyncRemoteUrl
 };

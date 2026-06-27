@@ -4,8 +4,7 @@ let baseUrl = 'https://translate.google.com/translate_a/single?client=at&dt=t&dt
 
 function createGoogleTranslateProvider({
     fetchImpl = globalThis.fetch,
-    log: logger = log,
-    exit = (code: any) => process.exit(code)
+    log: logger = log
 }: any = {}) {
     return async function googleTranslateProvider({text, source, target}: any) {
         let url = `${baseUrl}&sl=${source}&tl=${target}&q=${encodeURIComponent(text)}`;
@@ -19,8 +18,7 @@ function createGoogleTranslateProvider({
 
         if (response.status < 200 || response.status > 300) {
             logger.cross(response.statusText.red, 'red');
-            exit(1);
-            return;
+            throw new Error(`Google Translate request failed with status ${response.status}`);
         }
 
         return response.json();

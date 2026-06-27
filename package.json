@@ -30,6 +30,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts"
@@ -49,7 +50,11 @@
     "x-robot": "^1.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.1",
-    "typescript": "^6.0.3"
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.0"
   }
 }

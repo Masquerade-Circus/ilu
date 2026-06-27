@@ -223,6 +223,24 @@ test('Sync init blocks embedded credentials before calling the action', async ()
   session.destroy();
 });
 
+test('Sync init blocks SSH password before calling the action', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-setup');
+  session.focus('sync-init-remote');
+  session.dispatchText('ssh://git:token@example.test/repo.git');
+  session.click('sync-init-confirm');
+  session.click('sync-init-start');
+
+  assert.deepEqual(calls, [['status']]);
+  assert.match(session.output(), /Remote URL must not include embedded credentials\./);
+  assert.doesNotMatch(session.output(), /token/);
+  session.destroy();
+});
+
 test('Sync init form allows SSH remotes with a normal user', async () => {
   const Ui = require(uiModulePath);
   const calls = [];
