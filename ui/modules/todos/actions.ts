@@ -1,3 +1,5 @@
+import type { ActionFactoryOptions, TodoActions } from "../../action-contracts";
+
 const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
 const {asArray, currentList, entityId, findList, positiveInteger, safeString, useFallbackListIfNeeded} = require('../../list-action-model');
 
@@ -9,7 +11,7 @@ function safeDescription(value: any): any {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function createTodoActions(options: any = {}): any {
+function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
   const injectedModel = options.model;
   const modelFor = () => injectedModel || loadTodoModel();
 

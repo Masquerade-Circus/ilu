@@ -22,7 +22,6 @@ export type AppOverlayProps = Partial<TerminalOverlayProps> & OverlaySurfaceOpti
   topNav?: OverlaySlot;
   content?: OverlaySlot;
   bottomNav?: OverlaySlot;
-  children?: OverlaySlot;
 };
 
 export function createOverlayProps(props: Partial<TerminalOverlayProps> = {}): TerminalOverlayProps {
@@ -65,13 +64,12 @@ function slotNodes(slot: OverlaySlot | undefined): JSX.Element[] {
   return slot === null || typeof slot === "undefined" ? [] : [slot];
 }
 
-export function AppOverlay(props: AppOverlayProps, ...rawChildren: OverlaySlot[]): JSX.Element {
+export function AppOverlay(props: AppOverlayProps): JSX.Element {
   const {
     title = null,
     topNav = null,
     content = null,
     bottomNav = null,
-    children = null,
     width,
     height,
     surfaceStyle = OVERLAY_SURFACE_STYLE,
@@ -79,8 +77,7 @@ export function AppOverlay(props: AppOverlayProps, ...rawChildren: OverlaySlot[]
   } = props;
   const titleNodes = slotNodes(title);
   const topNavNodes = slotNodes(topNav);
-  // children remains as a temporary bridge for older callers; production overlays must use slots.
-  const contentNodes = slotNodes(content ?? (rawChildren.length > 0 ? rawChildren.flat() as JSX.Element[] : children));
+  const contentNodes = slotNodes(content);
   const bottomNavNodes = slotNodes(bottomNav);
   const topSize = titleNodes.length + topNavNodes.length;
   const bottomSize = bottomNavNodes.length;

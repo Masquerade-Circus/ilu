@@ -1,3 +1,5 @@
+import type { TtsActionFactoryOptions, TtsActions } from "../../action-contracts";
+
 const fs = require('node:fs');
 const path = require('node:path');
 const tts = require('../../../tts');
@@ -49,7 +51,7 @@ function createTtsActions({
   getDefaultVoice = tts.getDefaultVoice,
   voices = tts.SUPPORTED_VOICES,
   fs: fileSystem = fs
-}: any = {}) {
+}: TtsActionFactoryOptions = {}): TtsActions {
   const supportedVoices = Array.isArray(voices) ? voices.filter((voice: any) => typeof voice === 'string' && voice.trim().length > 0) : [];
   const fallbackVoice = supportedVoices.includes('alloy') ? 'alloy' : supportedVoices[0] || 'alloy';
 

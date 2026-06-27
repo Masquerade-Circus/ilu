@@ -2,18 +2,17 @@ import { Text } from "@valyrianjs/terminal";
 import type {
   TerminalCommand,
   TerminalCommandContext,
-  TerminalKeyBinding,
-  TerminalKeymapOptions,
   TerminalSession,
   TerminalTheme
 } from "@valyrianjs/terminal";
 import type { BabelActionResult, SyncStatusState, UiSnapshot, UiSnapshotDomain } from "./types";
-import type { AppOptions, AppRuntimeState, BuildSnapshot, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotOptions, SnapshotRef, SyncStatusEvent, Tab, TerminalRuntimeModule, TuiSyncRunnerClient } from "./app-runtime";
+import type { AppOptions, AppRuntimeState, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotRef, Tab, TerminalRuntimeModule, TuiSyncRunnerClient } from "./app-runtime";
 const { DEFAULT_STATE, HELP_LINES_BY_TAB, TABS, normalizeSyncStatus, normalizeTab, positiveInteger, resolveRuntimeLayout, syncTerminalTitle, terminalTitleForTab }: typeof import("./app-runtime") = require("./app-runtime");
 const { findFocusedNode, findNodeById, isFocusedTextEntry, pasteTextIntoFocusedEntry }: typeof import("./app-headless-tree") = require("./app-headless-tree");
 
 const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
-const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = require("./read-model");
+const { closeAppOverlays, createKeymap, handleCommand }: typeof import("./app-keymap") = require("./app-keymap");
+const { createSnapshotRef }: typeof import("./app-snapshot") = require("./app-snapshot");
 const { createTuiSyncClient }: { createTuiSyncClient: (options?: Record<string, unknown>) => TuiSyncRunnerClient } = require("../sync/tui-sync-client");
 const notifySyncHook: NotifySyncHook = require("../sync/ilu-hooks");
 const { createAppShell }: typeof import("./components/AppShell") = require("./components/AppShell.tsx");
@@ -23,13 +22,10 @@ const { AppOverlay }: typeof import("./components/Overlay") = require("./compone
 const { createTopNav }: typeof import("./components/TopNav") = require("./components/TopNav.tsx");
 const { PANEL_STYLE, TERMINAL_THEME }: typeof import("./theme") = require("./theme.ts");
 const {
-  closeRegisteredOverlays,
-  closeUtilityOverlay,
   createActiveModuleView,
   createActiveUtilityOverlay,
   createDefaultModuleActions,
   createInitialRegisteredState,
-  createModuleKeyBindings,
   handleModuleCommand,
   initialFocusForActiveModule,
   isUtilityTab,
@@ -40,6 +36,8 @@ const {
   setPendingFocusForTab,
   clearPendingFocusForActiveModule
 }: typeof import("./module-registry") = require("./module-registry");
+const { createAppSyncLifecycle }: typeof import("./app-sync") = require("./app-sync");
+const { createTuiSyncRunnerCleanup, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook, createTuiSyncClient });
 
 async function loadTerminalRuntime(): Promise<Runtime> {
   const terminal = await terminalImport;
@@ -56,8 +54,7 @@ const overlayFocusSignatures = new WeakMap<AppRuntimeState, string>();
 const trackedFocusIds = new WeakMap<AppRuntimeState, string>();
 
 function closeAllOverlays(state: AppRuntimeState): void {
-  state.overlay = null;
-  closeRegisteredOverlays(state);
+  closeAppOverlays(state);
 }
 
 function overlayFocusSignature(state: AppRuntimeState): string {
@@ -78,151 +75,6 @@ function overlayInitialFocusId(state: AppRuntimeState): string | null {
   }
 
   return initialFocusForActiveModule(state);
-}
-
-function applySyncStatus(state: AppRuntimeState, event: SyncStatusEvent): boolean {
-  const nextStatus = normalizeSyncStatus(event.state);
-
-  if (state.syncStatus === nextStatus) {
-    return false;
-  }
-
-  state.syncStatus = nextStatus;
-  return true;
-}
-
-function subscribeToSyncStatus(state: AppRuntimeState, getSession: () => TerminalSession | null): () => void {
-  if (typeof notifySyncHook.onSyncStatus !== "function") {
-    return () => {};
-  }
-
-  return notifySyncHook.onSyncStatus((event: SyncStatusEvent) => {
-    const changed = applySyncStatus(state, event);
-    const session = getSession();
-
-    if (changed && session && typeof session.update === "function") {
-      session.update();
-    }
-  });
-}
-
-function flushPendingSync(): false | Promise<unknown> {
-  if (typeof notifySyncHook.flushPending !== "function") {
-    return false;
-  }
-
-  try {
-    const result = notifySyncHook.flushPending();
-
-    if (result && typeof result === "object" && "then" in result && typeof result.then === "function") {
-      return Promise.resolve(result).catch(() => false);
-    }
-  } catch (_error: unknown) {
-    return false;
-  }
-
-  return false;
-}
-
-function enableSyncStatusUpdates(session: TerminalSession, state: AppRuntimeState, cleanupSyncRunner?: () => void | Promise<unknown>): TerminalSession {
-  let destroyRequested = false;
-  let unsubscribed = false;
-  const unsubscribe = subscribeToSyncStatus(state, () => session);
-  const destroySession = session.destroy.bind(session);
-
-  function unsubscribeStatus(): void {
-    if (!unsubscribed) {
-      unsubscribed = true;
-      unsubscribe();
-    }
-  }
-
-  function finishDestroy(): void | Promise<void> {
-    if (typeof cleanupSyncRunner !== "function") {
-      unsubscribeStatus();
-      destroySession();
-      return;
-    }
-
-    let cleanupResult: void | Promise<unknown>;
-
-    try {
-      cleanupResult = cleanupSyncRunner();
-    } catch (_error: unknown) {
-      cleanupResult = undefined;
-    }
-
-    if (cleanupResult && typeof cleanupResult === "object" && "then" in cleanupResult && typeof cleanupResult.then === "function") {
-      return Promise.resolve(cleanupResult)
-        .then(() => undefined)
-        .catch(() => undefined)
-        .finally(() => {
-          unsubscribeStatus();
-          destroySession();
-        });
-    }
-
-    unsubscribeStatus();
-    destroySession();
-  }
-
-  session.destroy = () => {
-    if (destroyRequested) {
-      return;
-    }
-
-    destroyRequested = true;
-    const pendingFlush = flushPendingSync();
-
-    if (pendingFlush && typeof pendingFlush.then === "function") {
-      return pendingFlush.finally(finishDestroy);
-    }
-
-    return finishDestroy();
-  };
-
-  return session;
-}
-
-function shouldUseTuiSyncRunner(): boolean {
-  try {
-    const syncIndex = require("../sync");
-    const config = syncIndex && typeof syncIndex.getSyncConfig === "function" ? syncIndex.getSyncConfig() : null;
-    return Boolean(
-      config
-        && config.enabled === true
-        && config.autoSync !== false
-        && typeof config.remoteUrl === "string"
-        && config.remoteUrl.trim().length > 0
-    );
-  } catch (_error: unknown) {
-    return false;
-  }
-}
-
-function createTuiSyncRunnerCleanup(): () => void | Promise<unknown> {
-  if (typeof notifySyncHook.configureSyncRunner !== "function" || !shouldUseTuiSyncRunner()) {
-    return () => {};
-  }
-
-  const client = createTuiSyncClient();
-  const restoreRunner = notifySyncHook.configureSyncRunner(client);
-
-  return () => {
-    restoreRunner();
-
-    if (typeof client.shutdown === "function") {
-      return client.shutdown().catch(() => {
-        if (typeof client.dispose === "function") {
-          client.dispose();
-        }
-      });
-    }
-
-    if (typeof client.dispose === "function") {
-      client.dispose();
-    }
-  };
 }
 
 function enableClockFooterTicker(session: TerminalSession, snapshotRef: SnapshotRef): TerminalSession {
@@ -354,131 +206,6 @@ function createApp(
   }
 
   return v(App);
-}
-
-function handleCommand(command: TerminalCommand, state: AppRuntimeState): boolean {
-  if (command.id === "ilu.add") {
-    return true;
-  }
-
-  if (command.id === "ilu.board") {
-    closeAllOverlays(state);
-    state.activeTab = "Board";
-    setPendingFocusForTab(state, "Board");
-    return true;
-  }
-
-  if (command.id === "ilu.tab") {
-    closeAllOverlays(state);
-    state.activeTab = normalizeTab(command.text);
-    setPendingFocusForTab(state, state.activeTab);
-    state.utilities.activeOverlay = null;
-    return true;
-  }
-
-  if (command.id === "ilu.help") {
-    state.overlay = state.overlay === "help" ? null : "help";
-    return true;
-  }
-
-  if (command.id === "ilu.escape") {
-    if (state.overlay === "help") {
-      state.overlay = null;
-      return true;
-    }
-
-    if (closeUtilityOverlay(state.utilities)) {
-      return true;
-    }
-
-    return true;
-  }
-
-  if (command.id === "ilu.cancel") {
-    if (state.overlay === "help") {
-      state.running = false;
-      return true;
-    }
-
-    if (closeUtilityOverlay(state.utilities)) {
-      return true;
-    }
-
-    state.running = false;
-    return true;
-  }
-
-  return false;
-}
-
-function createKeymap(
-  state: AppRuntimeState,
-  afterCommand?: (command: TerminalCommand, state: AppRuntimeState) => void,
-  handleLocalCommand?: (command: TerminalCommand, context: TerminalCommandContext) => boolean
-): TerminalKeymapOptions {
-  const bindings: TerminalKeyBinding[] = [
-    ...createModuleKeyBindings(),
-    { key: "CTRL_1", command: { id: "ilu.tab", text: "Todo" }, scope: "global" },
-    { key: "CTRL_2", command: { id: "ilu.tab", text: "Notes" }, scope: "global" },
-    { key: "CTRL_3", command: { id: "ilu.tab", text: "Board" }, scope: "global" },
-    { key: "CTRL_4", command: { id: "ilu.tab", text: "Clocks" }, scope: "global" },
-    { key: "CTRL_5", command: { id: "ilu.tab", text: "Sync" }, scope: "global" },
-    { key: "CTRL_6", command: { id: "ilu.tab", text: "Translate" }, scope: "global" },
-    { key: "CTRL_7", command: { id: "ilu.tab", text: "Speech" }, scope: "global" },
-    { key: "CTRL_K", command: { id: "ilu.help" }, scope: "global" },
-    { key: "ESCAPE", command: { id: "ilu.escape" }, scope: "global" },
-    { key: "CTRL_C", command: { id: "input.copy" }, scope: "input", when: { focusedTag: "terminal-input" } },
-    { key: "CTRL_C", command: { id: "ilu.cancel" }, scope: "global" }
-  ];
-
-  return {
-    bindings,
-    onCommand(command: TerminalCommand, context: TerminalCommandContext) {
-      const handled = typeof handleLocalCommand === "function" && handleLocalCommand(command, context) ? true : handleCommand(command, state);
-
-      if (handled && typeof afterCommand === "function") {
-        afterCommand(command, state);
-      }
-
-      return handled;
-    }
-  };
-}
-
-function createSnapshotRef(options: AppOptions = {}): SnapshotRef {
-  if (options.snapshot) {
-    return {
-      current: options.snapshot,
-      refresh() {
-        return options.snapshot!;
-      }
-    };
-  }
-
-  const hasCustomBuildSnapshot = typeof options.buildSnapshot === "function";
-  const buildSnapshot: BuildSnapshot = hasCustomBuildSnapshot
-    ? options.buildSnapshot!
-    : () => buildReadSnapshot(options.snapshotOptions);
-  const ref = {
-    current: (hasCustomBuildSnapshot ? buildSnapshot() : buildReadSnapshot(options.snapshotOptions)) as UiSnapshot,
-    refresh(domain?: UiSnapshotDomain) {
-      if (domain === "todo" || domain === "notes" || domain === "board" || domain === "clocks") {
-        const nextDomainSnapshot = hasCustomBuildSnapshot
-          ? buildSnapshot(domain)
-          : buildReadSnapshotDomain(domain, options.snapshotOptions);
-
-        if (nextDomainSnapshot !== null && typeof nextDomainSnapshot === "object" && domain in nextDomainSnapshot) {
-          ref.current = { ...ref.current, [domain]: nextDomainSnapshot[domain] } as UiSnapshot;
-          return ref.current;
-        }
-      }
-
-      ref.current = buildSnapshot() as UiSnapshot;
-      return ref.current;
-    }
-  };
-
-  return ref;
 }
 
 function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeState): boolean {

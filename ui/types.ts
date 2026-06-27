@@ -125,7 +125,7 @@ export interface TtsUtilityState {
   operation: string | null;
 }
 
-export interface UtilityRuntimeState {
+export interface UtilityAppState {
   activeOverlay: UtilityOverlayId;
   sync: SyncUtilityState;
   babel: BabelUtilityState;
@@ -138,7 +138,7 @@ export interface AppState {
   notesState: NotesRuntimeState;
   board: BoardRuntimeState;
   clocksState: ClockRuntimeState;
-  utilities: UtilityRuntimeState;
+  utilities: UtilityAppState;
 }
 
 export type UiEntityId = string | number;

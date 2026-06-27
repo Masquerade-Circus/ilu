@@ -1,6 +1,7 @@
 import type { TerminalCommand, TerminalCommandContext, TerminalKeyBinding } from "@valyrianjs/terminal";
 import type { AppOptions, AppRuntimeState, SessionActions, SnapshotRef, Tab } from "./app-runtime";
-import type { BabelActions, BoardActions, ClockActions, NoteActions, RefreshSnapshot, SyncActions, TodoActions, TtsActions, UiSnapshot, UtilityRuntimeState } from "./types";
+import type { RefreshSnapshot, UiSnapshot, UtilityAppState } from "./types";
+import type { ActionFactoryOptions, BabelActionFactoryOptions, BabelActions, BoardActions, ClockActions, NoteActions, SyncActionFactoryOptions, SyncActions, TodoActions, TtsActionFactoryOptions, TtsActions } from "./action-contracts";
 import {
   clearBoardUiOverlay,
   createBoardKeyBindings,
@@ -56,13 +57,13 @@ import {
   prepareTtsViewState
 } from "./modules/tts/MainView";
 
-const { createBoardActions }: { createBoardActions: (options?: Record<string, unknown>) => BoardActions } = require("./modules/board/actions");
-const { createClockActions }: { createClockActions: (options?: Record<string, unknown>) => ClockActions } = require("./modules/clocks/actions");
-const { createNoteActions }: { createNoteActions: (options?: Record<string, unknown>) => NoteActions } = require("./modules/notes/actions");
-const { createTodoActions }: { createTodoActions: (options?: Record<string, unknown>) => TodoActions } = require("./modules/todos/actions");
-const { createBabelActions }: { createBabelActions: (options?: Record<string, unknown>) => BabelActions } = require("./modules/babel/actions");
-const { createSyncActions }: { createSyncActions: (options?: Record<string, unknown>) => SyncActions } = require("./modules/sync/actions");
-const { createTtsActions }: { createTtsActions: (options?: Record<string, unknown>) => TtsActions } = require("./modules/tts/actions");
+const { createBoardActions }: { createBoardActions: (options?: ActionFactoryOptions) => BoardActions } = require("./modules/board/actions");
+const { createClockActions }: { createClockActions: (options?: ActionFactoryOptions) => ClockActions } = require("./modules/clocks/actions");
+const { createNoteActions }: { createNoteActions: (options?: ActionFactoryOptions) => NoteActions } = require("./modules/notes/actions");
+const { createTodoActions }: { createTodoActions: (options?: ActionFactoryOptions) => TodoActions } = require("./modules/todos/actions");
+const { createBabelActions }: { createBabelActions: (options?: BabelActionFactoryOptions) => BabelActions } = require("./modules/babel/actions");
+const { createSyncActions }: { createSyncActions: (options?: SyncActionFactoryOptions) => SyncActions } = require("./modules/sync/actions");
+const { createTtsActions }: { createTtsActions: (options?: TtsActionFactoryOptions) => TtsActions } = require("./modules/tts/actions");
 
 type RegisteredView = {
   activePanelNodes: JSX.Element[];
@@ -111,7 +112,7 @@ export function createInitialRegisteredState(source: Record<string, unknown>): P
   };
 }
 
-export function createInitialUtilityState(source: Record<string, unknown> = {}): UtilityRuntimeState {
+export function createInitialUtilityState(source: Record<string, unknown> = {}): UtilityAppState {
   const activeOverlay = isUtilityOverlayId(source.activeOverlay) ? source.activeOverlay : null;
 
   return {
@@ -122,13 +123,13 @@ export function createInitialUtilityState(source: Record<string, unknown> = {}):
   };
 }
 
-export function clearUtilityTransientState(state: UtilityRuntimeState): void {
+export function clearUtilityTransientState(state: UtilityAppState): void {
   clearSyncUtilityTransientState(state);
   clearBabelUtilityTransientState(state);
   clearTtsUtilityTransientState(state);
 }
 
-export function closeUtilityOverlay(state: UtilityRuntimeState): boolean {
+export function closeUtilityOverlay(state: UtilityAppState): boolean {
   if (state.activeOverlay === null) {
     return false;
   }
@@ -368,6 +369,6 @@ export function isUtilityTab(tab: string): boolean {
   return tab === "Sync" || tab === "Translate" || tab === "Speech";
 }
 
-function isUtilityOverlayId(value: unknown): value is UtilityRuntimeState["activeOverlay"] {
+function isUtilityOverlayId(value: unknown): value is UtilityAppState["activeOverlay"] {
   return value === "sync-init" || value === "tts-voice";
 }

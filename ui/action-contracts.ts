@@ -1,6 +1,38 @@
 import type { BoardId, UiEntityId } from "./types";
 
 export type UiActionResult = { ok: true; [key: string]: unknown } | { ok: false; error: string };
+export type ActionFactoryOptions = Record<string, unknown>;
+export type FileSystemIo = {
+  existsSync: (path: string) => boolean;
+  statSync: (path: string) => { isFile: () => boolean };
+};
+export type SyncCommandIo = {
+  status: () => unknown | Promise<unknown>;
+  retry: () => unknown | Promise<unknown>;
+  enable: () => unknown | Promise<unknown>;
+  disable: () => unknown | Promise<unknown>;
+  init: (args: unknown[], options: { remote: string; branch: string }) => unknown | Promise<unknown>;
+};
+export type SyncActionFactoryOptions = {
+  commands?: SyncCommandIo;
+};
+export type TranslateProviderIo = (values: { text: string; source: string; target: string }) => unknown | Promise<unknown>;
+export type BabelActionFactoryOptions = {
+  provider?: TranslateProviderIo | null;
+  fetchImpl?: unknown;
+  log?: unknown;
+};
+export type TtsServiceIo = {
+  action: (args: { inputFile: string; outputFile: string; voice: string }) => { outputFile?: string } | Promise<{ outputFile?: string }>;
+  voiceAction: (args: { voice: string }, options: { voice: string }) => { voice?: string } | Promise<{ voice?: string }>;
+};
+export type TtsActionFactoryOptions = {
+  service?: TtsServiceIo;
+  readStoredApiKey?: () => string | null;
+  getDefaultVoice?: (options?: { fallback?: string }) => string;
+  voices?: string[];
+  fs?: FileSystemIo;
+};
 
 export type TodoActionResult = UiActionResult;
 export type NoteActionResult = UiActionResult;
@@ -38,6 +70,7 @@ export interface ClockActions {
   addClock: (values: { name: string; timezone: string }) => ClockActionResult;
   removeClocks: (values: { positions: number[] }) => ClockActionResult;
   moveClock: (values: { fromPosition: number; toPosition: number }) => ClockActionResult;
+  searchTimezoneChoices?: (values?: { search?: unknown }) => Array<{ name: string; value: string }>;
 }
 
 export interface SyncActions {

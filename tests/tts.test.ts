@@ -109,6 +109,39 @@ test('tts convierte markdown a audio, pide API key faltante y la guarda en tts-c
       fs.readFileSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json'), 'utf8'),
       JSON.stringify({apiKey: 'sk-test-key'}, null, 2)
     );
+    assert.equal(
+      fs.statSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json')).mode & 0o777,
+      0o600
+    );
+  } finally {
+    restoreHome();
+    fs.rmSync(tempHome, {recursive: true, force: true});
+    delete require.cache[require.resolve(ttsModulePath)];
+  }
+});
+
+test('tts rechaza output que resuelve al mismo archivo de entrada antes de llamar OpenAI', async () => {
+  delete require.cache[require.resolve(ttsModulePath)];
+
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-overwrite-'));
+  const restoreHome = withTestHome(tempHome);
+  const inputFile = path.join(tempHome, 'chapter.txt');
+  fs.writeFileSync(inputFile, 'texto original', 'utf8');
+
+  try {
+    const {createTtsService} = require(ttsModulePath);
+    const service = createTtsService({
+      prompt: async () => ({apiKey: 'sk-test-key'}),
+      createOpenAI() {
+        throw new Error('OpenAI should not be called when output overwrites input');
+      }
+    });
+
+    await assert.rejects(
+      service.action({inputFile, outputFile: inputFile}, {}),
+      /output file must be different from input file/i
+    );
+    assert.equal(fs.readFileSync(inputFile, 'utf8'), 'texto original');
   } finally {
     restoreHome();
     fs.rmSync(tempHome, {recursive: true, force: true});
@@ -166,6 +199,68 @@ test('tts reutiliza API key y voz guardadas en .config/tts-config.json y no pide
       {model: 'gpt-4o-mini-tts', voice: 'nova', input: 'Hola mundo'}
     ]);
     assert.equal(fs.readFileSync(outputFile, 'utf8'), 'AUDIO');
+  } finally {
+    restoreHome();
+    fs.rmSync(tempHome, {recursive: true, force: true});
+    delete require.cache[require.resolve(ttsModulePath)];
+  }
+});
+
+test('tts usa voz explícita soportada en el contrato real de conversión', async () => {
+  delete require.cache[require.resolve(ttsModulePath)];
+
+  const tempHome = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-tts-explicit-'));
+  const restoreHome = withTestHome(tempHome);
+  const inputFile = path.join(tempHome, 'chapter.txt');
+  const outputFile = path.join(tempHome, 'chapter.mp3');
+  const seenPayloads = [];
+
+  fs.writeFileSync(inputFile, 'Hola mundo', 'utf8');
+
+  try {
+    const {createTtsService} = require(ttsModulePath);
+    const service = createTtsService({
+      prompt: async () => ({apiKey: 'sk-test-key'}),
+      mergeChunkFiles: createFakeMerge([]),
+      createOpenAI: createFakeOpenAi(seenPayloads)
+    });
+
+    await service.action({inputFile, outputFile, voice: 'nova'}, {});
+
+    assert.deepEqual(seenPayloads, [
+      {apiKey: 'sk-test-key'},
+      {model: 'gpt-4o-mini-tts', voice: 'nova', input: 'Hola mundo'}
+    ]);
+  } finally {
+    restoreHome();
+    fs.rmSync(tempHome, {recursive: true, force: true});
+    delete require.cache[require.resolve(ttsModulePath)];
+  }
+});
+
+test('tts rechaza voz no soportada antes de crear cliente OpenAI', async () => {
+  delete require.cache[require.resolve(ttsModulePath)];
+
+  const tempHome = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-tts-voice-invalid-'));
+  const restoreHome = withTestHome(tempHome);
+  const inputFile = path.join(tempHome, 'chapter.txt');
+  const outputFile = path.join(tempHome, 'chapter.mp3');
+
+  fs.writeFileSync(inputFile, 'Hola mundo', 'utf8');
+
+  try {
+    const {createTtsService} = require(ttsModulePath);
+    const service = createTtsService({
+      prompt: async () => ({apiKey: 'sk-test-key'}),
+      createOpenAI() {
+        throw new Error('OpenAI should not be called for an unsupported voice');
+      }
+    });
+
+    await assert.rejects(
+      service.action({inputFile, outputFile, voice: 'badvoice'}, {}),
+      /supported voice/i
+    );
   } finally {
     restoreHome();
     fs.rmSync(tempHome, {recursive: true, force: true});

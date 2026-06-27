@@ -1,5 +1,4 @@
 import {
-  Button,
   Editor,
   Fixed,
   FocusScope,
@@ -38,7 +37,6 @@ import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 import {
   CARD_DETAILS_SURFACE_STYLE,
-  CONTROL_BUTTON_STYLE
 } from "../../theme";
 import { getBoardCard, getBoardColumn } from "./BoardCard";
 import { positiveInteger } from "./number-guards";
@@ -56,6 +54,8 @@ import {
   safeBoardActionResult,
   sameBoardSelection
 } from "./commands";
+import { renderBoardSelector } from "./board-selector";
+import { cardDetailsHeadingWidth, wrappedTerminalText } from "./board-text";
 
 export {
   boardCardListFocusId,
@@ -99,106 +99,6 @@ type BoardMainViewResult = {
   actionBar: JSX.Element | null;
   overlays: Array<JSX.Element | null>;
 };
-
-export function boardSwitchElementId(board: BoardSummary, index: number): string {
-  const rawId = typeof board.id === "string" || typeof board.id === "number" ? String(board.id) : `board-${index + 1}`;
-  return rawId.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || `board-${index + 1}`;
-}
-
-function boardSelectorItems(board: BoardSnapshot): BoardSummary[] {
-  if (Array.isArray(board.boards) && board.boards.length > 0) {
-    return board.boards;
-  }
-
-  const title = typeof board.title === "string" && board.title.trim().length > 0 ? board.title.trim() : "No board yet";
-  return [{ id: typeof board.id === "string" || typeof board.id === "number" ? board.id : "current", title, current: true }];
-}
-
-type BoardSelectorHandlers = {
-  switchBoard?: (id: BoardId) => void;
-  openBoardDetails?: (id: BoardId) => void;
-};
-
-function renderBoardSelector(board: BoardSnapshot, handlers: BoardSelectorHandlers = {}): JSX.Element {
-  const boards = boardSelectorItems(board);
-
-  return (
-    <View direction="row" gap={1}>
-      {boards.map((item: any, index: any) => {
-        const id = boardSwitchElementId(item, index);
-        const label = typeof item.title === "string" && item.title.trim().length > 0 ? item.title.trim() : "Untitled board";
-        const active = item.current === true || ((typeof board.id === "string" || typeof board.id === "number") && item.id === board.id);
-
-        return (
-          <Button
-            id={`board-switch-${id}`}
-            label={label}
-            style={CONTROL_BUTTON_STYLE}
-            styles={{ selected: "button.focus", focus: "button.focus", hover: "button.hover" }}
-            state={active ? "selected" : undefined}
-            onpress={() => {
-              if (typeof handlers.switchBoard === "function" && (typeof item.id === "string" || typeof item.id === "number")) {
-                handlers.switchBoard(item.id);
-              }
-            }}
-            ondoublepress={() => {
-              if (typeof handlers.openBoardDetails === "function" && (typeof item.id === "string" || typeof item.id === "number")) {
-                handlers.openBoardDetails(item.id);
-              }
-            }}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
-function wrappedTerminalText(value: string, width: number): string {
-  const safeWidth = positiveInteger(width) ? width : 1;
-  const words = value.trim().split(/\s+/).filter((word: any) => word.length > 0);
-  const lines: string[] = [];
-  let currentLine = "";
-
-  for (const word of words) {
-    if (word.length > safeWidth) {
-      if (currentLine.length > 0) {
-        lines.push(currentLine);
-        currentLine = "";
-      }
-
-      for (let index = 0; index < word.length; index += safeWidth) {
-        lines.push(word.slice(index, index + safeWidth));
-      }
-
-      continue;
-    }
-
-    const candidate = currentLine.length > 0 ? currentLine + " " + word : word;
-
-    if (candidate.length <= safeWidth) {
-      currentLine = candidate;
-      continue;
-    }
-
-    if (currentLine.length > 0) {
-      lines.push(currentLine);
-    }
-
-    currentLine = word;
-  }
-
-  if (currentLine.length > 0) {
-    lines.push(currentLine);
-  }
-
-  return lines.length > 0 ? lines.join("\n") : "";
-}
-
-function cardDetailsHeadingWidth(totalWidth: number): number {
-  const paneHorizontalChrome = 4;
-
-  return Math.max(1, totalWidth - paneHorizontalChrome);
-}
 
 export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState, layout: BoardLayout): JSX.Element[] {
   if (typeof board.error === "string" && board.error.length > 0) {

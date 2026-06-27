@@ -2,6 +2,7 @@ let fs = require('node:fs');
 let localPaths = require('../utils/local-paths');
 let configStore = require('../utils/config-store');
 let sync = require('./index');
+let {validateSyncBranch, validateSyncRemoteUrl} = require('./remote-validation');
 
 function ensureSyncDir() {
     fs.mkdirSync(localPaths.syncDirPath(), {recursive: true});
@@ -12,12 +13,9 @@ function saveConfig(config: any) {
 }
 
 async function init(args: any, options: any = {}) {
-    let remoteUrl = (options.remote || '').trim();
-    let branch = (options.branch || 'main').trim() || 'main';
-
-    if (!remoteUrl) {
-        throw new Error('A remote URL is required for sync init');
-    }
+    let remoteUrl = validateSyncRemoteUrl(options.remote);
+    let hasBranchOption = Object.prototype.hasOwnProperty.call(options, 'branch');
+    let branch = hasBranchOption ? validateSyncBranch(options.branch) : 'main';
 
     let backend = sync.createBootstrapBackend({branch, remoteUrl});
     let bootstrapContext = sync.getBootstrapContext();

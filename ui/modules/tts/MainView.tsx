@@ -3,7 +3,7 @@ import type { TerminalInputChangeEventPayload, TerminalListPressEventPayload } f
 import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
 import { AppOverlay } from "../../components/Overlay";
-import type { OptionalTerminalChild, TerminalChild, TtsActionResult, TtsActions, TtsUtilityState, UtilityRuntimeState } from "../../types";
+import type { OptionalTerminalChild, TerminalChild, TtsActionResult, TtsActions, TtsUtilityState, UtilityAppState } from "../../types";
 import { cleanStringArray, cleanText } from "../../components/utility/text";
 
 type RequestRender = () => void;
@@ -31,7 +31,7 @@ export function createInitialTtsState(source: Record<string, unknown> = {}): Tts
   };
 }
 
-export function clearTtsUtilityTransientState(state: UtilityRuntimeState): void {
+export function clearTtsUtilityTransientState(state: UtilityAppState): void {
   state.tts.error = "";
   state.tts.message = "";
 }
@@ -40,7 +40,7 @@ function requiredText(value: string): string {
   return value.trim();
 }
 
-function updateTtsVoices(state: UtilityRuntimeState, ttsActions: TtsActions, preferStoredVoice: boolean = false): void {
+function updateTtsVoices(state: UtilityAppState, ttsActions: TtsActions, preferStoredVoice: boolean = false): void {
   const voices = cleanStringArray(ttsActions.voices, DEFAULT_VOICES);
   state.tts.voices = voices;
 
@@ -60,11 +60,11 @@ function updateTtsVoices(state: UtilityRuntimeState, ttsActions: TtsActions, pre
   state.tts.voice = voices.includes("alloy") ? "alloy" : voices[0] || "alloy";
 }
 
-export function prepareTtsViewState(state: UtilityRuntimeState, ttsActions: TtsActions): void {
+export function prepareTtsViewState(state: UtilityAppState, ttsActions: TtsActions): void {
   updateTtsVoices(state, ttsActions, true);
 }
 
-export function prepareTtsVoiceOverlay(state: UtilityRuntimeState, ttsActions: TtsActions): void {
+export function prepareTtsVoiceOverlay(state: UtilityAppState, ttsActions: TtsActions): void {
   updateTtsVoices(state, ttsActions);
   state.activeOverlay = "tts-voice";
 }
@@ -81,7 +81,7 @@ export function validateTtsInput(state: TtsUtilityState): string {
   return "";
 }
 
-export function runTtsConversion(state: UtilityRuntimeState, ttsActions: TtsActions, onComplete: RequestRender = () => {}): void {
+export function runTtsConversion(state: UtilityAppState, ttsActions: TtsActions, onComplete: RequestRender = () => {}): void {
   if (state.tts.operation !== null) {
     return;
   }
@@ -129,7 +129,7 @@ export function runTtsConversion(state: UtilityRuntimeState, ttsActions: TtsActi
     });
 }
 
-export function setTtsVoice(state: UtilityRuntimeState, ttsActions: TtsActions, voice: string, onComplete: RequestRender = () => {}): void {
+export function setTtsVoice(state: UtilityAppState, ttsActions: TtsActions, voice: string, onComplete: RequestRender = () => {}): void {
   if (state.tts.operation !== null) {
     return;
   }
@@ -158,7 +158,7 @@ export function setTtsVoice(state: UtilityRuntimeState, ttsActions: TtsActions, 
     });
 }
 
-export function createTtsActionBar(state: UtilityRuntimeState, ttsActions: TtsActions, onComplete?: RequestRender): OptionalTerminalChild {
+export function createTtsActionBar(state: UtilityAppState, ttsActions: TtsActions, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
       createButton("tts-start", "Start conversion", () => runTtsConversion(state, ttsActions, onComplete)),
@@ -169,7 +169,7 @@ export function createTtsActionBar(state: UtilityRuntimeState, ttsActions: TtsAc
   });
 }
 
-export function createTtsMainView(state: UtilityRuntimeState, _ttsActions: TtsActions, _onComplete?: RequestRender): TerminalChild[] {
+export function createTtsMainView(state: UtilityAppState, _ttsActions: TtsActions, _onComplete?: RequestRender): TerminalChild[] {
   const busy = state.tts.operation !== null;
 
   return [
@@ -205,7 +205,7 @@ export function createTtsMainView(state: UtilityRuntimeState, _ttsActions: TtsAc
   ];
 }
 
-export function createTtsVoiceOverlay(state: UtilityRuntimeState, ttsActions: TtsActions, layout: TtsOverlayLayout, onComplete?: RequestRender): OptionalTerminalChild {
+export function createTtsVoiceOverlay(state: UtilityAppState, ttsActions: TtsActions, layout: TtsOverlayLayout, onComplete?: RequestRender): OptionalTerminalChild {
   if (state.activeOverlay !== "tts-voice") {
     return null;
   }

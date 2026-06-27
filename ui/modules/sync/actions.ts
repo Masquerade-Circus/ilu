@@ -1,4 +1,7 @@
+import type { SyncActionFactoryOptions, SyncActions } from "../../action-contracts";
+
 const {safeErrorMessage} = require('../../action-results');
+const {validateSyncBranch, validateSyncRemoteUrl} = require('../../../sync/remote-validation');
 
 const FALLBACK_ERROR = 'Sync failed. Check your setup and try again.';
 const NOT_SET_UP = 'Not set up';
@@ -117,22 +120,7 @@ function validationResult(error: any) {
   };
 }
 
-function normalizeBranch(value: any) {
-  const branch = cleanText(value);
-  return branch.length > 0 ? branch : 'main';
-}
-
-function hasEmbeddedUrlUserinfo(value: any) {
-  try {
-    const parsedUrl = new URL(value);
-
-    return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function createSyncActions(options: any = {}) {
+function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions {
   const commands = options.commands || defaultCommands();
 
   async function readStatus() {
@@ -165,15 +153,17 @@ function createSyncActions(options: any = {}) {
       return runCommand('disable');
     },
     async init(values: any = {}) {
-      const remoteUrl = cleanText(values.remoteUrl);
+      const remoteUrlInput = cleanText(values.remoteUrl);
       const branch = cleanText(values.branch);
       const confirmed = values.confirmed === true;
 
-      if (remoteUrl.length === 0) {
+      if (remoteUrlInput.length === 0) {
         return validationResult('Remote URL is required.');
       }
 
-      if (hasEmbeddedUrlUserinfo(remoteUrl)) {
+      try {
+        validateSyncRemoteUrl(remoteUrlInput);
+      } catch (_error: any) {
         return validationResult('Remote URL must not include embedded credentials.');
       }
 
@@ -186,7 +176,7 @@ function createSyncActions(options: any = {}) {
       }
 
       try {
-        await commands.init([], {remote: remoteUrl, branch: normalizeBranch(branch)});
+        await commands.init([], {remote: remoteUrlInput, branch: validateSyncBranch(branch)});
         const status = typeof commands.status === 'function'
           ? await withoutConsoleLog(() => commands.status())
           : {status: 'pending_remote', hasPendingRemote: true};

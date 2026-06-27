@@ -223,6 +223,24 @@ test('Sync init blocks embedded credentials before calling the action', async ()
   session.destroy();
 });
 
+test('Sync init form allows SSH remotes with a normal user', async () => {
+  const Ui = require(uiModulePath);
+  const calls = [];
+  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
+
+  session.click('tab-sync');
+  session.click('sync-setup');
+  session.focus('sync-init-remote');
+  session.dispatchText('ssh://git@github.com/org/repo.git');
+  session.click('sync-init-confirm');
+  session.click('sync-init-start');
+
+  assert.deepEqual(calls.at(-1), ['init', {remoteUrl: 'ssh://git@github.com/org/repo.git', branch: 'main', confirmed: true}]);
+  assert.equal(session.state().utilities.activeOverlay, null);
+  assert.match(session.output(), /Status: Synced/);
+  session.destroy();
+});
+
 test('Esc keeps Sync app open when no secondary overlay is active', async () => {
   const Ui = require(uiModulePath);
   const calls = [];

@@ -61,8 +61,13 @@ function loadTtsConfig({fs: fileSystem = fs, paths = localPaths}: any = {}) {
 
 function saveTtsConfig(config: any, {fs: fileSystem = fs, paths = localPaths}: any = {}) {
     let nextConfig = serializeTtsConfig(config);
-    fileSystem.mkdirSync(paths.syncDirPath(), {recursive: true});
-    fileSystem.writeFileSync(paths.ttsConfigFilePath(), JSON.stringify(nextConfig, null, 2), 'utf8');
+    fileSystem.mkdirSync(paths.syncDirPath(), {recursive: true, mode: 0o700});
+    fileSystem.writeFileSync(paths.ttsConfigFilePath(), JSON.stringify(nextConfig, null, 2), {encoding: 'utf8', mode: 0o600});
+
+    if (typeof fileSystem.chmodSync === 'function') {
+        fileSystem.chmodSync(paths.ttsConfigFilePath(), 0o600);
+    }
+
     return nextConfig;
 }
 

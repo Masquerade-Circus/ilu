@@ -1,8 +1,16 @@
 require('colors');
 
-let clipboardy = require('clipboardy');
 let {log} = require('../utils');
 let {createGoogleTranslateProvider} = require('./google-translate-provider');
+
+const importClipboardy = new Function('return import("clipboardy")') as () => Promise<any>;
+
+async function writeToClipboard(value: string) {
+    const clipboardy = await importClipboardy();
+    const clipboard = clipboardy.default || clipboardy;
+
+    await clipboard.write(value);
+}
 
 // let exampleResponseSingleWord = {
 //     sentences: [{ trans: 'Hola', orig: 'Hello', backend: 1 }],
@@ -89,7 +97,7 @@ function validate(text: any) {
 
 function createTranslator({
     provider = createGoogleTranslateProvider(),
-    clipboard = clipboardy,
+    clipboard = {write: writeToClipboard},
     log: logger = log,
     osLang = getOsLang()
 }: any = {}) {

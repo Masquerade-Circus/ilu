@@ -149,6 +149,20 @@ test('Sync init rejects any embedded URL userinfo before command calls', async (
   assert.deepEqual(fake.calls, []);
 });
 
+test('Sync init action allows SSH remotes with a normal user', async () => {
+  const {createSyncActions} = require('../ui/modules/sync/actions');
+  const fake = createFakeCommands();
+  const actions = createSyncActions({commands: fake.commands});
+
+  const result = await actions.init({remoteUrl: 'ssh://git@github.com/org/repo.git', branch: 'main', confirmed: true});
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(fake.calls, [
+    ['init', [], {remote: 'ssh://git@github.com/org/repo.git', branch: 'main'}],
+    ['status']
+  ]);
+});
+
 test('Sync init preserves command safety path and refreshes status after setup', async () => {
   const {createSyncActions} = require('../ui/modules/sync/actions');
   const fake = createFakeCommands({

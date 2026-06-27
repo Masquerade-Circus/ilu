@@ -1,3 +1,5 @@
+import type { ActionFactoryOptions, BoardActions } from "../../action-contracts";
+
 function loadBoardModel(): any {
   return require('../../../scrumban/model');
 }
@@ -97,7 +99,7 @@ function safeModelError(fallback: any): any {
   return {ok: false, error: fallback};
 }
 
-function createBoardActions(options: any = {}): any {
+function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
   const injectedModel = options.model;
   const modelFor = () => injectedModel || loadBoardModel();
 

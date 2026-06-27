@@ -3,8 +3,10 @@ import type { TerminalInputChangeEventPayload } from "@valyrianjs/terminal";
 import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
 import { AppOverlay } from "../../components/Overlay";
-import type { OptionalTerminalChild, SyncActionResult, SyncActions, SyncUtilityState, TerminalChild, UtilityRuntimeState } from "../../types";
+import type { OptionalTerminalChild, SyncActionResult, SyncActions, SyncUtilityState, TerminalChild, UtilityAppState } from "../../types";
 import { cleanStringArray, cleanText } from "../../components/utility/text";
+
+const { hasEmbeddedUrlUserinfo } = require("../../../sync/remote-validation") as { hasEmbeddedUrlUserinfo: (value: string) => boolean };
 
 type RequestRender = () => void;
 type SyncOperation = "status" | "retry" | "enable" | "disable" | "init";
@@ -46,7 +48,7 @@ export function createInitialSyncState(source: Record<string, unknown> = {}): Sy
   };
 }
 
-export function clearSyncUtilityTransientState(state: UtilityRuntimeState): void {
+export function clearSyncUtilityTransientState(state: UtilityAppState): void {
   state.sync.error = "";
   state.sync.initForm.error = "";
 }
@@ -76,7 +78,7 @@ function applySyncResult(state: SyncUtilityState, result: SyncActionResult | und
 }
 
 export function runSyncOperation(
-  state: UtilityRuntimeState,
+  state: UtilityAppState,
   operation: SyncOperation,
   action: () => SyncActionResult | Promise<SyncActionResult>,
   onComplete: RequestRender = () => {}
@@ -129,7 +131,7 @@ export function runSyncOperation(
   state.sync.operation = null;
 }
 
-export function prepareSyncViewState(state: UtilityRuntimeState, syncActions: SyncActions, onComplete?: RequestRender): void {
+export function prepareSyncViewState(state: UtilityAppState, syncActions: SyncActions, onComplete?: RequestRender): void {
   if (state.sync.statusLoaded || state.sync.operation !== null) {
     return;
   }
@@ -137,7 +139,7 @@ export function prepareSyncViewState(state: UtilityRuntimeState, syncActions: Sy
   runSyncOperation(state, "status", () => syncActions.status(), onComplete);
 }
 
-export function resetSyncInitForm(state: UtilityRuntimeState): void {
+export function resetSyncInitForm(state: UtilityAppState): void {
   state.sync.initForm.remoteUrl = "";
   state.sync.initForm.branch = "main";
   state.sync.initForm.confirmed = false;
@@ -147,16 +149,6 @@ export function resetSyncInitForm(state: UtilityRuntimeState): void {
 
 function requiredText(value: string): string {
   return value.trim();
-}
-
-function hasEmbeddedUrlUserinfo(value: string): boolean {
-  try {
-    const parsedUrl = new URL(value);
-
-    return parsedUrl.username.length > 0 || parsedUrl.password.length > 0;
-  } catch {
-    return false;
-  }
 }
 
 export function validateSyncInitForm(form: SyncUtilityState["initForm"]): string {
@@ -182,7 +174,7 @@ export function validateSyncInitForm(form: SyncUtilityState["initForm"]): string
   return "";
 }
 
-export function createSyncActionBar(state: UtilityRuntimeState, syncActions: SyncActions, onComplete?: RequestRender): OptionalTerminalChild {
+export function createSyncActionBar(state: UtilityAppState, syncActions: SyncActions, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
       createButton("sync-retry", "Retry sync", () => runSyncOperation(state, "retry", () => syncActions.retry(), onComplete)),
@@ -196,7 +188,7 @@ export function createSyncActionBar(state: UtilityRuntimeState, syncActions: Syn
   });
 }
 
-export function createSyncMainView(state: UtilityRuntimeState, _syncActions: SyncActions, _onComplete?: RequestRender): TerminalChild[] {
+export function createSyncMainView(state: UtilityAppState, _syncActions: SyncActions, _onComplete?: RequestRender): TerminalChild[] {
   const busy = state.sync.operation !== null;
 
   return [
@@ -216,7 +208,7 @@ export function createSyncMainView(state: UtilityRuntimeState, _syncActions: Syn
   ];
 }
 
-export function createSyncInitOverlay(state: UtilityRuntimeState, syncActions: SyncActions, _layout: SyncOverlayLayout, onComplete?: RequestRender): OptionalTerminalChild {
+export function createSyncInitOverlay(state: UtilityAppState, syncActions: SyncActions, _layout: SyncOverlayLayout, onComplete?: RequestRender): OptionalTerminalChild {
   if (state.activeOverlay !== "sync-init") {
     return null;
   }

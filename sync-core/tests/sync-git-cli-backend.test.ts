@@ -106,6 +106,46 @@ test('core git backend syncs the source root while excluding ignored patterns', 
   }
 });
 
+test('core git backend ignores symlinks instead of copying files outside source root', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-symlink-'));
+  const sourceRoot = path.join(tempRoot, 'source');
+  const repoPath = path.join(tempRoot, 'repo');
+  const outsideFile = path.join(tempRoot, 'outside-secret.txt');
+  const backend = loadCoreBackendWithExecStub(() => '');
+
+  fs.mkdirSync(sourceRoot, {recursive: true});
+  fs.writeFileSync(outsideFile, 'do not copy me', 'utf8');
+  fs.symlinkSync(outsideFile, path.join(sourceRoot, 'linked-secret.txt'));
+
+  try {
+    backend.createGitCliBackend({repoPath}).syncWorkingTree({sourceRoot});
+
+    assert.equal(fs.existsSync(path.join(repoPath, 'linked-secret.txt')), false);
+  } finally {
+    fs.rmSync(tempRoot, {recursive: true, force: true});
+  }
+});
+
+test('core git backend ignores symlink-only snapshots during bootstrap inspection', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-symlink-bootstrap-'));
+  const sourceRoot = path.join(tempRoot, 'source');
+  const repoPath = path.join(tempRoot, 'repo');
+  const outsideFile = path.join(tempRoot, 'outside-secret.txt');
+  const backend = loadCoreBackendWithExecStub(() => '');
+
+  fs.mkdirSync(sourceRoot, {recursive: true});
+  fs.writeFileSync(outsideFile, 'do not detect me', 'utf8');
+  fs.symlinkSync(outsideFile, path.join(sourceRoot, 'linked-secret.txt'));
+
+  try {
+    const bootstrap = backend.createGitCliBackend({repoPath, remoteUrl: 'origin'}).inspectBootstrap({sourceRoot});
+
+    assert.equal(bootstrap.localHasData, false);
+  } finally {
+    fs.rmSync(tempRoot, {recursive: true, force: true});
+  }
+});
+
 test('core git backend also applies constructor ignorePatterns during syncWorkingTree', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-sync-root-'));
   const sourceRoot = path.join(tempRoot, 'source');

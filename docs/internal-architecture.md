@@ -19,7 +19,10 @@ La TUI se abre con `ilu ui`. Su entrypoint real es `ui/app.tsx`.
 | `bin/cli.js` | Bootstrap ejecutable del binario `ilu`. Define el `tsconfig` usado por `tsx`, registra `tsx/cjs` y carga `cli.ts`. |
 | `cli.ts` | Crea el programa principal, registra dependencias de dominios y ejecuta `program.parse(process.argv)`. |
 | `bin/configure-cli.ts` | Declara comandos, aliases, opciones y subcomandos con `commander`. |
-| `ui/app.tsx` | Monta y exporta la aplicación TUI. Construye estado, navegación, acciones, overlays, keymaps y runtime terminal. |
+| `ui/app.tsx` | Entrypoint real de la TUI. Monta sesiones, compone shell, overlays y vistas activas. |
+| `ui/app-keymap.ts` | Keymap global y comandos de navegación de la TUI. |
+| `ui/app-snapshot.ts` | Referencia mutable de snapshots para render estático, headless e interactivo. |
+| `ui/app-sync.ts` | Ciclo de vida de sync para la TUI y limpieza del runner al cerrar sesión. |
 
 ## Estructura de carpetas
 
@@ -29,7 +32,7 @@ La TUI se abre con `ilu ui`. Su entrypoint real es `ui/app.tsx`.
 | `notes/` | Acciones CLI, modelo de listas de notas y prompt inline para contenido de nota. |
 | `scrumban/` | Acciones CLI, modelo, render ASCII, listas de boards, columnas, cards y prioridad de cards. |
 | `clocks/` | Acciones CLI y modelo de relojes guardados. Persiste en JSON directo. |
-| `sync/` | Integración de `ilu` con sync: comandos, hooks, adapter, estado, cliente y runner para TUI. |
+| `sync/` | Integración de `ilu` con sync: comandos, validación de remote, hooks, adapter, estado, cliente y runner para TUI. |
 | `sync-core/` | Runtime reusable de sincronización local-first y su documentación propia. |
 | `translate/` | Traducción de texto y proveedor Google Translate. |
 | `tts/` | Conversión de `.txt` o `.md` a audio con OpenAI y merge de chunks con ffmpeg. |
@@ -116,10 +119,12 @@ Si cambias código que usa `@valyrianjs/terminal`, consulta primero la referenci
 
 La sincronización visible para usuario vive en `sync/commands.ts`:
 
-- `init` valida remoto, guarda configuración, inspecciona bootstrap y prepara estado inicial.
+- `init` valida remoto con `sync/remote-validation.ts`, guarda configuración, inspecciona bootstrap y prepara estado inicial.
 - `status` imprime el estado actual.
 - `retry` reintenta trabajo pendiente.
 - `enable` y `disable` actualizan configuración y runtime.
+
+`sync/remote-validation.ts` centraliza la regla compartida entre CLI y TUI: el remote no puede estar vacío y los remotes HTTP(S) no pueden incluir credenciales embebidas. La TUI reutiliza esa regla antes de llamar comandos para evitar que secretos terminen en config, logs o errores visibles.
 
 La integración de dominio usa `sync/ilu-hooks.ts`. Los modelos llaman ese hook después de guardar, eliminar o cambiar el recurso activo. La TUI configura un runner propio con `sync/tui-sync-client.ts` para reaccionar a mutaciones locales sin hacer sincronización manual desde cada pantalla.
 
@@ -127,29 +132,32 @@ La integración de dominio usa `sync/ilu-hooks.ts`. Los modelos llaman ese hook 
 
 ## Flujo TUI
 
-`ui/app.tsx` es el centro de composición de la TUI:
+`ui/app.tsx` sigue como entrypoint real y centro de composición de la TUI:
 
 1. Importa runtime terminal y `valyrian.js`.
-2. Construye snapshots con `ui/read-model.ts`.
-3. Crea acciones por dominio desde `ui/*-actions.ts`.
+2. Construye snapshots mediante `ui/app-snapshot.ts` y `ui/read-model.ts`.
+3. Crea acciones por dominio desde `ui/modules/<module>/actions.ts` y usa opciones tipadas por IO para Sync, Translate y Speech.
 4. Conecta el cliente de sync para TUI.
 5. Compone shell, top nav, footer, overlays, paneles utilitarios y páginas.
-6. Define tabs, ayuda por tab, estado inicial, key bindings y acciones visibles.
+6. Define tabs, ayuda por tab, estado inicial y acciones visibles. Los key bindings globales viven en `ui/app-keymap.ts`.
 
-Las páginas principales viven en:
+Las apps principales viven en `ui/modules/`:
 
-- `ui/pages/todos/MainView.tsx`
-- `ui/pages/notes/MainView.tsx`
-- `ui/pages/board/MainView.tsx`
-- `ui/pages/clocks/MainView.tsx`
+- `ui/modules/todos/MainView.tsx`
+- `ui/modules/notes/MainView.tsx`
+- `ui/modules/board/MainView.tsx`
+- `ui/modules/clocks/MainView.tsx`
+- `ui/modules/sync/MainView.tsx`
+- `ui/modules/babel/MainView.tsx`
+- `ui/modules/tts/MainView.tsx`
 
-Los componentes compartidos viven en `ui/components/`, incluyendo `AppShell`, `TopNav`, `Footer`, `ActionBar`, `Button`, `Overlay`, `EditOverlay` y `UtilityHost`.
+Los componentes compartidos viven en `ui/components/`, incluyendo `AppShell`, `TopNav`, `Footer`, `ActionBar`, `Button`, `Overlay` y `EditOverlay`. `ui/components/utility` solo conserva utilidades compartidas reales.
 
 ## Traducción y TTS
 
 `translate/index.ts` crea el traductor, valida que el texto no exceda 5000 caracteres, llama al proveedor y copia la traducción al portapapeles.
 
-`tts/index.ts` valida extensiones `.txt` y `.md`, resuelve o solicita API key, lee la voz default, divide textos largos, genera chunks de audio, los une con ffmpeg y limpia los chunks al terminar.
+`tts/index.ts` valida extensiones `.txt` y `.md`, valida que la voz venga del catálogo soportado, resuelve o solicita API key, respeta la voz explícita de la llamada, divide textos largos, genera chunks de audio, los une con ffmpeg y limpia los chunks al terminar.
 
 ## Pruebas y typecheck
 
@@ -186,6 +194,9 @@ El repo usa un solo `tsconfig.json` raíz. Incluye archivos `.ts` y `.tsx`, excl
 - `utils/create-list-model.ts`: factory de modelos de lista.
 - `todos/model.ts`, `notes/model.ts`, `scrumban/model.ts`, `clocks/model.ts`: persistencia por dominio.
 - `sync/commands.ts`: comandos de sync.
+- `sync/remote-validation.ts`: validación compartida de remote para CLI y TUI.
 - `ui/app.tsx`: entrypoint y composición de TUI.
+- `ui/app-keymap.ts`: keymap global de TUI.
+- `ui/app-snapshot.ts`: snapshots de TUI.
 - `translate/index.ts`: traducción.
 - `tts/index.ts`: texto a voz.

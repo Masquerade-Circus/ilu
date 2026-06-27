@@ -1,3 +1,5 @@
+import type { BabelActionFactoryOptions, BabelActions } from "../../action-contracts";
+
 const {createGoogleTranslateProvider} = require('../../../translate/google-translate-provider');
 
 const MAX_TEXT_LENGTH = 5000;
@@ -46,7 +48,7 @@ function createSafeDefaultProvider({fetchImpl, log}: any = {}) {
   });
 }
 
-function createBabelActions({provider = null, fetchImpl, log}: any = {}) {
+function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactoryOptions = {}): BabelActions {
   const translateProvider = provider || createSafeDefaultProvider({fetchImpl, log});
 
   return {

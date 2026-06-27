@@ -1,3 +1,5 @@
+import type { ActionFactoryOptions, NoteActions } from "../../action-contracts";
+
 const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
 const {asArray, currentList, entityId, findList, positiveInteger, safeContent, safeString, useFallbackListIfNeeded} = require('../../list-action-model');
 
@@ -6,7 +8,7 @@ function loadNoteModel(): any {
 }
 
 
-function createNoteActions(options: any = {}): any {
+function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
   const injectedModel = options.model;
   const modelFor = () => injectedModel || loadNoteModel();
 

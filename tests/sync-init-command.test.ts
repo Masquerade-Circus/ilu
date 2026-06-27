@@ -142,6 +142,70 @@ test('sync init valida remote y usa branch main por default', async () => {
   assert.equal(result.remoteUrl, '/tmp/remote.git');
 });
 
+test('sync init rechaza branch vacío explícito sin cambiar el default omitido', async () => {
+  const {commands, calls} = loadCommandsWithStubs();
+
+  const result = await commands.init([], {remote: '/tmp/remote.git'});
+  assert.equal(result.branch, 'main');
+
+  await assert.rejects(
+    () => commands.init([], {remote: '/tmp/remote.git', branch: '   '}),
+    /branch is required/i
+  );
+  assert.equal(calls.filter(call => call.kind === 'inspectBootstrap').length, 1);
+});
+
+test('sync init rechaza nombres de branch inseguros antes de tocar bootstrap', async () => {
+  const {commands, calls} = loadCommandsWithStubs();
+  const branches = [
+    '../main',
+    'feature.lock',
+    'feature..main',
+    'feature@{main',
+    'feature main',
+    '-bad'
+  ];
+
+  for (const branch of branches) {
+    await assert.rejects(
+      () => commands.init([], {remote: '/tmp/remote.git', branch}),
+      /Invalid sync branch/i,
+      branch
+    );
+  }
+
+  assert.deepEqual(calls, []);
+});
+
+test('sync init rechaza remotes con credenciales embebidas antes de tocar bootstrap', async () => {
+  const {commands, calls} = loadCommandsWithStubs();
+  const remotes = [
+    'https://user:password@example.test/repo.git',
+    'https://token@example.test/repo.git',
+    'https://ghp_TOKEN@example.test/repo.git'
+  ];
+
+  for (const remote of remotes) {
+    await assert.rejects(
+      () => commands.init([], {remote}),
+      /Remote URL must not include embedded credentials/i,
+      remote
+    );
+  }
+
+  assert.deepEqual(calls, []);
+});
+
+test('sync init permite remotes SSH con usuario normal', async () => {
+  const {commands, calls} = loadCommandsWithStubs();
+
+  const result = await commands.init([], {remote: 'ssh://git@github.com/org/repo.git'});
+
+  assert.equal(result.branch, 'main');
+  assert.equal(result.remoteUrl, 'ssh://git@github.com/org/repo.git');
+  assert.equal(calls.find(call => call.kind === 'inspectBootstrap').remoteUrl, 'ssh://git@github.com/org/repo.git');
+});
+
 test('sync init en este test no escribe config real en disco', async () => {
   await withTempHome(async tempHome => {
     const tempConfigPath = path.join(tempHome, '.ilu', '.config', 'sync-config.json');

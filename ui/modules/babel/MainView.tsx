@@ -2,7 +2,7 @@ import { Editor, FocusScope, Input, ScrollView, Spinner, Text, View } from "@val
 import type { TerminalEditorChangeEventPayload, TerminalInputChangeEventPayload } from "@valyrianjs/terminal";
 import { createActionBar } from "../../components/ActionBar";
 import { createButton } from "../../components/Button";
-import type { BabelActionResult, BabelActions, BabelUtilityState, OptionalTerminalChild, TerminalChild, UtilityRuntimeState } from "../../types";
+import type { BabelActionResult, BabelActions, BabelUtilityState, OptionalTerminalChild, TerminalChild, UtilityAppState } from "../../types";
 import { cleanStringArray, cleanText } from "../../components/utility/text";
 
 type RequestRender = () => void;
@@ -28,7 +28,7 @@ export function createInitialBabelState(source: Record<string, unknown> = {}): B
   };
 }
 
-export function clearBabelUtilityTransientState(state: UtilityRuntimeState): void {
+export function clearBabelUtilityTransientState(state: UtilityAppState): void {
   state.babel.error = "";
   state.babel.message = "";
 }
@@ -81,7 +81,7 @@ function applyBabelResult(state: BabelUtilityState, result: BabelActionResult | 
   state.message = "";
 }
 
-export function runTranslate(state: UtilityRuntimeState, babelActions: BabelActions, onComplete: RequestRender = () => {}): void {
+export function runTranslate(state: UtilityAppState, babelActions: BabelActions, onComplete: RequestRender = () => {}): void {
   if (state.babel.operation !== null) {
     return;
   }
@@ -124,7 +124,7 @@ export function runTranslate(state: UtilityRuntimeState, babelActions: BabelActi
     });
 }
 
-export function copyTranslation(state: UtilityRuntimeState, copyText: CopyText, onComplete: RequestRender = () => {}): void {
+export function copyTranslation(state: UtilityAppState, copyText: CopyText, onComplete: RequestRender = () => {}): void {
   if (state.babel.operation !== null) {
     return;
   }
@@ -151,7 +151,7 @@ export function copyTranslation(state: UtilityRuntimeState, copyText: CopyText, 
     });
 }
 
-export function createTranslateActionBar(state: UtilityRuntimeState, babelActions: BabelActions, copyText: CopyText, onComplete?: RequestRender): OptionalTerminalChild {
+export function createTranslateActionBar(state: UtilityAppState, babelActions: BabelActions, copyText: CopyText, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
       createButton("translate-start", "Translate", () => runTranslate(state, babelActions, onComplete)),
@@ -160,7 +160,7 @@ export function createTranslateActionBar(state: UtilityRuntimeState, babelAction
   });
 }
 
-export function createBabelMainView(state: UtilityRuntimeState, _babelActions: BabelActions, _onComplete?: RequestRender): TerminalChild[] {
+export function createBabelMainView(state: UtilityAppState, _babelActions: BabelActions, _onComplete?: RequestRender): TerminalChild[] {
   const busy = state.babel.operation !== null;
 
   return [

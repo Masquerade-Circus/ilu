@@ -51,6 +51,10 @@ function collectFiles(rootPath: any, {isIgnored = (_relativePath: any) => false,
                 return;
             }
 
+            if (entry.isSymbolicLink()) {
+                return;
+            }
+
             let absolutePath = path.join(currentPath, entry.name);
             let relativePath = normalizeRelativePath(path.relative(rootPath, absolutePath));
 
@@ -170,6 +174,10 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
             sourceFiles.forEach((entry: any) => {
                 let sourceFile = path.join(sourceRoot, entry);
                 let targetFile = path.join(repoPath, entry);
+
+                if (fs.lstatSync(sourceFile).isSymbolicLink()) {
+                    return;
+                }
 
                 ensureDir(targetFile);
 

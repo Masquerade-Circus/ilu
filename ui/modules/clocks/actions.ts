@@ -1,3 +1,5 @@
+import type { ActionFactoryOptions, ClockActions } from "../../action-contracts";
+
 const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
 
 const FALLBACK_TIMEZONES = Object.freeze([
@@ -109,7 +111,7 @@ function clockCount(model: any) {
   return typeof model.find === 'function' ? (Array.isArray(model.find()) ? model.find().length : 0) : 0;
 }
 
-function createClockActions(options: any = {}) {
+function createClockActions(options: ActionFactoryOptions = {}): ClockActions {
   const injectedModel = options.model;
   const modelFor = () => injectedModel || loadClockModel();
 

@@ -126,6 +126,18 @@ function getDefaultVoice({fs: fileSystem = fs, localPaths: paths = localPaths, f
     return config.voice || fallback;
 }
 
+function isSupportedVoice(voice: any, voices: any = SUPPORTED_VOICES) {
+    return typeof voice === 'string' && voices.includes(voice);
+}
+
+function validateSupportedVoice(voice: any, voices: any = SUPPORTED_VOICES) {
+    if (!isSupportedVoice(voice, voices)) {
+        throw new Error('Choose a supported voice');
+    }
+
+    return voice;
+}
+
 async function resolveVoice({
     voice = null,
     fs: fileSystem = fs,
@@ -136,7 +148,7 @@ async function resolveVoice({
     let explicitVoice = `${voice || ''}`.trim();
 
     if (explicitVoice) {
-        return explicitVoice;
+        return validateSupportedVoice(explicitVoice, voices);
     }
 
     let answers = await prompt([{
@@ -147,10 +159,11 @@ async function resolveVoice({
         default: getDefaultVoice({fs: fileSystem, localPaths: paths})
     }]);
 
-    return `${answers.voice || ''}`.trim() || getDefaultVoice({fs: fileSystem, localPaths: paths});
+    return validateSupportedVoice(`${answers.voice || ''}`.trim() || getDefaultVoice({fs: fileSystem, localPaths: paths}), voices);
 }
 
 function saveDefaultVoice(voice: any, {fs: fileSystem = fs, localPaths: paths = localPaths}: any = {}) {
+    validateSupportedVoice(voice);
     let currentConfig = configStore.loadTtsConfig({fs: fileSystem, paths});
     return configStore.saveTtsConfig({...currentConfig, voice}, {fs: fileSystem, paths});
 }
@@ -185,6 +198,22 @@ function validateInputFile(inputFile: any) {
 
     if (!SUPPORTED_INPUT_EXTENSIONS.has(extension)) {
         throw new Error('Only .txt and .md input files are supported');
+    }
+}
+
+function getComparablePath(filePath: any, fileSystem: any = fs) {
+    let absolutePath = path.resolve(filePath);
+
+    if (fileSystem.existsSync(absolutePath) && typeof fileSystem.realpathSync === 'function') {
+        return fileSystem.realpathSync(absolutePath);
+    }
+
+    return absolutePath;
+}
+
+function validateOutputFile(inputFile: any, outputFile: any, {fs: fileSystem = fs}: any = {}) {
+    if (getComparablePath(inputFile, fileSystem) === getComparablePath(outputFile, fileSystem)) {
+        throw new Error('Output file must be different from input file');
     }
 }
 
@@ -255,12 +284,13 @@ function createTtsService({
             let outputFile = args.outputFile;
 
             validateInputFile(inputFile);
+            validateOutputFile(inputFile, outputFile, {fs: fileSystem});
 
             let input = fileSystem.readFileSync(inputFile, 'utf8');
             let chunks = chunkText(input, maxChunkLength);
+            let voice = validateSupportedVoice(`${args.voice || getDefaultVoice({fs: fileSystem, localPaths: paths, fallback: defaultVoice})}`.trim());
             let apiKey = await resolveApiKey({fs: fileSystem, localPaths: paths, prompt});
             let client = createOpenAI({apiKey});
-            let voice = getDefaultVoice({fs: fileSystem, localPaths: paths, fallback: defaultVoice});
             let ffmpegPath = resolveFfmpegBinaryPath();
             let chunkDir = getChunkDirForOutput(outputFile);
             let chunkFiles = chunks.map((chunk: any, index: any) => getChunkFilePath(outputFile, index));
@@ -306,7 +336,10 @@ module.exports = Object.assign(tts, {
     readStoredApiKey,
     resolveApiKey,
     validateInputFile,
+    validateOutputFile,
     getDefaultVoice,
+    isSupportedVoice,
+    validateSupportedVoice,
     resolveVoice,
     saveDefaultVoice,
     SUPPORTED_VOICES,
