@@ -1,4 +1,4 @@
-import type { SyncActionFactoryOptions, SyncActions } from "../../action-contracts";
+import type { SyncActionFactoryOptions, SyncActionResult, SyncActions } from "../../action-contracts";
 
 const {safeErrorMessage} = require('../../action-results');
 const {validateSyncBranch, validateSyncRemoteUrl} = require('../../../sync/remote-validation');
@@ -10,19 +10,37 @@ const PENDING_SYNC = 'Pending sync';
 const SYNCED = 'Synced';
 const SYNC_FAILED = 'Sync failed';
 
+type SyncStatus = {
+  status?: unknown;
+  enabled?: unknown;
+  hasPendingRemote?: unknown;
+};
+
+type SyncInitValues = {
+  remoteUrl?: unknown;
+  branch?: unknown;
+  confirmed?: unknown;
+};
+type SyncCommandName = 'retry' | 'enable' | 'disable';
+type CommandAction = () => Promise<SyncStatus> | SyncStatus;
+type SyncCommands = Record<SyncCommandName, CommandAction> & {
+  status: CommandAction;
+  init: (args: string[], options: {remote: string; branch: string}) => Promise<unknown> | unknown;
+};
+
 function defaultCommands() {
   return require('../../../sync/commands');
 }
 
-function isObject(value: any) {
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function cleanText(value: any) {
+function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function withoutConsoleLog(action: any) {
+function withoutConsoleLog<T>(action: () => Promise<T> | T): Promise<T> {
   const originalLog = console.log;
   console.log = () => {};
 
@@ -33,7 +51,7 @@ function withoutConsoleLog(action: any) {
     });
 }
 
-function labelFromStatus(status: any) {
+function labelFromStatus(status: unknown) {
   if (!isObject(status)) {
     return SYNC_FAILED;
   }
@@ -57,7 +75,7 @@ function labelFromStatus(status: any) {
   return SYNC_FAILED;
 }
 
-function detailsFromStatus(status: any) {
+function detailsFromStatus(status: unknown) {
   const label = labelFromStatus(status);
   const details = [`Status: ${label}`];
 
@@ -68,28 +86,28 @@ function detailsFromStatus(status: any) {
   return details;
 }
 
-function resultFromStatus(status: any, values: any = {}) {
+function resultFromStatus(status: unknown, values: Record<string, unknown> = {}): SyncActionResult {
   const label = labelFromStatus(status);
 
   return {
-    ok: true,
+    ok: true as const,
     label,
     details: detailsFromStatus(status),
     ...values
   };
 }
 
-function setupResult(error: any) {
+function setupResult(error: string): SyncActionResult {
   return {
-    ok: false,
+    ok: false as const,
     error,
     label: NOT_SET_UP,
     details: [`Status: ${NOT_SET_UP}`]
   };
 }
 
-function knownFailureResult(error: any = null) {
-  const message = error && typeof error.message === 'string' ? error.message : '';
+function knownFailureResult(error: unknown = null): SyncActionResult {
+  const message = error instanceof Error ? error.message : '';
 
   if (/remoteUrl when sync is enabled|requires remoteUrl/i.test(message)) {
     return setupResult('Set up sync before trying again.');
@@ -100,20 +118,20 @@ function knownFailureResult(error: any = null) {
   }
 
   return {
-    ok: false,
+    ok: false as const,
     error: safeErrorMessage(message, FALLBACK_ERROR),
     label: SYNC_FAILED,
     details: [`Status: ${SYNC_FAILED}`]
   };
 }
 
-function failureResult(error: any = null) {
+function failureResult(error: unknown = null): SyncActionResult {
   return knownFailureResult(error);
 }
 
-function validationResult(error: any) {
+function validationResult(error: string): SyncActionResult {
   return {
-    ok: false,
+    ok: false as const,
     error,
     label: NOT_SET_UP,
     details: [`Status: ${NOT_SET_UP}`]
@@ -121,22 +139,22 @@ function validationResult(error: any) {
 }
 
 function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions {
-  const commands = options.commands || defaultCommands();
+  const commands = (options.commands || defaultCommands()) as SyncCommands;
 
   async function readStatus() {
     try {
       const status = await withoutConsoleLog(() => commands.status());
       return resultFromStatus(status);
-    } catch (error: any) {
+    } catch (error: unknown) {
       return failureResult(error);
     }
   }
 
-  async function runCommand(name: any) {
+  async function runCommand(name: SyncCommandName) {
     try {
       const status = await commands[name]();
       return resultFromStatus(status);
-    } catch (error: any) {
+    } catch (error: unknown) {
       return failureResult(error);
     }
   }
@@ -152,7 +170,7 @@ function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions 
     disable() {
       return runCommand('disable');
     },
-    async init(values: any = {}) {
+    async init(values: SyncInitValues = {}) {
       const remoteUrlInput = cleanText(values.remoteUrl);
       const branch = cleanText(values.branch);
       const confirmed = values.confirmed === true;
@@ -163,7 +181,8 @@ function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions 
 
       try {
         validateSyncRemoteUrl(remoteUrlInput);
-      } catch (_error: any) {
+      } catch (_error: unknown) {
+        void _error;
         return validationResult('Remote URL must not include embedded credentials.');
       }
 
@@ -182,7 +201,7 @@ function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions 
           : {status: 'pending_remote', hasPendingRemote: true};
 
         return resultFromStatus(status);
-      } catch (error: any) {
+      } catch (error: unknown) {
         return failureResult(error);
       }
     }

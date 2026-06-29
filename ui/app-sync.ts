@@ -45,6 +45,7 @@ function flushPendingSync(notifySyncHook: NotifySyncHook): false | Promise<unkno
       return Promise.resolve(result).catch(() => false);
     }
   } catch (_error: unknown) {
+    void _error;
     return false;
   }
 
@@ -76,7 +77,8 @@ function enableSyncStatusUpdates(notifySyncHook: NotifySyncHook, session: Termin
     try {
       cleanupResult = cleanupSyncRunner();
     } catch (_error: unknown) {
-      cleanupResult = undefined;
+      void _error;
+      cleanupResult = void 0;
     }
 
     if (cleanupResult && typeof cleanupResult === "object" && "then" in cleanupResult && typeof cleanupResult.then === "function") {
@@ -123,6 +125,7 @@ function shouldUseTuiSyncRunner(): boolean {
         && config.remoteUrl.trim().length > 0
     );
   } catch (_error: unknown) {
+    void _error;
     return false;
   }
 }

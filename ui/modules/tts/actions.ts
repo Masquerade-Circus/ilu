@@ -9,29 +9,38 @@ const INVALID_INPUT = 'Choose a .txt or .md file.';
 const CREATE_FAILED = 'Could not create audio.';
 const SUPPORTED_INPUT_EXTENSIONS = new Set(['.txt', '.md']);
 
-function cleanString(value: any, fallback: any = '') {
+type TtsValues = {inputFile?: unknown; outputFile?: unknown; voice?: unknown; onProgress?: unknown};
+type ProgressCallback = (message: string) => void;
+type TtsResult = {outputFile?: unknown; voice?: unknown};
+type FileSystem = {
+  existsSync: (path: string) => boolean;
+  statSync: (path: string) => {isFile: () => boolean};
+};
+
+function cleanString(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
 }
 
-function callProgress(onProgress: any, message: any) {
+function callProgress(onProgress: unknown, message: string) {
   if (typeof onProgress === 'function') {
-    onProgress(message);
+    (onProgress as ProgressCallback)(message);
   }
 }
 
-function isSupportedVoice(voice: any, voices: any) {
+function isSupportedVoice(voice: unknown, voices: string[]) {
   return typeof voice === 'string' && voices.includes(voice);
 }
 
-function hasConfiguredCredentials(readStoredApiKey: any) {
+function hasConfiguredCredentials(readStoredApiKey: () => unknown) {
   try {
     return cleanString(readStoredApiKey()).trim().length > 0;
-  } catch (_: any) {
+  } catch (_error: unknown) {
+    void _error;
     return false;
   }
 }
 
-function isSupportedInputFile(inputFile: any, fileSystem: any) {
+function isSupportedInputFile(inputFile: string, fileSystem: FileSystem) {
   const extension = path.extname(inputFile).toLowerCase();
 
   if (!SUPPORTED_INPUT_EXTENSIONS.has(extension)) {
@@ -40,7 +49,8 @@ function isSupportedInputFile(inputFile: any, fileSystem: any) {
 
   try {
     return fileSystem.existsSync(inputFile) && fileSystem.statSync(inputFile).isFile();
-  } catch (_: any) {
+  } catch (_error: unknown) {
+    void _error;
     return false;
   }
 }
@@ -52,14 +62,15 @@ function createTtsActions({
   voices = tts.SUPPORTED_VOICES,
   fs: fileSystem = fs
 }: TtsActionFactoryOptions = {}): TtsActions {
-  const supportedVoices = Array.isArray(voices) ? voices.filter((voice: any) => typeof voice === 'string' && voice.trim().length > 0) : [];
+  const supportedVoices = Array.isArray(voices) ? voices.filter((voice: unknown): voice is string => typeof voice === 'string' && voice.trim().length > 0) : [];
   const fallbackVoice = supportedVoices.includes('alloy') ? 'alloy' : supportedVoices[0] || 'alloy';
 
   function currentDefaultVoice() {
     try {
       const voice = cleanString(getDefaultVoice({fallback: fallbackVoice})).trim();
       return supportedVoices.includes(voice) ? voice : fallbackVoice;
-    } catch (_: any) {
+    } catch (_error: unknown) {
+      void _error;
       return fallbackVoice;
     }
   }
@@ -67,7 +78,7 @@ function createTtsActions({
   return {
     voices: supportedVoices,
     getDefaultVoice: currentDefaultVoice,
-    async createAudio(values: any = {}) {
+    async createAudio(values: TtsValues = {}) {
       const inputFile = cleanString(values.inputFile).trim();
       const outputFile = cleanString(values.outputFile).trim();
       const voice = cleanString(values.voice, currentDefaultVoice()).trim() || currentDefaultVoice();
@@ -93,15 +104,16 @@ function createTtsActions({
 
       try {
         callProgress(onProgress, 'Creating audio...');
-        const result = await service.action({inputFile, outputFile, voice});
+        const result = await service.action({inputFile, outputFile, voice}) as TtsResult;
         const finalOutputFile = cleanString(result && result.outputFile, outputFile);
         callProgress(onProgress, 'Audio ready.');
         return {ok: true, outputFile: finalOutputFile, message: 'Audio ready.'};
-      } catch (_: any) {
+      } catch (_error: unknown) {
+        void _error;
         return {ok: false, error: CREATE_FAILED};
       }
     },
-    async setDefaultVoice(values: any = {}) {
+    async setDefaultVoice(values: TtsValues = {}) {
       const voice = cleanString(values.voice).trim();
 
       if (!isSupportedVoice(voice, supportedVoices)) {
@@ -109,9 +121,10 @@ function createTtsActions({
       }
 
       try {
-        const result = await service.voiceAction({voice}, {voice});
+        const result = await service.voiceAction({voice}, {voice}) as TtsResult;
         return {ok: true, voice: cleanString(result && result.voice, voice)};
-      } catch (_: any) {
+      } catch (_error: unknown) {
+        void _error;
         return {ok: false, error: 'Could not save the voice.'};
       }
     }

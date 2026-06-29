@@ -1,26 +1,46 @@
 let log = require('../utils/log');
 let {isSyncSetupError, syncSetupStatus, syncStatusFromResult} = require('./tui-sync-status');
-let syncStatusListeners = new Set<any>();
-let pendingDebouncedSync: any = null;
-let syncRunner: any = null;
-let syncRunnerUnsubscribe: any = null;
+
+type SyncContext = Record<string, unknown>;
+type SyncEvent = {state: string; message?: string; context?: SyncContext};
+type SyncListener = (event: SyncEvent) => void;
+type SyncConfig = {enabled?: boolean; autoSync?: boolean; remoteUrl?: string | null};
+type SyncExecutor = {
+    getSyncConfig?: () => SyncConfig;
+    notifyLocalMutation: (context: SyncContext) => Promise<unknown>;
+    onEvent?: (listener: SyncListener) => () => void;
+    hasPendingWork?: () => boolean;
+    flush?: () => Promise<unknown>;
+};
+type PendingDebouncedSync = {context: SyncContext; timer: ReturnType<typeof setTimeout>};
+type SyncRunResult = {
+    result: unknown;
+    visibleStatusOwnedByExecutor: boolean;
+    terminalEventVersion: number;
+};
+
+let syncStatusListeners = new Set<SyncListener>();
+let pendingDebouncedSync: PendingDebouncedSync | null = null;
+let syncRunner: SyncExecutor | null = null;
+let syncRunnerUnsubscribe: (() => void) | null = null;
 let syncRunnerTerminalEventVersion = 0;
 
 const TUI_SYNC_DEBOUNCE_MS = 5000;
 
-function hasSyncRemoteUrl(config: any) {
+function hasSyncRemoteUrl(config: SyncConfig) {
     return typeof config.remoteUrl === 'string' && config.remoteUrl.trim().length > 0;
 }
 
-function shouldLogSync(syncIndex: any) {
+function shouldLogSync(syncIndex: SyncExecutor | null) {
     if (!syncIndex || typeof syncIndex.getSyncConfig !== 'function') {
         return false;
     }
 
-    let config: any;
+    let config: SyncConfig;
     try {
         config = syncIndex.getSyncConfig();
-    } catch (_: any) {
+    } catch (_error: unknown) {
+        void _error;
         return false;
     }
 
@@ -31,7 +51,7 @@ function shouldDebounceSync() {
     return syncRunner !== null;
 }
 
-function emitSyncStatus(event: any) {
+function emitSyncStatus(event: SyncEvent) {
     if (syncStatusListeners.size === 0) {
         return false;
     }
@@ -39,13 +59,15 @@ function emitSyncStatus(event: any) {
     for (let listener of syncStatusListeners) {
         try {
             listener(event);
-        } catch (_: any) {}
+        } catch (_error: unknown) {
+            void _error;
+        }
     }
 
     return true;
 }
 
-function isTerminalSyncEvent(event: any) {
+function isTerminalSyncEvent(event: SyncEvent) {
     return event
         && (event.state === 'synced'
             || event.state === 'pending'
@@ -54,7 +76,7 @@ function isTerminalSyncEvent(event: any) {
             || event.state === 'idle');
 }
 
-function configureSyncRunner(runner: any) {
+function configureSyncRunner(runner: SyncExecutor | null) {
     if (syncRunnerUnsubscribe) {
         syncRunnerUnsubscribe();
         syncRunnerUnsubscribe = null;
@@ -63,7 +85,7 @@ function configureSyncRunner(runner: any) {
     syncRunner = runner && typeof runner.notifyLocalMutation === 'function' ? runner : null;
 
     if (syncRunner && typeof syncRunner.onEvent === 'function') {
-        syncRunnerUnsubscribe = syncRunner.onEvent((event: any) => {
+        syncRunnerUnsubscribe = syncRunner.onEvent((event: SyncEvent) => {
             if (isTerminalSyncEvent(event)) {
                 syncRunnerTerminalEventVersion += 1;
             }
@@ -84,7 +106,7 @@ function configureSyncRunner(runner: any) {
     };
 }
 
-function onSyncStatus(listener: any) {
+function onSyncStatus(listener: SyncListener) {
     if (typeof listener !== 'function') {
         return () => {};
     }
@@ -96,17 +118,19 @@ function onSyncStatus(listener: any) {
     };
 }
 
-function logSyncing(syncIndex: any) {
+function logSyncing(syncIndex: SyncExecutor | null) {
     if (!shouldLogSync(syncIndex)) {
         return;
     }
 
     try {
         log.info('Syncing...');
-    } catch (_: any) {}
+    } catch (_error: unknown) {
+        void _error;
+    }
 }
 
-function activeSyncExecutor(syncIndex: any = null) {
+function activeSyncExecutor(syncIndex: SyncExecutor | null = null): SyncExecutor {
     if (syncRunner && typeof syncRunner.notifyLocalMutation === 'function') {
         return syncRunner;
     }
@@ -114,7 +138,7 @@ function activeSyncExecutor(syncIndex: any = null) {
     return syncIndex || require('./index');
 }
 
-function executorShouldLog(executor: any) {
+function executorShouldLog(executor: SyncExecutor) {
     if (executor === syncRunner) {
         return false;
     }
@@ -122,7 +146,7 @@ function executorShouldLog(executor: any) {
     return shouldLogSync(executor);
 }
 
-function executorOwnsVisibleStatus(executor: any) {
+function executorOwnsVisibleStatus(executor: SyncExecutor) {
     return executor === syncRunner && typeof executor.onEvent === 'function';
 }
 
@@ -136,7 +160,7 @@ function canSynthesizeTerminalStatus() {
     return pendingDebouncedSync === null && !syncRunnerHasPendingWork();
 }
 
-function runSyncNow(context: any, syncIndex: any = null) {
+function runSyncNow(context: SyncContext, syncIndex: SyncExecutor | null = null) {
     return Promise.resolve()
         .then(() => {
             let activeSyncIndex = activeSyncExecutor(syncIndex);
@@ -154,9 +178,9 @@ function runSyncNow(context: any, syncIndex: any = null) {
             }
 
             return activeSyncIndex.notifyLocalMutation(context)
-                .then((result: any) => ({result, visibleStatusOwnedByExecutor, terminalEventVersion}));
+                .then((result: unknown) => ({result, visibleStatusOwnedByExecutor, terminalEventVersion}));
         })
-        .then(({result, visibleStatusOwnedByExecutor, terminalEventVersion}: any) => {
+        .then(({result, visibleStatusOwnedByExecutor, terminalEventVersion}: SyncRunResult) => {
             let status = syncStatusFromResult(result);
 
             if (!visibleStatusOwnedByExecutor
@@ -166,7 +190,7 @@ function runSyncNow(context: any, syncIndex: any = null) {
 
             return status;
         })
-        .catch((error: any) => {
+        .catch((error: unknown) => {
             let status = isSyncSetupError(error) ? syncSetupStatus() : {state: 'failed', message: 'Sync failed'};
             emitSyncStatus({...status, context});
             return status;
@@ -194,10 +218,10 @@ function runPendingDebouncedSync() {
     runSyncNow(pending.context);
 }
 
-function scheduleDebouncedSync(context: any) {
+function scheduleDebouncedSync(context: SyncContext) {
     let alreadyPending = pendingDebouncedSync !== null;
 
-    if (alreadyPending) {
+    if (pendingDebouncedSync !== null) {
         clearTimeout(pendingDebouncedSync.timer);
     }
 
@@ -215,12 +239,10 @@ function flushPending() {
     let pending = takePendingDebouncedSync();
 
     if (pending === null) {
-        let runnerHasWork = syncRunner
-            && typeof syncRunner.flush === 'function'
-            && syncRunnerHasPendingWork();
+        let runner = syncRunner;
 
-        if (runnerHasWork) {
-            return syncRunner.flush().then(() => true).catch(() => false);
+        if (runner !== null && typeof runner.flush === 'function' && syncRunnerHasPendingWork()) {
+            return runner.flush().then(() => true).catch(() => false);
         }
 
         return false;
@@ -236,7 +258,7 @@ function flushPending() {
         });
 }
 
-function notifySync(context: any) {
+function notifySync(context: SyncContext) {
     Promise.resolve()
         .then(() => {
             if (shouldDebounceSync()) {
@@ -251,7 +273,7 @@ function notifySync(context: any) {
             let syncIndex = require('./index');
             return runSyncNow(context, syncIndex);
         })
-        .catch((error: any) => {
+        .catch((error: unknown) => {
             let status = isSyncSetupError(error) ? syncSetupStatus() : {state: 'failed', message: 'Sync failed'};
             emitSyncStatus({...status, context});
         });

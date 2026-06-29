@@ -18,8 +18,16 @@ const GIT_BACKEND_METHODS = {
   getStatus: 'getStatus'
 };
 
-function classifyGitError(error: any) {
-  let message = `${error && error.message ? error.message : error}`.toLowerCase();
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function classifyGitError(error: unknown) {
+  let message = getErrorMessage(error).toLowerCase();
 
   if (message.includes('resolve host') || message.includes('could not read from remote repository') || message.includes('connection timed out') || message.includes('network')) {
     return {kind: 'network', error};

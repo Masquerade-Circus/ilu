@@ -6,18 +6,22 @@ const MAX_TEXT_LENGTH = 5000;
 const TRANSLATE_FAILED = 'Could not translate the text.';
 const COPY_FAILED = 'Could not copy the translation.';
 
-function cleanString(value: any, fallback: any = '') {
+type BabelValues = {text?: unknown; source?: unknown; target?: unknown; translation?: unknown};
+type TranslationGroup = {entry?: unknown};
+type TranslationResponse = {dict?: unknown; sentences?: unknown; src?: unknown};
+
+function cleanString(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
 }
 
-function normalizeLanguage(value: any, fallback: any) {
+function normalizeLanguage(value: unknown, fallback: string) {
   const trimmed = cleanString(value, fallback).trim();
   return trimmed.length > 0 ? trimmed : fallback;
 }
 
-function normalizeDictionaryEntries(response: any) {
-  const groups = response && Array.isArray(response.dict) ? response.dict : [];
-  const entries: any = [];
+function normalizeDictionaryEntries(response: TranslationResponse) {
+  const groups = Array.isArray(response.dict) ? response.dict as TranslationGroup[] : [];
+  const entries: string[] = [];
 
   for (const group of groups) {
     const groupEntries = group && Array.isArray(group.entry) ? group.entry : [];
@@ -25,7 +29,7 @@ function normalizeDictionaryEntries(response: any) {
     for (const entry of groupEntries) {
       const word = cleanString(entry && entry.word).trim();
       const reverse = entry && Array.isArray(entry.reverse_translation) ? entry.reverse_translation : [];
-      const translations = reverse.map((item: any) => cleanString(item).trim()).filter(Boolean);
+      const translations = reverse.map((item: unknown) => cleanString(item).trim()).filter(Boolean);
 
       if (word.length === 0) {
         continue;
@@ -38,7 +42,7 @@ function normalizeDictionaryEntries(response: any) {
   return entries;
 }
 
-function createSafeDefaultProvider({fetchImpl, log}: any = {}) {
+function createSafeDefaultProvider({fetchImpl, log}: {fetchImpl?: unknown; log?: unknown} = {}) {
   return createGoogleTranslateProvider({
     fetchImpl,
     log,
@@ -52,7 +56,7 @@ function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactor
   const translateProvider = provider || createSafeDefaultProvider({fetchImpl, log});
 
   return {
-    async translate(values: any = {}) {
+    async translate(values: BabelValues = {}) {
       const text = cleanString(values.text).trim();
       const source = normalizeLanguage(values.source, 'auto');
       const target = normalizeLanguage(values.target, 'en');
@@ -66,8 +70,8 @@ function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactor
       }
 
       try {
-        const response = await translateProvider({text, source, target});
-        const sentence = response && Array.isArray(response.sentences) ? response.sentences[0] : null;
+        const response = await translateProvider({text, source, target}) as TranslationResponse;
+        const sentence = response && Array.isArray(response.sentences) ? response.sentences[0] as {trans?: unknown} : null;
         const translation = cleanString(sentence && sentence.trans).trim();
 
         if (translation.length === 0) {
@@ -81,11 +85,12 @@ function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactor
           target,
           dictionaryEntries: normalizeDictionaryEntries(response)
         };
-      } catch (_: any) {
+      } catch (_error: unknown) {
+        void _error;
         return {ok: false, error: TRANSLATE_FAILED};
       }
     },
-    async copyResult(values: any = {}) {
+    async copyResult(values: BabelValues = {}) {
       const translation = cleanString(values.translation).trim();
 
       if (translation.length === 0) {

@@ -4,7 +4,6 @@ import {
   FocusScope,
   Hr,
   Input,
-  List,
   NumberInput,
   Pane,
   ScrollView,
@@ -28,8 +27,7 @@ import type {
   RefreshSnapshot,
   BoardSummary,
   Selection,
-  TitleFormState,
-  UiSnapshot
+  TitleFormState
 } from "../../types";
 import { createButton, createButtonStatus } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
@@ -79,11 +77,6 @@ export {
 
 const BOARD_SHELL_FIXED_ROWS = 5;
 
-type SnapshotRef = {
-  current: UiSnapshot;
-  refresh: (domain?: "board") => UiSnapshot;
-};
-
 type BoardMainViewOptions = {
   board: BoardSnapshot;
   state: BoardRuntimeState;
@@ -120,7 +113,7 @@ export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState,
   const gap = 0;
   const boardWidth = Math.max(1, layout.width - 2);
   const columnWidth = Math.max(1, Math.floor(boardWidth / columns.length));
-  const columnNodes = columns.map((column: any, columnOffset: any) => {
+  const columnNodes = columns.map((column: BoardColumn, columnOffset: number) => {
     return createBoardColumnNode(column, columnOffset, columnWidth, state, layout.openCardDetails, layout.openColumnDetails);
   });
 
@@ -182,12 +175,12 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
       return null;
     }
 
-    return currentBoardSummaries().find((item: any) => item.id === id) || null;
+    return currentBoardSummaries().find((item: BoardSummary) => item.id === id) || null;
   }
 
   function currentBoardSummary(): BoardSummary | null {
     const boards = currentBoardSummaries();
-    const current = boards.find((item: any) => item.current === true);
+    const current = boards.find((item: BoardSummary) => item.current === true);
 
     if (current) {
       return current;
@@ -196,7 +189,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     const boardId = currentBoard().id;
 
     if (typeof boardId === "string" || typeof boardId === "number") {
-      return boards.find((item: any) => item.id === boardId) || null;
+      return boards.find((item: BoardSummary) => item.id === boardId) || null;
     }
 
     return boards[0] || null;
@@ -214,10 +207,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     }
 
     return null;
-  }
-
-  function setBoardTarget(id: BoardId): void {
-    state.selectedBoardId = id;
   }
 
   function openBoardDetails(id: BoardId): void {

@@ -8,8 +8,7 @@ import type {
   ListPanel,
   ListSummary,
   UiEntityId,
-  UiSnapshot,
-  UiSnapshotDomain
+  UiSnapshot
 } from "./types";
 
 const DEFAULT_LIMIT = 4;
@@ -156,14 +155,6 @@ function selectCurrentOrFirst<T>(model: ReadModel<T>): T | null {
   return typeof model.getFirst === 'function' ? model.getFirst() ?? null : null;
 }
 
-function limitedItems<T>(items: unknown, limit: number): { visible: T[]; remaining: number } {
-  const safeItems = asArray(items);
-  return {
-    visible: safeItems.slice(0, limit) as T[],
-    remaining: Math.max(safeItems.length - limit, 0)
-  };
-}
-
 function itemText(item: unknown): string {
   if (typeof item === 'string') {
     return safeText(item, 'Untitled');
@@ -256,6 +247,7 @@ function buildListPanel({model, itemKey, descriptionKeys, emptyTitle, unavailabl
       remaining: 0
     };
   } catch (_error: unknown) {
+    void _error;
     return {title: emptyTitle, currentListId: null, lists: [], items: [], remaining: 0, error: unavailableMessage};
   }
 }
@@ -316,7 +308,7 @@ function boardSummaries(model: ReadModel<ReadBoard>, currentBoard: ReadBoard | n
     .filter((board) => board.id !== null || board.title.length > 0);
 }
 
-function buildBoardPanel(model: ReadModel<ReadBoard>, limit: number): BoardSnapshot {
+function buildBoardPanel(model: ReadModel<ReadBoard>, _limit: number): BoardSnapshot {
   const emptyTitle = 'No board yet';
 
   try {
@@ -355,6 +347,7 @@ function buildBoardPanel(model: ReadModel<ReadBoard>, limit: number): BoardSnaps
       remainingColumns: 0
     };
   } catch (_error: unknown) {
+    void _error;
     return {title: emptyTitle, boards: [], columns: [], totalCards: 0, error: 'Board is unavailable right now.'};
   }
 }
@@ -370,6 +363,7 @@ function formatClockTime(clock: ReadClock, now: Date): string {
       timeZone: safeText(clock && clock.timezone)
     }).format(now);
   } catch (_error: unknown) {
+    void _error;
     return 'Time unavailable';
   }
 }
@@ -388,6 +382,7 @@ function buildClocksPanel(model: { find?: () => unknown }, _limit: number, now: 
       remaining: 0
     };
   } catch (_error: unknown) {
+    void _error;
     return {items: [], remaining: 0, error: 'Clocks are unavailable right now.'};
   }
 }

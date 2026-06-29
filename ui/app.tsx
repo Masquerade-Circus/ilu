@@ -5,7 +5,7 @@ import type {
   TerminalSession,
   TerminalTheme
 } from "@valyrianjs/terminal";
-import type { BabelActionResult, SyncStatusState, UiSnapshot, UiSnapshotDomain } from "./types";
+import type { BabelActionResult, UiSnapshot, UiSnapshotDomain } from "./types";
 import type { AppOptions, AppRuntimeState, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotRef, Tab, TerminalRuntimeModule, TuiSyncRunnerClient } from "./app-runtime";
 const { DEFAULT_STATE, HELP_LINES_BY_TAB, TABS, normalizeSyncStatus, normalizeTab, positiveInteger, resolveRuntimeLayout, syncTerminalTitle, terminalTitleForTab }: typeof import("./app-runtime") = require("./app-runtime");
 const { findFocusedNode, findNodeById, isFocusedTextEntry, pasteTextIntoFocusedEntry }: typeof import("./app-headless-tree") = require("./app-headless-tree");

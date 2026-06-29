@@ -1,19 +1,47 @@
-function defaultBuildCommitMessage(context: any = {}) {
+type SyncMutationContext = {
+    domain?: string;
+    action?: string;
+};
+
+type SyncConfigInput = {
+    enabled?: boolean;
+    remoteUrl?: string | null;
+    branch?: string | null;
+    autoSync?: boolean;
+    autoPull?: boolean;
+    autoPush?: boolean;
+};
+
+type FlatSyncOptions = SyncConfigInput & {
+    sourceRoot?: string | null;
+    ignorePatterns?: unknown;
+    buildCommitMessage?: (context: SyncMutationContext) => string;
+    adapter?: unknown;
+    stateStore?: unknown;
+    backend?: unknown;
+};
+
+type NormalizedSyncOptions = {
+    config: ReturnType<typeof normalizeConfig>;
+    sourceRoot: string | null;
+};
+
+function defaultBuildCommitMessage(context: SyncMutationContext = {}) {
     return `sync(${context.domain || 'data'}): ${context.action || 'save'} local data snapshot`;
 }
 
-function normalizeIgnorePatterns(ignorePatterns: any) {
+function normalizeIgnorePatterns(ignorePatterns: unknown) {
     if (!Array.isArray(ignorePatterns)) {
         return [];
     }
 
     return ignorePatterns
-        .filter((entry: any) => typeof entry === 'string')
-        .map((entry: any) => entry.trim())
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
         .filter(Boolean);
 }
 
-function normalizeConfig(config: any = {}) {
+function normalizeConfig(config: SyncConfigInput = {}) {
     return {
         enabled: config.enabled === true,
         remoteUrl: config.remoteUrl || null,
@@ -24,8 +52,8 @@ function normalizeConfig(config: any = {}) {
     };
 }
 
-function validateFlatPublicOptions(options: any = {}) {
-    let forbidden: any = [];
+function validateFlatPublicOptions(options: FlatSyncOptions = {}) {
+    let forbidden: string[] = [];
 
     if (Object.prototype.hasOwnProperty.call(options, 'adapter')) {
         forbidden.push('adapter');
@@ -44,7 +72,10 @@ function validateFlatPublicOptions(options: any = {}) {
     }
 }
 
-function validateNormalizedOptions(normalized: any, {validateRemoteUrl = true}: any = {}) {
+function validateNormalizedOptions(
+    normalized: NormalizedSyncOptions,
+    {validateRemoteUrl = true}: {validateRemoteUrl?: boolean} = {}
+) {
     if (!normalized.sourceRoot || typeof normalized.sourceRoot !== 'string') {
         throw new Error('Sync runtime requires sourceRoot');
     }
@@ -55,7 +86,7 @@ function validateNormalizedOptions(normalized: any, {validateRemoteUrl = true}: 
 
 }
 
-function normalizeFlatOptions(options: any = {}) {
+function normalizeFlatOptions(options: FlatSyncOptions = {}) {
     validateFlatPublicOptions(options);
 
     return {
@@ -68,7 +99,7 @@ function normalizeFlatOptions(options: any = {}) {
     };
 }
 
-function normalizeRuntimeOptions(options: any = {}) {
+function normalizeRuntimeOptions(options: FlatSyncOptions = {}) {
     let normalized = normalizeFlatOptions(options);
 
     validateNormalizedOptions(normalized, {

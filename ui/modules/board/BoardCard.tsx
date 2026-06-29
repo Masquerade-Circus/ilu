@@ -1,5 +1,4 @@
 import type { BoardCard, BoardColumn, Selection } from "../../types";
-import { positiveInteger } from "./number-guards";
 
 export { positiveInteger } from "./number-guards";
 

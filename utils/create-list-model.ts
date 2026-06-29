@@ -1,31 +1,88 @@
 let includes = require('lodash/includes');
 let loadDb = require('./load-db');
-let isUndefined = require('lodash/isUndefined');
 let {createCollectionPersistenceNotifier} = require('./persistence-sync');
 
-function createNestedCollection(Model: any, key: any, options: any = {}) {
-    function assertPosition(index: any) {
-        let current = Model.getCurrent();
-        let items = Array.isArray(current && current[key]) ? current[key] : [];
+type ListItem = Record<string, unknown> & {
+    $id?: string | number;
+    title?: string;
+    description?: string;
+    current?: boolean;
+    index?: number;
+    labels?: unknown[];
+    done?: boolean;
+};
 
-        if (!Number.isInteger(index) || index < 1 || index > items.length) {
+type Collection = {
+    get: (id: string | number) => ListItem;
+    find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
+    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
+    add: (item: ListItem) => ListItem;
+    update: (item: ListItem) => ListItem;
+    remove: (item: ListItem) => void;
+    count: () => number;
+};
+
+type Database = {getCollection: (name: string) => Collection};
+type ListModel = {
+    collection: Collection;
+    get: (id: string | number) => ListItem;
+    find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
+    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
+    add: (item: ListItem) => ListItem;
+    save: (item: ListItem) => ListItem;
+    remove: (item?: ListItem) => void;
+    getCurrent: () => ListItem;
+    getFirst: () => ListItem;
+    getLast: () => ListItem | undefined;
+    updateIndexes: () => void;
+    use: (id: string | number) => ListItem;
+    [key: string]: unknown;
+};
+
+type NestedCollectionOptions = {
+    withCheck?: boolean;
+    prepareAdd?: (item: ListItem) => ListItem;
+};
+
+type NestedCollection = {
+    add: (item: ListItem) => ListItem;
+    remove: (index?: number) => ListItem | void;
+    edit: (index: number, values: ListItem) => ListItem;
+    reorder: (input?: {fromIndex?: number; toIndex?: number}) => ListItem;
+    check?: (checked: number[]) => ListItem;
+};
+
+type CreateListModelOptions = {
+    dbName: string;
+    collectionName: string;
+    itemKey: string;
+    itemHasCheck?: boolean;
+};
+
+function createNestedCollection(Model: ListModel, key: string, options: NestedCollectionOptions = {}) {
+    function assertPosition(index: unknown) {
+        let current = Model.getCurrent();
+        let items: ListItem[] = Array.isArray(current && current[key]) ? current[key] as ListItem[] : [];
+        let position = Number.isInteger(index) ? index as number : null;
+
+        if (position === null || position < 1 || position > items.length) {
             throw new Error(`Invalid ${key} position`);
         }
 
-        return {current, items};
+        return {current, items: items as ListItem[]};
     }
 
-    let nestedCollection: any = {
-        add(item: any) {
+    let nestedCollection: NestedCollection = {
+        add(item: ListItem) {
             let current = Model.getCurrent();
             let value = options.prepareAdd ? options.prepareAdd(item) : item;
-            current[key].push(value);
+            (current[key] as ListItem[]).push(value);
             return Model.save(current);
         },
-        remove(index: any) {
+        remove(index?: number) {
             if (typeof index === 'number') {
                 let {current} = assertPosition(index);
-                current[key].splice(index - 1, 1);
+                (current[key] as ListItem[]).splice(index - 1, 1);
                 return Model.save(current);
             } else {
                 let current = Model.getCurrent();
@@ -33,30 +90,32 @@ function createNestedCollection(Model: any, key: any, options: any = {}) {
                 return Model.save(current);
             }
         },
-        edit(index: any, values: any) {
+        edit(index: number, values: ListItem) {
             let {current} = assertPosition(index);
-            let item = current[key][index - 1];
+            let item = (current[key] as ListItem[])[index - 1];
             Object.assign(item, values);
             return Model.save(current);
         },
-        reorder({fromIndex, toIndex}: any = {}) {
+        reorder({fromIndex, toIndex}: {fromIndex?: number; toIndex?: number} = {}) {
             let {current, items} = assertPosition(fromIndex);
             assertPosition(toIndex);
+            let validFromIndex = fromIndex as number;
+            let validToIndex = toIndex as number;
 
-            if (fromIndex === toIndex) {
+            if (validFromIndex === validToIndex) {
                 return current;
             }
 
-            let moved = items.splice(fromIndex - 1, 1)[0];
-            items.splice(toIndex - 1, 0, moved);
+            let moved = items.splice(validFromIndex - 1, 1)[0];
+            items.splice(validToIndex - 1, 0, moved);
             return Model.save(current);
         }
     };
 
     if (options.withCheck) {
-        nestedCollection.check = function (checked: any) {
+        nestedCollection.check = function (checked: number[]) {
             let current = Model.getCurrent();
-            current[key].forEach((item: any, index: any) => {
+            (current[key] as ListItem[]).forEach((item, index) => {
                 item.done = includes(checked, index);
             });
             return Model.save(current);
@@ -66,27 +125,27 @@ function createNestedCollection(Model: any, key: any, options: any = {}) {
     return nestedCollection;
 }
 
-module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: any) {
-    let DB = loadDb(dbName);
+module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: CreateListModelOptions) {
+    let DB = loadDb(dbName) as Database;
     let afterPersist = createCollectionPersistenceNotifier(dbName, collectionName);
 
-    let Model: any = {
+    let Model: ListModel = {
         collection: DB.getCollection(collectionName),
-        get(id: any) {
+        get(id: string | number) {
             return Model.collection.get(id);
         },
-        find(query: any = {}, options: any = {sort: {index: 1}}) {
+        find(query: Record<string, unknown> = {}, options: Record<string, unknown> = {sort: {index: 1}}) {
             return Model.collection.find(query, options);
         },
-        findOne(query: any = {}, options: any = {sort: {index: 1}}) {
+        findOne(query: Record<string, unknown> = {}, options: Record<string, unknown> = {sort: {index: 1}}) {
             return Model.collection.findOne(query, options);
         },
-        add(item: any) {
+        add(item: ListItem) {
             let index = Model.collection.count() + 1;
 
             let doc = {
-                title: item.title.trim() || '',
-                description: item.description.trim() || '',
+                title: typeof item.title === 'string' ? item.title.trim() : '',
+                description: typeof item.description === 'string' ? item.description.trim() : '',
                 [itemKey]: [],
                 labels: [],
                 current: false,
@@ -94,16 +153,20 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
             };
 
             let insertedDocument = Model.collection.add(doc);
+            if (typeof insertedDocument.$id !== 'string' && typeof insertedDocument.$id !== 'number') {
+                throw new Error('Inserted list is missing an id');
+            }
+
             return Model.use(insertedDocument.$id);
         },
-        save(item: any) {
+        save(item: ListItem) {
             let saved = Model.collection.update(item);
             afterPersist('save');
             return saved;
         },
-        remove(item: any) {
-            if (isUndefined(item)) {
-                Model.collection.find().forEach((item: any) => Model.collection.remove(item));
+        remove(item?: ListItem) {
+            if (item === void 0) {
+                Model.collection.find().forEach((item) => Model.collection.remove(item));
                 afterPersist('remove');
                 return;
             }
@@ -124,14 +187,14 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
         },
         updateIndexes() {
             let items = Model.find();
-            items.forEach((item: any, index: any) => {
+            items.forEach((item, index) => {
                 item.index = index + 1;
                 Model.collection.update(item);
             });
         },
-        use(id: any) {
+        use(id: string | number) {
             let prevCurrent = Model.find({current: true});
-            prevCurrent.forEach((item: any) => {
+            prevCurrent.forEach((item) => {
                 item.current = false;
                 Model.collection.update(item);
             });
@@ -146,7 +209,7 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
 
     Model[itemKey] = createNestedCollection(Model, itemKey, {
         withCheck: itemHasCheck,
-        prepareAdd(item: any) {
+        prepareAdd(item: ListItem) {
             item.done = false;
             if (!item.labels) {
                 item.labels = [];

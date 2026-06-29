@@ -3,10 +3,8 @@ require('colors');
 let {log} = require('../utils');
 let {createGoogleTranslateProvider} = require('./google-translate-provider');
 
-const importClipboardy = new Function('return import("clipboardy")') as () => Promise<any>;
-
 async function writeToClipboard(value: string) {
-    const clipboardy = await importClipboardy();
+    const clipboardy = await import('clipboardy');
     const clipboard = clipboardy.default || clipboardy;
 
     await clipboard.write(value);

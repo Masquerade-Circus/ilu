@@ -13,7 +13,29 @@ let {
 } = require('x-robot');
 let {validate} = require('x-robot/validate');
 
-function getInitialState(config: any = {}) {
+type SyncOutcome = 'ok' | 'network' | 'auth' | 'conflict' | 'config' | 'unknown' | null;
+
+type SyncMachineContext = {
+    enabled?: boolean;
+    status?: string;
+    hasPendingRemote?: boolean;
+    lastErrorKind?: string | null;
+    lastErrorMessage?: string | null;
+    retryCount?: number;
+    backoffUntil?: number | null;
+    lastSyncReason?: string | null;
+    lastPhase?: string | null;
+    lastSnapshotId?: string | null;
+    lastSyncedSnapshotId?: string | null;
+    syncOutcome?: SyncOutcome;
+};
+
+type SyncPayload = {
+    action?: string | null;
+    runSyncPipeline?: () => Promise<{kind?: SyncOutcome; error?: unknown}>;
+};
+
+function getInitialState(config: SyncMachineContext = {}) {
     if (!config.enabled) {
         return 'disabled';
     }
@@ -21,35 +43,35 @@ function getInitialState(config: any = {}) {
     return config.status || 'healthy';
 }
 
-function isEnabled(ctx: any) {
+function isEnabled(ctx: SyncMachineContext) {
     return ctx.enabled === true;
 }
 
-function hasPendingRemote(ctx: any) {
+function hasPendingRemote(ctx: SyncMachineContext) {
     return ctx.hasPendingRemote === true;
 }
 
-function isHealthySyncOutcome(ctx: any) {
+function isHealthySyncOutcome(ctx: SyncMachineContext) {
     return !ctx.syncOutcome || ctx.syncOutcome === 'ok';
 }
 
-function isNetworkOutcome(ctx: any) {
+function isNetworkOutcome(ctx: SyncMachineContext) {
     return ctx.syncOutcome === 'network';
 }
 
-function isAuthOutcome(ctx: any) {
+function isAuthOutcome(ctx: SyncMachineContext) {
     return ctx.syncOutcome === 'auth';
 }
 
-function isConflictOutcome(ctx: any) {
+function isConflictOutcome(ctx: SyncMachineContext) {
     return ctx.syncOutcome === 'conflict';
 }
 
-function isFailedOutcome(ctx: any) {
+function isFailedOutcome(ctx: SyncMachineContext) {
     return ctx.syncOutcome === 'config' || ctx.syncOutcome === 'unknown';
 }
 
-async function runSync(ctx: any, payload: any = {}) {
+async function runSync(ctx: SyncMachineContext, payload: SyncPayload = {}) {
     let runner = payload.runSyncPipeline;
 
     if (typeof runner !== 'function') {
@@ -80,7 +102,7 @@ async function runSync(ctx: any, payload: any = {}) {
     };
 }
 
-function createSyncMachine(config: any = {}) {
+function createSyncMachine(config: SyncMachineContext = {}) {
     let syncMachine = machine(
         'Sync',
         init(
@@ -102,27 +124,27 @@ function createSyncMachine(config: any = {}) {
         ),
         state(
             'disabled',
-            transition('ENABLE', 'healthy', exit((ctx: any) => {
+            transition('ENABLE', 'healthy', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = true;
             })),
             transition('CONFIG_BROKEN', 'misconfigured')
         ),
         state(
             'misconfigured',
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             })),
-            transition('ENABLE', 'healthy', exit((ctx: any) => {
+            transition('ENABLE', 'healthy', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = true;
             }))
         ),
         state(
             'healthy',
-            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx: any, payload: any = {}) => {
+            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx: SyncMachineContext, payload: SyncPayload = {}) => {
                 ctx.hasPendingRemote = true;
                 ctx.lastSyncReason = payload.action || null;
             })),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             })),
             transition('CONFIG_BROKEN', 'misconfigured')
@@ -131,7 +153,7 @@ function createSyncMachine(config: any = {}) {
             'pending_remote',
             transition('SYNC_REQUESTED', 'syncing', guard(isEnabled)),
             transition('RETRY', 'syncing', guard(isEnabled)),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             })),
             transition('CONFIG_BROKEN', 'misconfigured')
@@ -152,35 +174,35 @@ function createSyncMachine(config: any = {}) {
         state(
             'degraded_network',
             transition('RETRY', 'syncing', guard(hasPendingRemote)),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             }))
         ),
         state(
             'degraded_auth',
             transition('RETRY', 'syncing', guard(hasPendingRemote)),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             }))
         ),
         state(
             'conflict',
-            transition('CONFLICT_RESOLVED', 'pending_remote', exit((ctx: any) => {
+            transition('CONFLICT_RESOLVED', 'pending_remote', exit((ctx: SyncMachineContext) => {
                 ctx.syncOutcome = null;
             })),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             }))
         ),
         state(
             'failed',
-            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx: any, payload: any = {}) => {
+            transition('LOCAL_PERSISTED', 'pending_remote', exit((ctx: SyncMachineContext, payload: SyncPayload = {}) => {
                 ctx.hasPendingRemote = true;
                 ctx.lastSyncReason = payload.action || null;
             })),
             transition('SYNC_REQUESTED', 'syncing', guard(hasPendingRemote)),
             transition('RETRY', 'syncing', guard(hasPendingRemote)),
-            transition('DISABLE', 'disabled', exit((ctx: any) => {
+            transition('DISABLE', 'disabled', exit((ctx: SyncMachineContext) => {
                 ctx.enabled = false;
             }))
         )
