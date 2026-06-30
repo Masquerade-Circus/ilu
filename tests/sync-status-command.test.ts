@@ -1,33 +1,34 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
 
 function loadCommands(status) {
   const originalLoad = Module._load;
   const calls = [];
+  const syncIndex = {
+    createSyncRuntime(...args) {
+      calls.push(args);
+      return {
+        getSyncStatus() {
+          return status;
+        },
+        retry: async () => status
+      };
+    },
+    getSyncConfig() {
+      return {enabled: true, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
+    }
+  };
 
   delete require.cache[require.resolve(commandsModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === './index') {
-      return {
-        createSyncRuntime(...args) {
-          calls.push(args);
-          return {
-            getSyncStatus() {
-              return status;
-            },
-            retry: async () => status
-          };
-        },
-        getSyncConfig() {
-          return {enabled: true, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
-        }
-      };
+      return syncIndex;
     }
 
     if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
@@ -38,7 +39,9 @@ function loadCommands(status) {
   };
 
   try {
-    return {commands: require(commandsModulePath), calls};
+    const commands = require(commandsModulePath);
+    commands.configureCommandDependencies({sync: syncIndex});
+    return {commands, calls};
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(commandsModulePath)];

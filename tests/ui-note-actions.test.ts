@@ -1,8 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as __cjsImport83 from '../ui/modules/notes/actions';
 
-const {createNoteActions} = require('../ui/modules/notes/actions');
-
+const { createNoteActions } = __cjsImport83;
 function createNoteModel() {
   const calls = [];
   const lists = [

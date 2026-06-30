@@ -6,22 +6,22 @@ import type {
   TerminalTheme
 } from "@valyrianjs/terminal";
 import type { BabelActionResult, UiSnapshot, UiSnapshotDomain } from "./types";
-import type { AppOptions, AppRuntimeState, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotRef, Tab, TerminalRuntimeModule, TuiSyncRunnerClient } from "./app-runtime";
-const { DEFAULT_STATE, HELP_LINES_BY_TAB, TABS, normalizeSyncStatus, normalizeTab, positiveInteger, resolveRuntimeLayout, syncTerminalTitle, terminalTitleForTab }: typeof import("./app-runtime") = require("./app-runtime");
-const { findFocusedNode, findNodeById, isFocusedTextEntry, pasteTextIntoFocusedEntry }: typeof import("./app-headless-tree") = require("./app-headless-tree");
-
-const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
-const { closeAppOverlays, createKeymap, handleCommand }: typeof import("./app-keymap") = require("./app-keymap");
-const { createSnapshotRef }: typeof import("./app-snapshot") = require("./app-snapshot");
-const { createTuiSyncClient }: { createTuiSyncClient: (options?: Record<string, unknown>) => TuiSyncRunnerClient } = require("../sync/tui-sync-client");
-const notifySyncHook: NotifySyncHook = require("../sync/ilu-hooks");
-const { createAppShell }: typeof import("./components/AppShell") = require("./components/AppShell.tsx");
-const { FOOTER_STYLE, footerLine, footerSegments }: typeof import("./components/Footer") = require("./components/Footer.tsx");
-const { createButton }: typeof import("./components/Button") = require("./components/Button.tsx");
-const { AppOverlay }: typeof import("./components/Overlay") = require("./components/Overlay.tsx");
-const { createTopNav }: typeof import("./components/TopNav") = require("./components/TopNav.tsx");
-const { PANEL_STYLE, TERMINAL_THEME }: typeof import("./theme") = require("./theme.ts");
-const {
+import type { AppOptions, AppRuntimeState, HeadlessSession, LayoutOptions, NotifySyncHook, Runtime, RuntimeLayout, SessionActions, SnapshotRef, Tab, TerminalRuntimeModule } from "./app-runtime";
+import { DEFAULT_STATE, HELP_LINES_BY_TAB, TABS, normalizeSyncStatus, normalizeTab, positiveInteger, resolveRuntimeLayout, syncTerminalTitle, terminalTitleForTab } from "./app-runtime";
+import { findFocusedNode, findNodeById, isFocusedTextEntry, pasteTextIntoFocusedEntry } from "./app-headless-tree";
+import * as valyrian from "valyrian.js";
+import { closeAppOverlays, createKeymap, handleCommand } from "./app-keymap";
+import { createSnapshotRef } from "./app-snapshot";
+import { createTuiSyncClient } from "../sync/tui-sync-client";
+import notifySyncHook from "../sync/ilu-hooks";
+import syncIndex from "../sync";
+import { createAppShell } from "./components/AppShell";
+import { FOOTER_STYLE, footerLine, footerSegments } from "./components/Footer";
+import { createButton } from "./components/Button";
+import { AppOverlay } from "./components/Overlay";
+import { createTopNav } from "./components/TopNav";
+import { PANEL_STYLE, TERMINAL_THEME } from "./theme";
+import {
   createActiveModuleView,
   createActiveUtilityOverlay,
   createDefaultModuleActions,
@@ -35,15 +35,17 @@ const {
   prepareActiveUtilityApp,
   setPendingFocusForTab,
   clearPendingFocusForActiveModule
-}: typeof import("./module-registry") = require("./module-registry");
-const { createAppSyncLifecycle }: typeof import("./app-sync") = require("./app-sync");
-const { createTuiSyncRunnerCleanup, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook, createTuiSyncClient });
+} from "./module-registry";
+import { createAppSyncLifecycle } from "./app-sync";
+
+// Runtime import is intentional: tests patch the terminal runtime and interactive
+// sessions must load the host adapter only when a TUI session starts.
+const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
+const { createTuiSyncRunnerCleanup, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook: notifySyncHook as NotifySyncHook, createTuiSyncClient, syncIndex });
 
 async function loadTerminalRuntime(): Promise<Runtime> {
   const terminal = await terminalImport;
-  const valyrian = require("valyrian.js");
-
-  return { terminal, valyrian };
+  return { terminal, valyrian: valyrian as Runtime["valyrian"] };
 }
 
 function createTerminalTheme(terminal: TerminalRuntimeModule): TerminalTheme {
@@ -549,7 +551,8 @@ async function action(): Promise<void> {
   process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
 }
 
-module.exports = {
+export { action, createApp, createHeadlessSession, createInitialState, createKeymap, handleCommand, loadTerminalRuntime, mountInteractiveSession, resolveLayoutOptions, renderSmoke };
+export default {
   action,
   createApp,
   createHeadlessSession,

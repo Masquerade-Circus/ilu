@@ -1,6 +1,5 @@
-let fs = require('node:fs');
-let path = require('node:path');
-
+import fs from 'node:fs';
+import path from 'node:path';
 function createFileStateStore({defaultState, getStateFilePath, fileSystem = fs, pathModule = path}: any = {}) {
     if (typeof defaultState !== 'function' || typeof getStateFilePath !== 'function') {
         throw new Error('File state store requires defaultState and getStateFilePath');
@@ -42,6 +41,7 @@ function createFileStateStore({defaultState, getStateFilePath, fileSystem = fs, 
     };
 }
 
-module.exports = {
+export { createFileStateStore };
+export default {
     createFileStateStore
 };

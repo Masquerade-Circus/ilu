@@ -1,10 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
 const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
 
 function stripAnsi(output) {

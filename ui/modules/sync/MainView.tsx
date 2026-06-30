@@ -5,8 +5,7 @@ import { createButton } from "../../components/Button";
 import { AppOverlay } from "../../components/Overlay";
 import type { OptionalTerminalChild, SyncActionResult, SyncActions, SyncUtilityState, TerminalChild, UtilityAppState } from "../../types";
 import { cleanStringArray, cleanText } from "../../components/utility/text";
-
-const { hasEmbeddedUrlUserinfo } = require("../../../sync/remote-validation") as { hasEmbeddedUrlUserinfo: (value: string) => boolean };
+import { hasEmbeddedUrlUserinfo } from "../../../sync/remote-validation";
 
 type RequestRender = () => void;
 type SyncOperation = "status" | "retry" | "enable" | "disable" | "init";

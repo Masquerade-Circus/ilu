@@ -5,6 +5,9 @@ import { normalizeSyncStatus } from "./app-runtime";
 type AppSyncLifecycleDeps = {
   notifySyncHook: NotifySyncHook;
   createTuiSyncClient: (options?: Record<string, unknown>) => TuiSyncRunnerClient;
+  syncIndex: {
+    getSyncConfig?: () => unknown;
+  } | null;
 };
 
 function applySyncStatus(state: AppRuntimeState, event: SyncStatusEvent): boolean {
@@ -113,16 +116,16 @@ function enableSyncStatusUpdates(notifySyncHook: NotifySyncHook, session: Termin
   return session;
 }
 
-function shouldUseTuiSyncRunner(): boolean {
+function shouldUseTuiSyncRunner(syncIndex: AppSyncLifecycleDeps["syncIndex"]): boolean {
   try {
-    const syncIndex = require("../sync");
     const config = syncIndex && typeof syncIndex.getSyncConfig === "function" ? syncIndex.getSyncConfig() : null;
+    const configRecord = config && typeof config === "object" ? config as Record<string, unknown> : null;
     return Boolean(
-      config
-        && config.enabled === true
-        && config.autoSync !== false
-        && typeof config.remoteUrl === "string"
-        && config.remoteUrl.trim().length > 0
+      configRecord
+        && configRecord.enabled === true
+        && configRecord.autoSync !== false
+        && typeof configRecord.remoteUrl === "string"
+        && configRecord.remoteUrl.trim().length > 0
     );
   } catch (_error: unknown) {
     void _error;
@@ -131,9 +134,9 @@ function shouldUseTuiSyncRunner(): boolean {
 }
 
 function createTuiSyncRunnerCleanup(deps: AppSyncLifecycleDeps): () => void | Promise<unknown> {
-  const { createTuiSyncClient, notifySyncHook } = deps;
+  const { createTuiSyncClient, notifySyncHook, syncIndex } = deps;
 
-  if (typeof notifySyncHook.configureSyncRunner !== "function" || !shouldUseTuiSyncRunner()) {
+  if (typeof notifySyncHook.configureSyncRunner !== "function" || !shouldUseTuiSyncRunner(syncIndex)) {
     return () => {};
   }
 

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-const fs = require('node:fs');
-const Module = require('node:module');
-const path = require('node:path');
-
+import fs from 'node:fs';
+import Module from 'node:module';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { assertRepoTempHome } from '../../support/home-sandbox.ts';
+const require = createRequire(import.meta.url);
 const flowName = process.argv[2];
-const repoRoot = path.resolve(__dirname, '..', '..');
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 
 const promptAnswersByFlow = {
   todo: [
@@ -36,6 +38,8 @@ async function main() {
     throw new Error(`Unsupported flow: ${flowName}`);
   }
 
+  assertRepoTempHome(process.env.HOME, 'Functional flow HOME');
+
   const originalLoad = Module._load;
   const originalConsoleLog = console.log;
   const originalPathEnv = process.env.PATH;
@@ -43,7 +47,7 @@ async function main() {
   const output = [];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-      if (request === '../utils/prompts') {
+      if (request === '../utils/prompts' || request === '../utils/prompts.ts') {
       return {
         prompt: async () => {
           if (promptAnswers.length === 0) {
@@ -55,7 +59,7 @@ async function main() {
       };
     }
 
-    if (request === './inline-note-prompt' && flowName === 'note') {
+    if ((request === './inline-note-prompt' || request === './inline-note-prompt.ts') && flowName === 'note') {
       return async () => {
         if (promptAnswers.length === 0) {
           throw new Error(`No inline prompt answers left for ${flowName}`);
@@ -111,7 +115,7 @@ async function main() {
 
     if (flowName === 'clock') {
       const Clocks = require(path.join(repoRoot, 'clocks'));
-      const ClocksModel = require(path.join(repoRoot, 'clocks', 'model.ts'));
+      const ClocksModel = require(path.join(repoRoot, 'clocks', 'model.ts')).default;
 
       await Clocks.actions([], {add: true});
       await Clocks.actions([], {add: true});

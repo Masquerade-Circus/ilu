@@ -1,10 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const {setTestHome, withTempHome} = require('../../support/home-sandbox');
-
-const repoRoot = path.resolve(__dirname, '..', '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport49 from '../../support/home-sandbox';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { setTestHome, withTempHome } = __cjsImport49;
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 const defaultsModulePath = path.join(repoRoot, 'sync-core', 'defaults.ts');
 const fileStoreModulePath = path.join(repoRoot, 'sync-core', 'state', 'file-store.ts');
 const stateStoreModulePath = path.join(repoRoot, 'sync', 'state-store.ts');

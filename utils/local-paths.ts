@@ -1,12 +1,13 @@
-let os = require('os');
-let path = require('path');
+import os from 'os';
+import path from 'path';
+import * as syncContracts from '../sync/contracts.ts';
 let {
     SYNC_DIRNAME,
     SYNC_CONFIG_FILENAME,
     TTS_CONFIG_FILENAME,
     SYNC_STATE_FILENAME,
     SYNC_LOCK_FILENAME
-} = require('../sync/contracts');
+} = syncContracts;
 
 function storageDirPath() {
     return path.join(os.homedir(), '.ilu');
@@ -36,7 +37,8 @@ function syncLockFilePath() {
     return path.join(syncDirPath(), SYNC_LOCK_FILENAME);
 }
 
-module.exports = {
+export { storageDirPath, dbFilePath, syncDirPath, syncConfigFilePath, ttsConfigFilePath, syncStateFilePath, syncLockFilePath };
+export default {
     storageDirPath,
     dbFilePath,
     syncDirPath,

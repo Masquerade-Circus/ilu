@@ -1,11 +1,11 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..', '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 const backendModulePath = path.join(repoRoot, 'sync', 'git-cli-backend.ts');
 const coreBackendModulePath = path.join(repoRoot, 'sync-core', 'backends', 'git-cli.ts');
 const coreContractsModulePath = path.join(repoRoot, 'sync-core', 'contracts.ts');

@@ -1,6 +1,5 @@
-let fs = require('node:fs');
-let localPaths = require('./local-paths');
-
+import fs from 'node:fs';
+import localPaths from './local-paths.ts';
 function readJsonIfExists(filePath: any, fileSystem: any = fs) {
     if (!fileSystem.existsSync(filePath)) {
         return null;
@@ -79,7 +78,8 @@ function getTtsConfig({fs: fileSystem = fs, paths = localPaths}: any = {}) {
     return loadTtsConfig({fs: fileSystem, paths});
 }
 
-module.exports = {
+export { loadSyncConfig, saveSyncConfig, loadTtsConfig, saveTtsConfig, getSyncConfig, getTtsConfig, normalizeSyncConfig, normalizeTtsConfig };
+export default {
     loadSyncConfig,
     saveSyncConfig,
     loadTtsConfig,

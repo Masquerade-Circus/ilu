@@ -97,7 +97,7 @@ export function createKeymap(
   };
 }
 
-module.exports = {
+export default {
   closeAppOverlays,
   createKeymap,
   handleCommand

@@ -1,8 +1,9 @@
-let fs = require('node:fs');
-let path = require('node:path');
-let { documentate } = require('x-robot/documentate');
-let { createSyncMachine } = require('./machine');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport41 from 'x-robot/documentate';
+const { documentate } = __cjsImport41;
+import * as __cjsImport42 from './machine.ts';
+const { createSyncMachine } = __cjsImport42;
 async function generateSyncDiagrams(options: any = {}) {
     let outDir = options.outDir || path.join(process.cwd(), 'docs', 'diagrams');
     let svgPath = path.join(outDir, 'sync-machine.svg');
@@ -37,6 +38,7 @@ async function generateSyncDiagrams(options: any = {}) {
     };
 }
 
-module.exports = {
+export { generateSyncDiagrams };
+export default {
     generateSyncDiagrams
 };

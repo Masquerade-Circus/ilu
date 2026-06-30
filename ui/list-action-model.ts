@@ -123,7 +123,8 @@ function useFallbackListIfNeeded(model: ListActionModel): void {
   }
 }
 
-module.exports = {
+export { asArray, currentList, entityId, findList, positiveInteger, safeContent, safeString, useFallbackListIfNeeded };
+export default {
   asArray,
   currentList,
   entityId,

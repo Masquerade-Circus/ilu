@@ -1,8 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const translatorModulePath = path.join(__dirname, 'index.ts');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const translatorModulePath = path.join(import.meta.dirname, 'index.ts');
 
 function loadTranslatorModule() {
   delete require.cache[require.resolve(translatorModulePath)];

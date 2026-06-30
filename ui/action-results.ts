@@ -40,7 +40,8 @@ function createUiSuccessResult(values: unknown = {}): UiActionResult {
   return {ok: true, ...values};
 }
 
-module.exports = {
+export { createUiErrorResult, createUiSuccessResult, safeErrorMessage };
+export default {
   createUiErrorResult,
   createUiSuccessResult,
   safeErrorMessage

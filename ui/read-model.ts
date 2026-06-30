@@ -10,6 +10,10 @@ import type {
   UiEntityId,
   UiSnapshot
 } from "./types";
+import * as todosModel from '../todos/model.ts';
+import * as notesModel from '../notes/model.ts';
+import * as boardsModel from '../scrumban/model.ts';
+import clocksModel from '../clocks/model.ts';
 
 const DEFAULT_LIMIT = 4;
 
@@ -75,10 +79,10 @@ type ListPanelOptions = {
 
 function loadModels(): ReadModels {
   return {
-    todos: require('../todos/model'),
-    notes: require('../notes/model'),
-    boards: require('../scrumban/model'),
-    clocks: require('../clocks/model')
+    todos: todosModel,
+    notes: notesModel,
+    boards: boardsModel,
+    clocks: clocksModel
   };
 }
 
@@ -444,7 +448,8 @@ function buildReadSnapshotDomain(domain: unknown, options: ReadSnapshotOptions =
   return null;
 }
 
-module.exports = {
+export { buildReadSnapshot, buildReadSnapshotDomain, loadModels };
+export default {
   buildReadSnapshot,
   buildReadSnapshotDomain,
   loadModels

@@ -1,5 +1,5 @@
-let {createSyncRuntimeFromResolvedOptions} = require('./engine');
-
+import * as __cjsImport36 from './engine.ts';
+const { createSyncRuntimeFromResolvedOptions } = __cjsImport36;
 function defaultBuildCommitMessage(context: any = {}) {
     return `sync(${context.domain || 'data'}): ${context.action || 'save'} local data snapshot`;
 }
@@ -55,6 +55,7 @@ function createSyncRuntimeAdvanced(options: any = {}) {
     });
 }
 
-module.exports = {
+export { createSyncRuntimeAdvanced };
+export default {
     createSyncRuntimeAdvanced
 };

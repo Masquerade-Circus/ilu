@@ -1,10 +1,11 @@
-let fs = require('node:fs');
-let path = require('node:path');
-let childProcess = require('node:child_process');
-let localPaths = require('../utils/local-paths');
-let configStore = require('../utils/config-store');
-let prompts = require('../utils/prompts');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import childProcess from 'node:child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import OpenAI from 'openai';
+import localPaths from '../utils/local-paths';
+import configStore from '../utils/config-store';
+import prompts from '../utils/prompts';
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
 const DEFAULT_VOICE = 'alloy';
 const DEFAULT_MAX_CHUNK_LENGTH = 50000;
@@ -24,7 +25,6 @@ const VOICE_CATALOG = [
 const SUPPORTED_VOICES = VOICE_CATALOG.slice();
 
 function defaultCreateOpenAI(options: any) {
-    let OpenAI = require('openai');
     return new OpenAI(options);
 }
 
@@ -50,8 +50,8 @@ function buildFfmpegConcatInput(chunkFiles: any) {
     return chunkFiles.map((filePath: any) => `file '${escapeFfmpegConcatPath(filePath)}'\n`).join('');
 }
 
-function resolveFfmpegPath(ffmpegInstaller: any = require('@ffmpeg-installer/ffmpeg')) {
-    return ffmpegInstaller.path;
+function resolveFfmpegPath(installer: any = ffmpegInstaller) {
+    return installer.path;
 }
 
 function mergeChunkFiles({chunkFiles, outputFile, ffmpegPath = resolveFfmpegPath(), fs: fileSystem = fs, spawnSync = childProcess.spawnSync}: any = {}) {
@@ -331,7 +331,7 @@ function createTtsService({
 
 let tts = createTtsService();
 
-module.exports = Object.assign(tts, {
+const __defaultExport = Object.assign(tts, {
     createTtsService,
     readStoredApiKey,
     resolveApiKey,
@@ -353,3 +353,28 @@ module.exports = Object.assign(tts, {
     getRetryCommand,
     cleanupChunkFiles
 });
+export const action = tts.action;
+export const voiceAction = tts.voiceAction;
+export {
+    createTtsService,
+    readStoredApiKey,
+    resolveApiKey,
+    validateInputFile,
+    validateOutputFile,
+    getDefaultVoice,
+    isSupportedVoice,
+    validateSupportedVoice,
+    resolveVoice,
+    saveDefaultVoice,
+    SUPPORTED_VOICES,
+    chunkText,
+    DEFAULT_MAX_CHUNK_LENGTH,
+    getChunkDirForOutput,
+    getChunkFilePath,
+    buildFfmpegConcatInput,
+    resolveFfmpegPath,
+    mergeChunkFiles,
+    getRetryCommand,
+    cleanupChunkFiles
+};
+export default __defaultExport;

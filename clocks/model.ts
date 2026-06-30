@@ -1,8 +1,8 @@
-let fs = require('node:fs');
-let path = require('node:path');
-let localPaths = require('../utils/local-paths');
-let {createPersistenceNotifier} = require('../utils/persistence-sync');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import localPaths from '../utils/local-paths.ts';
+import * as __cjsImport13 from '../utils/persistence-sync.ts';
+const { createPersistenceNotifier } = __cjsImport13;
 let afterPersist = createPersistenceNotifier('clocks');
 
 function getFilePath() {
@@ -30,7 +30,7 @@ function write(clocks: any) {
     return clocks;
 }
 
-module.exports = {
+const __defaultExport = {
     find() {
         return read();
     },
@@ -80,3 +80,4 @@ module.exports = {
         return write(clocks);
     }
 };
+export default __defaultExport;

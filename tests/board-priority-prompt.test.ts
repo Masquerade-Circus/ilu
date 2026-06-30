@@ -1,8 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const priorityPromptModulePath = path.join(repoRoot, 'scrumban', 'board-priority-prompt.ts');
 
 test('priority prompt construye choices desde la columna completa', () => {
@@ -22,7 +23,7 @@ test('priority prompt construye choices desde la columna completa', () => {
 test('priority prompt rechaza columnas con menos de dos cards', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptBoardPriority = require(priorityPromptModulePath).default;
 
   await assert.rejects(
     promptBoardPriority({columnTitle: 'Ready', cards: [{title: 'One', position: 1}]}),
@@ -33,7 +34,7 @@ test('priority prompt rechaza columnas con menos de dos cards', async () => {
 test('priority prompt usa prompts nativos para elegir origen y destino', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptBoardPriority = require(priorityPromptModulePath).default;
   const calls = [];
   const promptsModule = {
     async prompt(questions) {
@@ -61,7 +62,7 @@ test('priority prompt usa prompts nativos para elegir origen y destino', async (
 test('priority prompt rechaza destino decimal desde la validación del prompt', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptBoardPriority = require(priorityPromptModulePath).default;
   const calls = [];
   const promptsModule = {
     async prompt(questions) {
@@ -88,7 +89,7 @@ test('priority prompt rechaza destino decimal desde la validación del prompt', 
 test('priority prompt devuelve null cuando origen y destino coinciden', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptBoardPriority = require(priorityPromptModulePath).default;
   const promptsModule = {
     async prompt(questions) {
       return questions[0].name === 'fromPosition' ? {fromPosition: 1} : {toPosition: 1};
@@ -110,7 +111,7 @@ test('priority prompt devuelve null cuando origen y destino coinciden', async ()
 test('priority prompt rechaza destino fuera de rango antes de devolver movimiento', async () => {
   delete require.cache[require.resolve(priorityPromptModulePath)];
 
-  const promptBoardPriority = require(priorityPromptModulePath);
+  const promptBoardPriority = require(priorityPromptModulePath).default;
   const promptsModule = {
     async prompt(questions) {
       return questions[0].name === 'fromPosition' ? {fromPosition: 1} : {toPosition: 9};

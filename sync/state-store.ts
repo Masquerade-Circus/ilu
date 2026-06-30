@@ -1,8 +1,8 @@
-let fs = require('node:fs');
-let path = require('node:path');
-let localPaths = require('../utils/local-paths');
-let {createFileStateStore} = require('../sync-core/state/file-store');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import localPaths from '../utils/local-paths.ts';
+import * as __cjsImport32 from '../sync-core/state/file-store.ts';
+const { createFileStateStore } = __cjsImport32;
 function defaultState() {
     return {
         enabled: false,
@@ -46,7 +46,8 @@ function saveState(state: any) {
     return fileStateStore.saveState(state);
 }
 
-module.exports = {
+export { createStateStore, defaultState, ensureSyncDir, getStateFilePath, loadState, saveState };
+export default {
     createStateStore,
     defaultState,
     ensureSyncDir,

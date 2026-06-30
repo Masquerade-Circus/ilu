@@ -1,9 +1,10 @@
-let isUndefined = require('lodash/isUndefined');
-let prompts = require('../utils/prompts');
-let {required, log} = require('../utils');
-let Model = require('./model');
-let {selectOne, selectMany} = require('../utils/prompt-index-selection');
-
+import isUndefined from 'lodash/isUndefined.js';
+import prompts from '../utils/prompts.ts';
+import * as __cjsImport19 from '../utils/index.ts';
+const { required, log } = __cjsImport19;
+import Model from './model.ts';
+import * as __cjsImport20 from '../utils/prompt-index-selection.ts';
+const { selectOne, selectMany } = __cjsImport20;
 let SIMPLE_DEFAULT_COLUMNS = ['Backlog', 'Ready', 'In Progress', 'Done'];
 
 function sanitizeColumnId(value: any) {
@@ -232,4 +233,11 @@ let BoardLists = {
     }
 };
 
-module.exports = BoardLists;
+export const add = BoardLists.add;
+export const details = BoardLists.details;
+export const edit = BoardLists.edit;
+export const use = BoardLists.use;
+export const remove = BoardLists.remove;
+export const show = BoardLists.show;
+export const actions = BoardLists.actions;
+export default BoardLists;

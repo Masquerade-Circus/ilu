@@ -1,11 +1,10 @@
-require('colors');
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import 'colors';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const clocksModulePath = path.join(repoRoot, 'clocks', 'clocks.ts');
 const priorityPromptModulePath = path.join(repoRoot, 'clocks', 'priority-prompt.ts');
 
@@ -25,7 +24,7 @@ function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], ev
   delete require.cache[require.resolve(clocksModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === '../utils/prompts') {
+    if (request === '../utils/prompts' || request === '../utils/prompts.ts') {
       return {
         prompt: async (questions) => {
           promptCalls.push(questions);
@@ -39,7 +38,7 @@ function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], ev
       };
     }
 
-    if (request === '../utils') {
+    if (request === '../utils' || request === '../utils/index.ts') {
       return {
         log: Object.assign(
           (message) => {
@@ -72,7 +71,7 @@ function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], ev
       };
     }
 
-    if (request === './model') {
+    if (request === './model' || request === './model.ts') {
       return {
         add(clock) {
           modelState.addCalls.push(clock);
@@ -112,7 +111,7 @@ function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], ev
       };
     }
 
-    if (request === './priority-prompt') {
+    if (request === './priority-prompt' || request === './priority-prompt.ts') {
       return async (options) => {
         promptCalls.push([{type: 'clock-priority', ...options}]);
 
@@ -132,7 +131,7 @@ function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], ev
   };
 
   try {
-    const Clocks = require(clocksModulePath);
+    const Clocks = require(clocksModulePath).default;
     return {Clocks, logs, modelState, promptCalls};
   } finally {
     Module._load = originalLoad;
@@ -337,7 +336,7 @@ test('clock --priority reordena relojes guardados y show refleja el nuevo orden'
 });
 
 test('clock priority prompt construye choices para prompts nativos', {concurrency: false}, () => {
-  const priorityPrompt = require(priorityPromptModulePath);
+  const priorityPrompt = require(priorityPromptModulePath).default;
   const clocks = [
     {name: 'CDMX', timezone: 'America/Mexico_City'},
     {name: 'Madrid', timezone: 'Europe/Madrid'},
@@ -352,7 +351,7 @@ test('clock priority prompt construye choices para prompts nativos', {concurrenc
 });
 
 test('clock priority prompt rechaza destino decimal desde la validación del prompt', {concurrency: false}, async () => {
-  const priorityPrompt = require(priorityPromptModulePath);
+  const priorityPrompt = require(priorityPromptModulePath).default;
   const calls = [];
   const promptsModule = {
     async prompt(questions) {

@@ -1,7 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const {
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import {
   repoRoot,
   uiModulePath,
   uiModuleRegistryPath,
@@ -27,7 +28,8 @@ const {
   loadUiWithSyncHook,
   boardSnapshotModels,
   orderedTextIndex,
-} = require('./test-helpers/ui-app');
+} from './test-helpers/ui-app.ts';
+const require = createRequire(import.meta.url);
 
 test('Board action bar reemplaza Columns por Add column y abre add-column directo', async () => {
   const Ui = require(uiModulePath);

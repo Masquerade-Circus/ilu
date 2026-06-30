@@ -1,7 +1,8 @@
 import type { ActionFactoryOptions, BoardActions } from "../../action-contracts";
+import BoardModel from '../../../scrumban/model';
 
 function loadBoardModel(): any {
-  return require('../../../scrumban/model');
+  return BoardModel;
 }
 
 function safeString(value: any): any {
@@ -461,6 +462,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
   };
 }
 
-module.exports = {
+export { createBoardActions };
+export default {
   createBoardActions
 };

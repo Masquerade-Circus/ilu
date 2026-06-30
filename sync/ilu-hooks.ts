@@ -1,6 +1,7 @@
-let log = require('../utils/log');
-let {isSyncSetupError, syncSetupStatus, syncStatusFromResult} = require('./tui-sync-status');
-
+import log from '../utils/log.ts';
+import defaultSyncIndex from './index.ts';
+import * as __cjsImport28 from './tui-sync-status.ts';
+const { isSyncSetupError, syncSetupStatus, syncStatusFromResult } = __cjsImport28;
 type SyncContext = Record<string, unknown>;
 type SyncEvent = {state: string; message?: string; context?: SyncContext};
 type SyncListener = (event: SyncEvent) => void;
@@ -22,6 +23,7 @@ type SyncRunResult = {
 let syncStatusListeners = new Set<SyncListener>();
 let pendingDebouncedSync: PendingDebouncedSync | null = null;
 let syncRunner: SyncExecutor | null = null;
+let syncExecutor: SyncExecutor | null = null;
 let syncRunnerUnsubscribe: (() => void) | null = null;
 let syncRunnerTerminalEventVersion = 0;
 
@@ -106,6 +108,15 @@ function configureSyncRunner(runner: SyncExecutor | null) {
     };
 }
 
+function configureSyncExecutor(executor: SyncExecutor | null) {
+    let previousExecutor = syncExecutor;
+    syncExecutor = executor && typeof executor.notifyLocalMutation === 'function' ? executor : null;
+
+    return () => {
+        syncExecutor = previousExecutor;
+    };
+}
+
 function onSyncStatus(listener: SyncListener) {
     if (typeof listener !== 'function') {
         return () => {};
@@ -130,12 +141,16 @@ function logSyncing(syncIndex: SyncExecutor | null) {
     }
 }
 
-function activeSyncExecutor(syncIndex: SyncExecutor | null = null): SyncExecutor {
+function activeSyncExecutor(syncIndex: SyncExecutor | null = defaultSyncIndex): SyncExecutor {
     if (syncRunner && typeof syncRunner.notifyLocalMutation === 'function') {
         return syncRunner;
     }
 
-    return syncIndex || require('./index');
+    if (syncExecutor && typeof syncExecutor.notifyLocalMutation === 'function') {
+        return syncExecutor;
+    }
+
+    return syncIndex || defaultSyncIndex;
 }
 
 function executorShouldLog(executor: SyncExecutor) {
@@ -266,12 +281,7 @@ function notifySync(context: SyncContext) {
                 return null;
             }
 
-            if (syncStatusListeners.size === 0) {
-                return runSyncNow(context);
-            }
-
-            let syncIndex = require('./index');
-            return runSyncNow(context, syncIndex);
+            return runSyncNow(context, defaultSyncIndex);
         })
         .catch((error: unknown) => {
             let status = isSyncSetupError(error) ? syncSetupStatus() : {state: 'failed', message: 'Sync failed'};
@@ -282,5 +292,7 @@ function notifySync(context: SyncContext) {
 notifySync.onSyncStatus = onSyncStatus;
 notifySync.flushPending = flushPending;
 notifySync.configureSyncRunner = configureSyncRunner;
+notifySync.configureSyncExecutor = configureSyncExecutor;
 
-module.exports = notifySync;
+export { notifySync, onSyncStatus, flushPending, configureSyncRunner, configureSyncExecutor };
+export default notifySync;

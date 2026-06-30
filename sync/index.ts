@@ -1,9 +1,11 @@
-let {createSyncRuntime: createEngineRuntime} = require('../sync-core/engine');
-let {createSyncRuntimeAdvanced: createEngineRuntimeAdvanced} = require('../sync-core/advanced');
-let adapter = require('./ilu-adapter');
-let {createGitCliBackend} = require('./git-cli-backend');
-let stateStore = require('./state-store');
-
+import * as __cjsImport29 from '../sync-core/engine.ts';
+const { createSyncRuntime: createEngineRuntime } = __cjsImport29;
+import * as __cjsImport30 from '../sync-core/advanced.ts';
+const { createSyncRuntimeAdvanced: createEngineRuntimeAdvanced } = __cjsImport30;
+import adapter from './ilu-adapter.ts';
+import * as __cjsImport31 from './git-cli-backend.ts';
+const { createGitCliBackend } = __cjsImport31;
+import stateStore from './state-store.ts';
 let runtime: any = null;
 
 function getRuntimeOptions(consumerAdapter: any = adapter, overrides: any = {}) {
@@ -125,7 +127,8 @@ function retry(context: any) {
   return ensureRuntime().retry(context);
 }
 
-module.exports = {
+export { getSyncConfig, getBootstrapContext, getRuntimeOptions, createBootstrapBackend, initializeSyncState, createSyncRuntime, createSyncRuntimeAdvanced, notifyLocalMutation, getSyncStatus, retry };
+export default {
   getSyncConfig,
   getBootstrapContext,
   getRuntimeOptions,

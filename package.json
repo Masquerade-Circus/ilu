@@ -1,6 +1,7 @@
 {
   "name": "ilu",
   "version": "1.0.4",
+  "type": "module",
   "description": "Cli tools for productivity, notes, todo-lists, etc...",
   "author": "Masquerade <christian@masquerade-circus.net>",
   "repository": "git@github.com:Masquerade-Circus/ilu.git",
@@ -27,11 +28,11 @@
     "ilu": "./bin/cli.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.11.0"
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "node --import tsx --test",
+    "test": "node --import tsx --import ./support/test-home-guard.ts --test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts"
   },

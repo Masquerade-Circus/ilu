@@ -1,10 +1,13 @@
-require('colors');
+import 'colors';
+import * as __cjsImport6 from './commands/board.ts';
+import * as __cjsImport7 from './commands/todo-note.ts';
+import * as __cjsImport8 from './commands/sync.ts';
+import * as __cjsImport9 from './commands/utilities.ts';
 
-const {registerBoardCommands, wrapBoardParseAliases} = require('./commands/board');
-const {registerNoteCommands, registerTodoCommands} = require('./commands/todo-note');
-const {registerSyncCommands} = require('./commands/sync');
-const {registerUiCommand, registerUtilityCommands} = require('./commands/utilities');
-
+const { registerBoardCommands, wrapBoardParseAliases } = __cjsImport6;
+const { registerNoteCommands, registerTodoCommands } = __cjsImport7;
+const { registerSyncCommands } = __cjsImport8;
+const { registerUiCommand, registerUtilityCommands } = __cjsImport9;
 function configureProgram(program: any, deps: any) {
   const {
     pkg,
@@ -54,4 +57,5 @@ function configureProgram(program: any, deps: any) {
   return program;
 }
 
-module.exports = configureProgram;
+export { configureProgram };
+export default configureProgram;

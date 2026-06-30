@@ -4,7 +4,8 @@ const TTS_CONFIG_FILENAME = 'tts-config.json';
 const SYNC_STATE_FILENAME = 'sync-state.json';
 const SYNC_LOCK_FILENAME = 'sync.lock';
 
-module.exports = {
+export { SYNC_DIRNAME, SYNC_CONFIG_FILENAME, TTS_CONFIG_FILENAME, SYNC_STATE_FILENAME, SYNC_LOCK_FILENAME };
+export default {
   SYNC_DIRNAME,
   SYNC_CONFIG_FILENAME,
   TTS_CONFIG_FILENAME,

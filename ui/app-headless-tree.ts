@@ -61,7 +61,7 @@ export function pasteTextIntoFocusedEntry(session: TerminalSession, text: string
   return output;
 }
 
-module.exports = {
+export default {
   findFocusedNode,
   findNodeById,
   isFocusedTextEntry,

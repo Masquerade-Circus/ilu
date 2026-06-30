@@ -1,10 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
 const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
 
 function stripAnsi(output) {
@@ -89,9 +89,8 @@ function failMutator(name) {
   };
 }
 
-test('shared action-result helper rejects unsafe raw error details', () => {
-  const {createUiErrorResult, createUiSuccessResult} = require('../ui/action-results');
-
+test('shared action-result helper rejects unsafe raw error details', async () => {
+  const { createUiErrorResult, createUiSuccessResult } = await import('../ui/action-results');
   const unsafe = new Error('provider failed at /home/user/.ssh/key with token=abc123\n    at internal stack');
   const failure = createUiErrorResult(unsafe, 'Something went wrong. Try again.');
   const success = createUiSuccessResult({id: 7, refreshed: true});
@@ -323,8 +322,8 @@ test('Note details overlay pins its action row to the internal bottom nav row', 
   session.destroy();
 });
 
-test('shared snapshot enrichment exposes list identities without calling mutators', () => {
-  const {buildReadSnapshot} = require('../ui/read-model');
+test('shared snapshot enrichment exposes list identities without calling mutators', async () => {
+  const { buildReadSnapshot } = await import('../ui/read-model');
   const todoLists = [
     {$id: 1, title: 'Today', current: true, tasks: [{title: 'Ship UI', description: 'Foundation', done: false, labels: ['work']}]},
     {$id: 2, title: 'Later', current: false, tasks: []}
@@ -424,9 +423,9 @@ test('Ctrl shortcuts can select the utility apps as top-level routes', async () 
   assert.equal(session.state().activeTab, 'Speech');
   session.destroy();
 });
-test('AppOverlay pins bottomNav to the internal bottom row with tall content', () => {
-  const {renderTerminal, Screen, Text} = require('@valyrianjs/terminal');
-  const {AppOverlay} = require('../ui/components/Overlay.tsx');
+test('AppOverlay pins bottomNav to the internal bottom row with tall content', async () => {
+  const { renderTerminal, Screen, Text } = await import('@valyrianjs/terminal');
+  const { AppOverlay } = await import('../ui/components/Overlay.tsx');
   const content = Array.from({length: 30}, (_, index) => Text({}, [`Content ${index + 1}`]));
   const output = renderTerminal(
     Screen({}, [
@@ -449,9 +448,8 @@ test('AppOverlay pins bottomNav to the internal bottom row with tall content', (
   assert.equal(lines.filter(line => line.length > 80).length, 0, 'AppOverlay bottomNav contract must not overdraw 80 columns');
 });
 
-test('shared overlay props keep the 10 percent margin contract and modal defaults', () => {
-  const {createOverlayProps} = require('../ui/components/Overlay.tsx');
-
+test('shared overlay props keep the 10 percent margin contract and modal defaults', async () => {
+  const { createOverlayProps } = await import('../ui/components/Overlay.tsx');
   assert.deepEqual(createOverlayProps().margin, {x: '10%', y: '10%'});
   assert.equal(createOverlayProps().trapFocus, true);
   assert.equal(createOverlayProps().backdrop, true);
@@ -460,9 +458,9 @@ test('shared overlay props keep the 10 percent margin contract and modal default
   assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).backdrop, false);
 });
 
-test('StateText applies semantic tone styles to ANSI output without depending on global text state lookup', () => {
-  const {mountTerminal, Screen} = require('@valyrianjs/terminal');
-  const {errorStateText, emptyStateText, loadingStateText} = require('../ui/components/StateText.tsx');
+test('StateText applies semantic tone styles to ANSI output without depending on global text state lookup', async () => {
+  const { mountTerminal, Screen } = await import('@valyrianjs/terminal');
+  const { errorStateText, emptyStateText, loadingStateText } = await import('../ui/components/StateText.tsx');
   const session = mountTerminal(Screen({}, [
     errorStateText('Unsafe state'),
     emptyStateText('Nothing here'),
@@ -478,10 +476,10 @@ test('StateText applies semantic tone styles to ANSI output without depending on
   assert.match(ansi, /\x1b\[/, `expected StateText semantic styles to produce ANSI spans:\n${JSON.stringify(ansi)}`);
 });
 
-test('utility app render paths do not start status or voice preparation side effects', () => {
-  const {renderTerminal, Screen} = require('@valyrianjs/terminal');
-  const {createSyncMainView} = require('../ui/modules/sync/MainView.tsx');
-  const {createTtsMainView, createTtsVoiceOverlay} = require('../ui/modules/tts/MainView.tsx');
+test('utility app render paths do not start status or voice preparation side effects', async () => {
+  const { renderTerminal, Screen } = await import('@valyrianjs/terminal');
+  const { createSyncMainView } = await import('../ui/modules/sync/MainView.tsx');
+  const { createTtsMainView, createTtsVoiceOverlay } = await import('../ui/modules/tts/MainView.tsx');
   const syncActions = {
     status: failMutator('sync.status'),
     retry: failMutator('sync.retry'),

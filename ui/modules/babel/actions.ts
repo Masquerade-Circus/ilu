@@ -1,7 +1,8 @@
 import type { BabelActionFactoryOptions, BabelActions } from "../../action-contracts";
 
-const {createGoogleTranslateProvider} = require('../../../translate/google-translate-provider');
+import * as __cjsImport129 from '../../../translate/google-translate-provider';
 
+const { createGoogleTranslateProvider } = __cjsImport129;
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATE_FAILED = 'Could not translate the text.';
 const COPY_FAILED = 'Could not copy the translation.';
@@ -102,6 +103,7 @@ function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactor
   };
 }
 
-module.exports = {
+export { createBabelActions };
+export default {
   createBabelActions
 };

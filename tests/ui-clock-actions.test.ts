@@ -1,8 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as __cjsImport82 from '../ui/modules/clocks/actions';
 
-const {createClockActions, searchTimezoneChoices} = require('../ui/modules/clocks/actions');
-
+const { createClockActions, searchTimezoneChoices } = __cjsImport82;
 function createClockModel(items = [
   {name: 'UTC', timezone: 'Etc/UTC'},
   {name: 'Mexico City', timezone: 'America/Mexico_City'},

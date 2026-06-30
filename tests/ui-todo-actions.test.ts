@@ -1,8 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as __cjsImport103 from '../ui/modules/todos/actions';
 
-const {createTodoActions} = require('../ui/modules/todos/actions');
-
+const { createTodoActions } = __cjsImport103;
 function createTodoModel() {
   const calls = [];
   const lists = [

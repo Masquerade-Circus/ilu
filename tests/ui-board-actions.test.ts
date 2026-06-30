@@ -1,8 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as __cjsImport80 from '../ui/modules/board/actions';
 
-const {createBoardActions} = require('../ui/modules/board/actions');
-
+const { createBoardActions } = __cjsImport80;
 function createInjectedModel(overrides: any = {}) {
   const calls = [];
   const model = {

@@ -1,7 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
 function deferred() {
   let resolve;
   let reject;
@@ -13,7 +12,7 @@ function deferred() {
 }
 
 test('TUI sync runner rejects malformed IPC messages without touching sync runtime', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];
   let calls = 0;
   const runner = createTuiSyncRunner({
@@ -39,7 +38,7 @@ test('TUI sync runner rejects malformed IPC messages without touching sync runti
 });
 
 test('TUI sync runner keeps one active Git sync and coalesces mutations for the next run', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];
   const first = deferred();
   const second = deferred();
@@ -86,7 +85,7 @@ test('TUI sync runner keeps one active Git sync and coalesces mutations for the 
 
 
 test('TUI sync runner does not start queued mutation after active sync fails', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];
   const first = deferred();
   const calls = [];
@@ -122,8 +121,8 @@ test('TUI sync runner does not start queued mutation after active sync fails', a
 
 
 test('TUI sync runner reports failed instead of setup when a coalesced mutation hits a backend error with valid config', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
-  const {createSyncRuntimeAdvanced} = require('../sync-core/advanced');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const { createSyncRuntimeAdvanced } = await import('../sync-core/advanced');
   const sent = [];
   const firstFetch = deferred();
   let fetchCalls = 0;
@@ -195,7 +194,7 @@ test('TUI sync runner reports failed instead of setup when a coalesced mutation 
 });
 
 test('TUI sync runner flush waits for active and queued mutation before shutdown result', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];
   const first = deferred();
   const second = deferred();
@@ -241,7 +240,7 @@ test('TUI sync runner flush waits for active and queued mutation before shutdown
 });
 
 test('TUI sync runner closes after shutdown flush even when close throws', async () => {
-  const {createTuiSyncRunner} = require('../sync/tui-sync-runner');
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];
   const closeErrors = [];
   const runner = createTuiSyncRunner({
@@ -267,8 +266,8 @@ test('TUI sync runner closes after shutdown flush even when close throws', async
   assert.deepEqual(closeErrors, ['close failed']);
 });
 
-test('TUI sync client forks runner with ignored stdout and stderr', () => {
-  const {createTuiSyncClient} = require('../sync/tui-sync-client');
+test('TUI sync client forks runner with ignored stdout and stderr', async () => {
+  const { createTuiSyncClient } = await import('../sync/tui-sync-client');
   const forkCalls = [];
   const fakeChild = {
     connected: true,

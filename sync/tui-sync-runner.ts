@@ -1,6 +1,7 @@
-const defaultSyncIndex = require('./index');
-const {isSyncSetupError, syncSetupStatus, syncStatusFromResult} = require('./tui-sync-status');
-
+import { fileURLToPath } from 'node:url';
+import defaultSyncIndex from './index.ts';
+import * as __cjsImport35 from './tui-sync-status.ts';
+const { isSyncSetupError, syncSetupStatus, syncStatusFromResult } = __cjsImport35;
 const VALID_TYPES = new Set(['sync:mutation', 'sync:flush', 'sync:status', 'sync:shutdown']);
 const INVALID_SYNC_MESSAGE = 'Invalid sync message';
 
@@ -243,7 +244,7 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
   return {handleMessage};
 }
 
-if (require.main === module) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const runner = createTuiSyncRunner({
     close() {
       process.exit(0);
@@ -258,6 +259,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
+export { createTuiSyncRunner };
+export default {
   createTuiSyncRunner
 };

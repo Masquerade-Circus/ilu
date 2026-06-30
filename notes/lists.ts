@@ -1,9 +1,10 @@
-let isUndefined = require('lodash/isUndefined');
-let prompts = require('../utils/prompts');
-let {required, log, colors, getLabel} = require('../utils');
-let Model = require('./model');
-let {selectOne, selectMany} = require('../utils/prompt-index-selection');
-
+import isUndefined from 'lodash/isUndefined.js';
+import prompts from '../utils/prompts.ts';
+import * as __cjsImport15 from '../utils/index.ts';
+const { required, log, colors, getLabel } = __cjsImport15;
+import Model from './model.ts';
+import * as __cjsImport16 from '../utils/prompt-index-selection.ts';
+const { selectOne, selectMany } = __cjsImport16;
 function getListChoiceName(item: any) {
     return item.current ? `${item.index} ${item.title} (current)` : `${item.index} ${item.title}`;
 }
@@ -238,4 +239,4 @@ let Lists = {
     }
 };
 
-module.exports = Lists;
+export default Lists;

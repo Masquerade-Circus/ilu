@@ -1,10 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import * as __cjsImport48 from 'x-robot';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 
-const {invoke} = require('x-robot');
-
-const repoRoot = path.resolve(__dirname, '..', '..');
+const { invoke } = __cjsImport48;
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 const machineModulePath = path.join(repoRoot, 'sync-core', 'machine.ts');
 
 function createMachine(context: any = {}) {

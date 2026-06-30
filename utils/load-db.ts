@@ -1,6 +1,7 @@
-let IluDb = require('iludb');
-let IluDbNodeJsonPlugin = require('iludb/plugins/iludb-node-json-plugin');
-let {dbFilePath} = require('./local-paths');
+import IluDb from 'iludb';
+import IluDbNodeJsonPlugin from 'iludb/plugins/iludb-node-json-plugin.js';
+import * as __cjsImport139 from './local-paths.ts';
+const { dbFilePath } = __cjsImport139;
 IluDb.use(IluDbNodeJsonPlugin);
 
-module.exports = (dbname: any) => IluDb(dbFilePath(dbname));
+export default (dbname: any) => IluDb(dbFilePath(dbname));

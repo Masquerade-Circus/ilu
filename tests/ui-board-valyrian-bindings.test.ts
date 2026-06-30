@@ -1,13 +1,11 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
-const {createBoardKeyBindings} = require('../ui/modules/board/MainView.tsx');
-const Ui = require('../ui/app.tsx');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
+import * as __cjsImport81 from '../ui/modules/board/MainView.tsx';
+const { createBoardKeyBindings } = __cjsImport81;
+import Ui from '../ui/app.tsx';
 function bindingSignature(binding) {
   return {
     key: binding.key,

@@ -1,3 +1,5 @@
+import { createPromptRunner } from '@valyrianjs/terminal';
+
 type PromptChoice = {
     name?: string;
     label?: string;
@@ -18,6 +20,7 @@ type PromptQuestion = {
     min?: number;
     max?: number;
     mask?: string | boolean;
+    suffix?: string;
 };
 
 function failInteractivePrompt(message: string) {
@@ -98,15 +101,9 @@ function normalizeOptionalInteger(value: any) {
     return value;
 }
 
-async function loadCreatePromptRunner() {
-    let terminal = await import('@valyrianjs/terminal');
-    return terminal.createPromptRunner;
-}
-
 async function withRunner<T>(run: (prompt: any) => Promise<T>) {
     assertInteractiveTerminal();
 
-    let createPromptRunner = await loadCreatePromptRunner();
     let runner = createPromptRunner();
 
     try {
@@ -240,7 +237,8 @@ async function prompt(questions: PromptQuestion[]) {
     return answers;
 }
 
-module.exports = {
+export { prompt, input, password, number, confirm, select, selectionList, search, toValyrianChoices, initialSelectionFromChecked, defaultValuesFromChecked, assertChoiceDefaults, normalizeOptionalInteger };
+export default {
     prompt,
     input,
     password,

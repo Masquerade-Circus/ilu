@@ -94,7 +94,8 @@ function validateSyncBranch(value: any) {
   return branch;
 }
 
-module.exports = {
+export { hasEmbeddedUrlUserinfo, isSupportedRemoteUrl, validateSyncBranch, validateSyncRemoteUrl };
+export default {
   hasEmbeddedUrlUserinfo,
   isSupportedRemoteUrl,
   validateSyncBranch,

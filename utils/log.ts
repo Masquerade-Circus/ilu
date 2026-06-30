@@ -1,3 +1,6 @@
+type LogMethod = (message: any, color?: any, spaces?: any) => void;
+type LogFunction = ((message: any, spaces?: any, type?: any, color?: any) => void) & Record<string, LogMethod>;
+
 let fallbackSymbols = {
     tick: '✔',
     cross: '✖',
@@ -83,7 +86,7 @@ let logMethods = [
     'checkboxCircleOff'
 ];
 
-function log(message: any, spaces: any = 2, type: any = null, color: any = 'white') {
+const log = (function log(message: any, spaces: any = 2, type: any = null, color: any = 'white') {
     let str = '';
     for (;spaces--;) {
         str += ' ';
@@ -94,10 +97,10 @@ function log(message: any, spaces: any = 2, type: any = null, color: any = 'whit
 
     str += message;
     console.log(str);
-};
+}) as LogFunction;
 
 logMethods.forEach((method: any) => {
-    (log as any)[method] = (message: any, color: any, spaces: any) => log(message, spaces, method, color);
+    log[method] = (message: any, color: any, spaces: any) => log(message, spaces, method, color);
 });
 
-module.exports = log;
+export default log;

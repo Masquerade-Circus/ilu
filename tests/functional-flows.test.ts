@@ -1,15 +1,17 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const fs = require('node:fs');
-const os = require('node:os');
-const {spawnSync} = require('node:child_process');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import * as __cjsImport52 from 'node:child_process';
+const { spawnSync } = __cjsImport52;
+import { TEST_TMP_ROOT } from '../support/home-sandbox.ts';
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const flowRunnerPath = path.join(repoRoot, 'tests', 'test-helpers', 'run-functional-flow.ts');
 
 function runFlow(flowName) {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), `ilu-functional-${flowName}-`));
+  fs.mkdirSync(TEST_TMP_ROOT, {recursive: true});
+  const tempHome = fs.mkdtempSync(path.join(TEST_TMP_ROOT, `ilu-functional-${flowName}-`));
 
   try {
     const result = spawnSync(process.execPath, ['--import', 'tsx', flowRunnerPath, flowName], {
@@ -28,6 +30,18 @@ function runFlow(flowName) {
     fs.rmSync(tempHome, {recursive: true, force: true});
   }
 }
+
+test('runner funcional rechaza HOME real antes de escribir datos', () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', flowRunnerPath, 'board'], {
+    cwd: repoRoot,
+    env: {...process.env, HOME: os.userInfo().homedir},
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Functional flow HOME must not point to the real home directory/);
+  assert.equal(result.stdout, '');
+});
 
 test('flujo funcional base de todo agrega lista y tarea en HOME temporal', () => {
   const {tempHome, payload: result} = runFlow('todo');

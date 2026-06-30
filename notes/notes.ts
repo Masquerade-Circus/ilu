@@ -1,12 +1,13 @@
-let prompts = require('../utils/prompts');
-let {required, log, getLabel} = require('../utils');
-let Model = require('./model');
-let isUndefined = require('lodash/isUndefined');
-let find = require('lodash/find');
-let localPaths = require('../utils/local-paths');
-let {selectOne, selectMany} = require('../utils/prompt-index-selection');
-let promptInlineNote = require('./inline-note-prompt');
-
+import prompts from '../utils/prompts.ts';
+import * as __cjsImport17 from '../utils/index.ts';
+const { required, log, getLabel } = __cjsImport17;
+import Model from './model.ts';
+import isUndefined from 'lodash/isUndefined.js';
+import find from 'lodash/find.js';
+import localPaths from '../utils/local-paths.ts';
+import * as __cjsImport18 from '../utils/prompt-index-selection.ts';
+const { selectOne, selectMany } = __cjsImport18;
+import promptInlineNote from './inline-note-prompt.ts';
 function getNoteChoice(item: any, index: any) {
     let labels = '';
     item.labels.forEach((label: any) => {
@@ -178,4 +179,13 @@ let Notes = {
     }
 };
 
-module.exports = Notes;
+export const dir = Notes.dir;
+export const getCurrent = Notes.getCurrent;
+export const get = Notes.get;
+export const add = Notes.add;
+export const show = Notes.show;
+export const details = Notes.details;
+export const remove = Notes.remove;
+export const edit = Notes.edit;
+export const actions = Notes.actions;
+export default Notes;

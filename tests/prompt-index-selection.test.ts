@@ -1,11 +1,10 @@
-require('colors');
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import 'colors';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.ts');
 
 function loadPromptSelectionWithStubs({promptAnswers = []}: any = {}) {
@@ -16,7 +15,7 @@ function loadPromptSelectionWithStubs({promptAnswers = []}: any = {}) {
   delete require.cache[require.resolve(promptSelectionModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './prompts') {
+    if (request === './prompts' || request === './prompts.ts') {
       return {
         prompt: async (questions) => {
           promptCalls.push(questions);
@@ -30,7 +29,7 @@ function loadPromptSelectionWithStubs({promptAnswers = []}: any = {}) {
       };
     }
 
-    if (request === './') {
+    if (request === './' || request === './index.ts') {
       return {
         log: {
           info() {}

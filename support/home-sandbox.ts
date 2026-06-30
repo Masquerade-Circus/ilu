@@ -1,16 +1,44 @@
-const fs = require('node:fs');
-const path = require('node:path');
-
-const REAL_HOME = path.resolve(require('node:os').userInfo().homedir);
-const REPO_ROOT = path.resolve(__dirname, '..');
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+const REAL_HOME = path.resolve(os.userInfo().homedir);
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_TMP_ROOT = path.join(REPO_ROOT, 'tmp');
 
-function setTestHome(tempHome: any) {
-  const resolvedTempHome = path.resolve(tempHome);
+function isInsidePath(childPath: string, parentPath: string) {
+  const relativePath = path.relative(parentPath, childPath);
 
-  if (resolvedTempHome === REAL_HOME) {
-    throw new Error('Test HOME must not point to the real home directory');
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function assertNotRealHome(homePath: any, label = 'Test HOME') {
+  if (typeof homePath !== 'string' || homePath.trim() === '') {
+    throw new Error(`${label} must be a non-empty path`);
   }
+
+  const resolvedHome = path.resolve(homePath);
+
+  if (resolvedHome === REAL_HOME) {
+    throw new Error(`${label} must not point to the real home directory`);
+  }
+
+  return resolvedHome;
+}
+
+function assertRepoTempHome(homePath: any, label = 'Test HOME') {
+  const resolvedHome = assertNotRealHome(homePath, label);
+  const resolvedTmpRoot = path.resolve(TEST_TMP_ROOT);
+
+  if (!isInsidePath(resolvedHome, resolvedTmpRoot)) {
+    throw new Error(`${label} must live under ${resolvedTmpRoot}`);
+  }
+
+  return resolvedHome;
+}
+
+function setTestHome(tempHome: any) {
+  const resolvedTempHome = assertNotRealHome(tempHome);
 
   const originalHome = process.env.HOME;
   process.env.HOME = resolvedTempHome;
@@ -39,7 +67,11 @@ async function withTempHome(run: any, options: any = {}) {
   }
 }
 
-module.exports = {
+export { TEST_TMP_ROOT, assertNotRealHome, assertRepoTempHome, setTestHome, withTempHome };
+export default {
+  TEST_TMP_ROOT,
+  assertNotRealHome,
+  assertRepoTempHome,
   setTestHome,
   withTempHome
 };

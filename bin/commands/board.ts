@@ -1,5 +1,5 @@
-const {createActionAdapter} = require('./adapters');
-
+import * as __cjsImport1 from './adapters.ts';
+const { createActionAdapter } = __cjsImport1;
 const boardManagementAliases = new Map([
   ['-ab', '--add-board'],
   ['-eb', '--edit-board'],
@@ -61,4 +61,5 @@ function registerBoardCommands(program: any, deps: any) {
   boardCommand.action(createActionAdapter(deps.Scrumban.Board.actions));
 }
 
-module.exports = { registerBoardCommands, wrapBoardParseAliases };
+export { registerBoardCommands, wrapBoardParseAliases };
+export default { registerBoardCommands, wrapBoardParseAliases };

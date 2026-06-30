@@ -1,15 +1,17 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const {execFileSync} = require('node:child_process');
-const {withTempHome} = require('../support/home-sandbox');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport58 from 'node:child_process';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { execFileSync } = __cjsImport58;
+import * as __cjsImport59 from '../support/home-sandbox';
+const { withTempHome } = __cjsImport59;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const coreEngineModulePath = path.join(repoRoot, 'sync-core', 'engine.ts');
 const coreMachineModulePath = path.join(repoRoot, 'sync-core', 'machine.ts');
-const createTempGitRemote = require('./test-helpers/create-temp-git-remote');
-
+import createTempGitRemote from './test-helpers/create-temp-git-remote';
 function clearRuntimeCaches() {
   [
     path.join(repoRoot, 'sync', 'commands.ts'),

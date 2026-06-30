@@ -34,7 +34,8 @@ function isSyncSetupError(error: any) {
   );
 }
 
-module.exports = {
+export { isSyncSetupError, syncSetupStatus, syncStatusFromResult };
+export default {
   isSyncSetupError,
   syncSetupStatus,
   syncStatusFromResult

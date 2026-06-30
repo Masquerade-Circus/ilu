@@ -1,5 +1,4 @@
-const CliTable = require('cli-table');
-
+import CliTable from 'cli-table';
 function getHeader(column: any) {
     return column.wipLimit === null || typeof column.wipLimit === 'undefined'
         ? column.title
@@ -140,7 +139,8 @@ function renderWithCliTable(columns: any, options: any) {
     return table.toString();
 }
 
-module.exports = function renderBoard(board: any, options: any) {
+export default function renderBoard(board: any, options: any = {}) {
     let columns = board.columns || [];
+
     return renderWithCliTable(columns, options);
 };

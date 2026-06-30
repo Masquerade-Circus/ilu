@@ -1,8 +1,11 @@
 import type { SyncActionFactoryOptions, SyncActionResult, SyncActions } from "../../action-contracts";
+import * as syncCommands from '../../../sync/commands';
 
-const {safeErrorMessage} = require('../../action-results');
-const {validateSyncBranch, validateSyncRemoteUrl} = require('../../../sync/remote-validation');
+import * as __cjsImport134 from '../../action-results';
 
+const { safeErrorMessage } = __cjsImport134;
+import * as __cjsImport135 from '../../../sync/remote-validation';
+const { validateSyncBranch, validateSyncRemoteUrl } = __cjsImport135;
 const FALLBACK_ERROR = 'Sync failed. Check your setup and try again.';
 const NOT_SET_UP = 'Not set up';
 const SYNC_OFF = 'Sync off';
@@ -29,7 +32,7 @@ type SyncCommands = Record<SyncCommandName, CommandAction> & {
 };
 
 function defaultCommands() {
-  return require('../../../sync/commands');
+  return syncCommands;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -208,7 +211,8 @@ function createSyncActions(options: SyncActionFactoryOptions = {}): SyncActions 
   };
 }
 
-module.exports = {
+export { FALLBACK_ERROR, createSyncActions, labelFromStatus, detailsFromStatus };
+export default {
   FALLBACK_ERROR,
   createSyncActions,
   labelFromStatus,

@@ -1,7 +1,6 @@
-let fs = require('node:fs');
-let localPaths = require('../utils/local-paths');
-let configStore = require('../utils/config-store');
-
+import fs from 'node:fs';
+import localPaths from '../utils/local-paths.ts';
+import configStore from '../utils/config-store.ts';
 const IGNORE_PATTERNS = [
     '.config/**'
 ];
@@ -10,7 +9,7 @@ function getSyncConfig() {
     return configStore.getSyncConfig({fs, paths: localPaths});
 }
 
-module.exports = {
+const __defaultExport = {
     getSourceRoot() {
         return localPaths.storageDirPath();
     },
@@ -24,3 +23,9 @@ module.exports = {
         return `sync(${domain}): ${action} local data snapshot`;
     }
 };
+
+export const getSourceRoot = __defaultExport.getSourceRoot;
+export const getIgnorePatterns = __defaultExport.getIgnorePatterns;
+export { getSyncConfig };
+export const buildCommitMessage = __defaultExport.buildCommitMessage;
+export default __defaultExport;

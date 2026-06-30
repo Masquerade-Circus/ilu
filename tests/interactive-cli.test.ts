@@ -1,11 +1,11 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const fs = require('node:fs');
-const os = require('node:os');
-const {spawnSync} = require('node:child_process');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import * as __cjsImport53 from 'node:child_process';
+const { spawnSync } = __cjsImport53;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 
 function writeCollectionDb(tempHome, filename, collectionName, entry) {
   fs.mkdirSync(path.join(tempHome, '.ilu'), {recursive: true});

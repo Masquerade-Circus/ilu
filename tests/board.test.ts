@@ -1,11 +1,10 @@
-require('colors');
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import 'colors';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const boardModulePath = path.join(repoRoot, 'scrumban', 'board.ts');
 
 function createBoardState(overrides: any = {}) {
@@ -47,7 +46,7 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
   delete require.cache[require.resolve(boardModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === '../utils/prompts') {
+    if (request === '../utils/prompts' || request === '../utils/prompts.ts') {
       return {
         prompt: async (questions) => {
           promptCalls.push(questions);
@@ -61,7 +60,7 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
       };
     }
 
-    if (request === '../utils') {
+    if (request === '../utils' || request === '../utils/index.ts') {
         return {
           required: () => true,
           log: Object.assign(
@@ -90,7 +89,7 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
       };
     }
 
-    if (request === './model') {
+    if (request === './model' || request === './model.ts') {
       return {
         getCurrent() {
           return modelState.board;
@@ -138,11 +137,11 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
       };
     }
 
-    if (request === './board-renderer') {
+    if (request === './board-renderer' || request === './board-renderer.ts') {
       return () => 'BOARD RENDERER';
     }
 
-    if (request === './board-priority-prompt') {
+    if (request === './board-priority-prompt' || request === './board-priority-prompt.ts') {
       return async (options) => {
         priorityPromptCalls.push(options);
 
@@ -162,7 +161,7 @@ function loadBoardWithStubs({promptAnswers = [], board = createBoardState(), eve
   };
 
   try {
-    const Board = require(boardModulePath);
+    const Board = require(boardModulePath).default;
     return {Board, logs, logCalls, promptCalls, priorityPromptCalls, modelState};
   } finally {
     Module._load = originalLoad;

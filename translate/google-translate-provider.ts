@@ -1,5 +1,5 @@
-let {log} = require('../utils');
-
+import * as __cjsImport117 from '../utils/index.ts';
+const { log } = __cjsImport117;
 let baseUrl = 'https://translate.google.com/translate_a/single?client=at&dt=t&dt=ld&dt=qca&dt=rm&dt=bd&dj=1&hl=es-ES&ie=UTF-8&oe=UTF-8&inputm=2&otf=2&iid=1dd3b944-fa62-4b55-b330-74909a99969e';
 
 function createGoogleTranslateProvider({
@@ -25,6 +25,7 @@ function createGoogleTranslateProvider({
     };
 }
 
-module.exports = {
+export { createGoogleTranslateProvider };
+export default {
     createGoogleTranslateProvider
 };

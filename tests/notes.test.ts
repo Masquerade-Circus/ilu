@@ -1,11 +1,10 @@
-require('colors');
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import 'colors';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const notesModulePath = path.join(repoRoot, 'notes', 'notes.ts');
 const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.ts');
 
@@ -33,7 +32,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
   Module._load = function patchedLoad(request, parent, isMain) {
     const isPromptSelectionHelper = parent && parent.filename && parent.filename.endsWith(path.join('utils', 'prompt-index-selection.ts'));
 
-    if (request === '../utils/prompts' || (isPromptSelectionHelper && request === './prompts')) {
+    if (request === '../utils/prompts' || request === '../utils/prompts.ts' || (isPromptSelectionHelper && (request === './prompts' || request === './prompts.ts'))) {
       return {
         prompt: async (questions) => {
           promptCalls.push(questions);
@@ -47,7 +46,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
       };
     }
 
-    if (request === '../utils' || (isPromptSelectionHelper && request === './')) {
+    if (request === '../utils' || request === '../utils/index.ts' || (isPromptSelectionHelper && (request === './' || request === './index.ts'))) {
       return {
         required: () => true,
         getLabel: (color, title) => `[${title}]`,
@@ -82,7 +81,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
       };
     }
 
-    if (request === './model') {
+    if (request === './model' || request === './model.ts') {
       return {
         getCurrent() {
           return modelState.list;
@@ -104,7 +103,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
       };
     }
 
-    if (request === './inline-note-prompt') {
+    if (request === './inline-note-prompt' || request === './inline-note-prompt.ts') {
       return async (options) => {
         inlinePromptCalls.push(options);
 
@@ -116,11 +115,11 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
       };
     }
 
-    if (request === 'lodash/isUndefined') {
+    if (request === 'lodash/isUndefined' || request === 'lodash/isUndefined.js') {
       return value => typeof value === 'undefined';
     }
 
-    if (request === 'lodash/find') {
+    if (request === 'lodash/find' || request === 'lodash/find.js') {
       return (collection, match) => collection.find(item => item === match || item.title === match.title);
     }
 
@@ -128,7 +127,7 @@ function loadNotesWithStubs({promptAnswers = [], savedNotes = [], labels = [], e
   };
 
   try {
-    const Notes = require(notesModulePath);
+    const Notes = require(notesModulePath).default;
     return {Notes, logs, promptCalls, inlinePromptCalls, modelState};
   } finally {
     process.env.PATH = originalPathEnv;

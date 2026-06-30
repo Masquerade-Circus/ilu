@@ -1,3 +1,4 @@
+import * as xRobot from 'x-robot';
 let {
     machine,
     init,
@@ -10,9 +11,9 @@ let {
     immediate,
     guard,
     invoke
-} = require('x-robot');
-let {validate} = require('x-robot/validate');
-
+} = xRobot;
+import * as __cjsImport47 from 'x-robot/validate';
+const { validate } = __cjsImport47;
 type SyncOutcome = 'ok' | 'network' | 'auth' | 'conflict' | 'config' | 'unknown' | null;
 
 type SyncMachineContext = {
@@ -212,7 +213,8 @@ function createSyncMachine(config: SyncMachineContext = {}) {
     return syncMachine;
 }
 
-module.exports = {
+export { createSyncMachine, invoke };
+export default {
     createSyncMachine,
     invoke
 };

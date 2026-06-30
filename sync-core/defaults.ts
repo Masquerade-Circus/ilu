@@ -1,7 +1,8 @@
-let path = require('node:path');
-let {createGitCliBackend} = require('./backends/git-cli');
-let {createFileStateStore} = require('./state/file-store');
-
+import path from 'node:path';
+import * as __cjsImport39 from './backends/git-cli.ts';
+const { createGitCliBackend } = __cjsImport39;
+import * as __cjsImport40 from './state/file-store.ts';
+const { createFileStateStore } = __cjsImport40;
 function defaultSyncState({enabled = false}: any = {}) {
     return {
         enabled,
@@ -58,7 +59,8 @@ function resolveRuntimeDependencies(normalized: any) {
     };
 }
 
-module.exports = {
+export { defaultSyncState, getDefaultStateFilePath, createDefaultStateStore, createDefaultBackend, resolveRuntimeDependencies };
+export default {
     defaultSyncState,
     getDefaultStateFilePath,
     createDefaultStateStore,

@@ -1,7 +1,9 @@
 import type { ActionFactoryOptions, ClockActions } from "../../action-contracts";
+import ClockModel from '../../../clocks/model';
 
-const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
+import * as __cjsImport131 from '../../action-results';
 
+const { createUiErrorResult, createUiSuccessResult } = __cjsImport131;
 const FALLBACK_TIMEZONES = Object.freeze([
   'America/Mexico_City',
   'America/Monterrey',
@@ -18,7 +20,7 @@ const TIMEZONE_ALIASES = Object.freeze([
 ]);
 
 function loadClockModel() {
-  return require('../../../clocks/model');
+  return ClockModel;
 }
 
 function safeString(value: any) {
@@ -112,7 +114,7 @@ function clockCount(model: any) {
 }
 
 function createClockActions(options: ActionFactoryOptions = {}): ClockActions {
-  const injectedModel = options.model;
+  const injectedModel = options.model as any;
   const modelFor = () => injectedModel || loadClockModel();
 
   return {
@@ -188,7 +190,8 @@ function createClockActions(options: ActionFactoryOptions = {}): ClockActions {
   };
 }
 
-module.exports = {
+export { createClockActions, getAvailableTimezones, searchTimezoneChoices, validTimezone };
+export default {
   createClockActions,
   getAvailableTimezones,
   searchTimezoneChoices,

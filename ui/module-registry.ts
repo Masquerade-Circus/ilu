@@ -57,14 +57,21 @@ import {
   prepareTtsViewState
 } from "./modules/tts/MainView";
 
-const { createBoardActions }: { createBoardActions: (options?: ActionFactoryOptions) => BoardActions } = require("./modules/board/actions");
-const { createClockActions }: { createClockActions: (options?: ActionFactoryOptions) => ClockActions } = require("./modules/clocks/actions");
-const { createNoteActions }: { createNoteActions: (options?: ActionFactoryOptions) => NoteActions } = require("./modules/notes/actions");
-const { createTodoActions }: { createTodoActions: (options?: ActionFactoryOptions) => TodoActions } = require("./modules/todos/actions");
-const { createBabelActions }: { createBabelActions: (options?: BabelActionFactoryOptions) => BabelActions } = require("./modules/babel/actions");
-const { createSyncActions }: { createSyncActions: (options?: SyncActionFactoryOptions) => SyncActions } = require("./modules/sync/actions");
-const { createTtsActions }: { createTtsActions: (options?: TtsActionFactoryOptions) => TtsActions } = require("./modules/tts/actions");
+import * as __cjsImport122 from "./modules/board/actions";
 
+const { createBoardActions }: { createBoardActions: (options?: ActionFactoryOptions) => BoardActions } = __cjsImport122;
+import * as __cjsImport123 from "./modules/clocks/actions";
+const { createClockActions }: { createClockActions: (options?: ActionFactoryOptions) => ClockActions } = __cjsImport123;
+import * as __cjsImport124 from "./modules/notes/actions";
+const { createNoteActions }: { createNoteActions: (options?: ActionFactoryOptions) => NoteActions } = __cjsImport124;
+import * as __cjsImport125 from "./modules/todos/actions";
+const { createTodoActions }: { createTodoActions: (options?: ActionFactoryOptions) => TodoActions } = __cjsImport125;
+import * as __cjsImport126 from "./modules/babel/actions";
+const { createBabelActions }: { createBabelActions: (options?: BabelActionFactoryOptions) => BabelActions } = __cjsImport126;
+import * as __cjsImport127 from "./modules/sync/actions";
+const { createSyncActions }: { createSyncActions: (options?: SyncActionFactoryOptions) => SyncActions } = __cjsImport127;
+import * as __cjsImport128 from "./modules/tts/actions";
+const { createTtsActions }: { createTtsActions: (options?: TtsActionFactoryOptions) => TtsActions } = __cjsImport128;
 type RegisteredView = {
   activePanelNodes: JSX.Element[];
   actionBar: JSX.Element | null;

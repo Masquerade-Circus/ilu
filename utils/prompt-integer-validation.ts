@@ -10,7 +10,8 @@ function integerPromptValidator(message: string) {
     return (value: any) => validateInteger(value, message);
 }
 
-module.exports = {
+export { integerPromptValidator, validateInteger };
+export default {
     integerPromptValidator,
     validateInteger
 };

@@ -1,11 +1,14 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const { spawn } = require('node:child_process');
-const {Command} = require('commander');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport50 from 'node:child_process';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { spawn } = __cjsImport50;
+import * as __cjsImport51 from 'commander';
+const { Command } = __cjsImport51;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const configureCliModulePath = path.join(repoRoot, 'bin', 'configure-cli.ts');
 const cliBinPath = path.join(repoRoot, 'bin', 'cli.js');
 const uiFirstFrameTimeoutMs = 10_000;
@@ -150,7 +153,7 @@ function createFakeProgram() {
 test('configureProgram registra los comandos principales del CLI', () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const { program, commands } = createFakeProgram();
   const action = () => {};
   const translateValidate = () => true;
@@ -189,7 +192,7 @@ test('configureProgram registra los comandos principales del CLI', () => {
 test('configureProgram parsea tts con archivos sin requerir voice', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const calls = [];
   const action = async (args, opts) => {
     calls.push({args, opts});
@@ -218,7 +221,7 @@ test('configureProgram parsea tts con archivos sin requerir voice', async () => 
 test('configureProgram parsea tts voice sin argumento posicional', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const calls = [];
 
   const program = new Command();
@@ -247,7 +250,7 @@ test('configureProgram parsea tts voice sin argumento posicional', async () => {
 test('configureProgram rechaza argumento posicional extra en tts voice', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const program = new Command();
   program.exitOverride();
 
@@ -269,7 +272,7 @@ test('configureProgram rechaza argumento posicional extra en tts voice', async (
 test('configureProgram preserva argumentos y defaults de babel al parsear con commander', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const calls = [];
   const action = async (args, opts) => {
     calls.push({args, opts});
@@ -298,7 +301,7 @@ test('configureProgram preserva argumentos y defaults de babel al parsear con co
 test('configureProgram registra board con default show cuando no recibe flags', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const boardCalls = [];
 
   const program = new Command();
@@ -324,7 +327,7 @@ test('configureProgram registra board con default show cuando no recibe flags', 
 test('configureProgram normaliza aliases raros de board management y preserva priority', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const boardCalls = [];
 
   const program = new Command();
@@ -358,7 +361,7 @@ test('configureProgram normaliza aliases raros de board management y preserva pr
 test('configureProgram registra clock --priority y -p', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const clockCalls = [];
 
   const program = new Command();
@@ -387,7 +390,7 @@ test('configureProgram registra clock --priority y -p', async () => {
 test('configureProgram registra ui y ejecuta Ui.action', async () => {
   delete require.cache[require.resolve(configureCliModulePath)];
 
-  const configureProgram = require(configureCliModulePath);
+  const configureProgram = require(configureCliModulePath).default;
   const calls = [];
 
   const program = new Command();

@@ -1,9 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const {v} = require('valyrian.js');
-const {mountTerminal} = require('@valyrianjs/terminal');
-
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as __cjsImport111 from 'valyrian.js';
+const { v } = __cjsImport111;
+import * as __cjsImport112 from '@valyrianjs/terminal';
+const { mountTerminal } = __cjsImport112;
 test('Valyrian Overlay modal shield blocks click-through to covered background hitboxes', () => {
   let backgroundPresses = 0;
   const session = mountTerminal(

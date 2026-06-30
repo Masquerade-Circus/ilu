@@ -1,10 +1,13 @@
 import type { ActionFactoryOptions, TodoActions } from "../../action-contracts";
+import TodosModel from '../../../todos/model';
 
-const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
-const {asArray, currentList, entityId, findList, positiveInteger, safeString, useFallbackListIfNeeded} = require('../../list-action-model');
+import * as __cjsImport136 from '../../action-results';
 
+const { createUiErrorResult, createUiSuccessResult } = __cjsImport136;
+import * as __cjsImport137 from '../../list-action-model';
+const { asArray, currentList, entityId, findList, positiveInteger, safeString, useFallbackListIfNeeded } = __cjsImport137;
 function loadTodoModel(): any {
-  return require('../../../todos/model');
+  return TodosModel;
 }
 
 function safeDescription(value: any): any {
@@ -281,6 +284,7 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
   };
 }
 
-module.exports = {
+export { createTodoActions };
+export default {
   createTodoActions
 };

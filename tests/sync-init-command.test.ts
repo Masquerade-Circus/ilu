@@ -1,11 +1,13 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const Module = require('node:module');
-const {withTempHome} = require('../support/home-sandbox');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import Module from 'node:module';
+import * as __cjsImport57 from '../support/home-sandbox';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { withTempHome } = __cjsImport57;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
 
 function loadCommandsWithStubs(overrides: any = {}) {
@@ -41,6 +43,55 @@ function loadCommandsWithStubs(overrides: any = {}) {
       };
     }
   };
+  const defaultSyncIndex = {
+    createSyncRuntime() {
+      return {
+        getSyncStatus() {
+          return {status: 'healthy'};
+        },
+        retry: async () => {},
+        notifyLocalMutation: async () => {}
+      };
+    },
+    createSyncRuntimeAdvanced(options) {
+      calls.push({kind: 'createSyncRuntimeAdvanced', options});
+      return {
+        getSyncStatus() {
+          return {status: 'healthy'};
+        },
+        retry: async () => {},
+        notifyLocalMutation: async () => {}
+      };
+    },
+    createBootstrapBackend({branch, remoteUrl}) {
+      return {
+        inspectBootstrap(args) {
+          calls.push({kind: 'inspectBootstrap', args, branch, remoteUrl});
+          return {localHasData: false, remoteHasHistory: false};
+        }
+      };
+    },
+    getBootstrapContext() {
+      return {
+        sourceRoot: '/tmp/source',
+        ignorePatterns: ['.config/**']
+      };
+    },
+    initializeSyncState(state) {
+      calls.push({kind: 'initializeSyncState', state});
+      return state;
+    },
+    getSyncConfig() {
+      return {
+        enabled: false,
+        remoteUrl: null,
+        branch: 'main',
+        autoSync: true,
+        autoPull: true,
+        autoPush: true
+      };
+    }
+  };
 
   delete require.cache[require.resolve(commandsModulePath)];
 
@@ -58,55 +109,7 @@ function loadCommandsWithStubs(overrides: any = {}) {
     }
 
     if (request === './index') {
-      return overrides.syncIndex || {
-        createSyncRuntime() {
-          return {
-            getSyncStatus() {
-              return {status: 'healthy'};
-            },
-            retry: async () => {},
-            notifyLocalMutation: async () => {}
-          };
-        },
-        createSyncRuntimeAdvanced(options) {
-          calls.push({kind: 'createSyncRuntimeAdvanced', options});
-          return {
-            getSyncStatus() {
-              return {status: 'healthy'};
-            },
-            retry: async () => {},
-            notifyLocalMutation: async () => {}
-          };
-        },
-        createBootstrapBackend({branch, remoteUrl}) {
-          return {
-            inspectBootstrap(args) {
-              calls.push({kind: 'inspectBootstrap', args, branch, remoteUrl});
-              return {localHasData: false, remoteHasHistory: false};
-            }
-          };
-        },
-        getBootstrapContext() {
-          return {
-            sourceRoot: '/tmp/source',
-            ignorePatterns: ['.config/**']
-          };
-        },
-        initializeSyncState(state) {
-          calls.push({kind: 'initializeSyncState', state});
-          return state;
-        },
-        getSyncConfig() {
-          return {
-            enabled: false,
-            remoteUrl: null,
-            branch: 'main',
-            autoSync: true,
-            autoPull: true,
-            autoPush: true
-          };
-        }
-      };
+      return overrides.syncIndex || defaultSyncIndex;
     }
 
     if (request === './ilu-adapter') {
@@ -125,7 +128,14 @@ function loadCommandsWithStubs(overrides: any = {}) {
   };
 
   try {
-    return {commands: require(commandsModulePath), calls};
+    const commands = require(commandsModulePath);
+    commands.configureCommandDependencies({
+      fs: overrides.fs || defaultFs,
+      localPaths: overrides.localPaths || defaultLocalPaths,
+      configStore: overrides.configStore || defaultConfigStore,
+      sync: overrides.syncIndex || defaultSyncIndex
+    });
+    return {commands, calls};
   } finally {
     Module._load = originalLoad;
     delete require.cache[require.resolve(commandsModulePath)];

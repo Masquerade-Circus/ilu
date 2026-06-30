@@ -1,9 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const tmpDir = path.join(repoRoot, 'tmp', 'ui-tts-actions');
 
 function ensureFixture(name, content = 'Hello from a fixture.') {
@@ -14,7 +13,7 @@ function ensureFixture(name, content = 'Hello from a fixture.') {
 }
 
 test('TTS UI adapter rejects missing credentials before service, OpenAI, or ffmpeg calls', async () => {
-  const {createTtsActions} = require('../ui/modules/tts/actions');
+  const { createTtsActions } = await import('../ui/modules/tts/actions');
   const calls = [];
   const inputFile = ensureFixture('missing-credentials.txt');
   const actions = createTtsActions({
@@ -34,7 +33,7 @@ test('TTS UI adapter rejects missing credentials before service, OpenAI, or ffmp
 });
 
 test('TTS UI adapter validates input extension, existence, output path, and voice before conversion', async () => {
-  const {createTtsActions} = require('../ui/modules/tts/actions');
+  const { createTtsActions } = await import('../ui/modules/tts/actions');
   const calls = [];
   const goodFile = ensureFixture('input.md');
   const badFile = ensureFixture('input.pdf');
@@ -56,7 +55,7 @@ test('TTS UI adapter validates input extension, existence, output path, and voic
 });
 
 test('TTS UI adapter creates audio through injected service and reports progress safely', async () => {
-  const {createTtsActions} = require('../ui/modules/tts/actions');
+  const { createTtsActions } = await import('../ui/modules/tts/actions');
   const inputFile = ensureFixture('ready.txt');
   const outputFile = path.join(tmpDir, 'ready.mp3');
   const progress = [];
@@ -79,7 +78,7 @@ test('TTS UI adapter creates audio through injected service and reports progress
 });
 
 test('TTS UI adapter redacts conversion failures and persists supported voices only', async () => {
-  const {createTtsActions} = require('../ui/modules/tts/actions');
+  const { createTtsActions } = await import('../ui/modules/tts/actions');
   const inputFile = ensureFixture('failure.txt');
   const outputFile = path.join(tmpDir, 'failure.mp3');
   const saved = [];

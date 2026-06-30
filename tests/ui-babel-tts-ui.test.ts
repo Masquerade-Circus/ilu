@@ -1,10 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
 const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
 
 function stripAnsi(output) {
@@ -410,9 +410,9 @@ ${lines.join('\n')}`);
   session.destroy();
 });
 
-test('TTS voice overlay render does not refresh or rewrite voice state', () => {
-  const {renderTerminal, Screen} = require('@valyrianjs/terminal');
-  const {createTtsVoiceOverlay} = require('../ui/modules/tts/MainView.tsx');
+test('TTS voice overlay render does not refresh or rewrite voice state', async () => {
+  const { renderTerminal, Screen } = await import('@valyrianjs/terminal');
+  const { createTtsVoiceOverlay } = await import('../ui/modules/tts/MainView.tsx');
   const state = {
     activeOverlay: 'tts-voice',
     sync: {label: 'Not set up', details: ['Status: Not set up'], error: '', operation: null, statusLoaded: false, initForm: {remoteUrl: '', branch: 'main', confirmed: false, error: ''}},

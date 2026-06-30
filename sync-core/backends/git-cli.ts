@@ -1,8 +1,9 @@
-let fs = require('node:fs');
-let path = require('node:path');
-let {execFileSync} = require('node:child_process');
-let {classifyGitError} = require('../contracts');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport37 from 'node:child_process';
+const { execFileSync } = __cjsImport37;
+import * as __cjsImport38 from '../contracts.ts';
+const { classifyGitError } = __cjsImport38;
 function normalizeIgnorePatterns(ignorePatterns: any = []) {
     return ignorePatterns
         .filter((entry: any) => typeof entry === 'string')
@@ -250,7 +251,8 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
     };
 }
 
-module.exports = {
+export { createGitCliBackend, classifyGitError };
+export default {
     createGitCliBackend,
     classifyGitError
 };

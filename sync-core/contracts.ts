@@ -48,7 +48,8 @@ function classifyGitError(error: unknown) {
   return {kind: 'unknown', error};
 }
 
-module.exports = {
+export { HOST_CONTRACT_METHODS, GIT_BACKEND_METHODS, classifyGitError };
+export default {
   HOST_CONTRACT_METHODS,
   GIT_BACKEND_METHODS,
   classifyGitError

@@ -1,10 +1,13 @@
 import type { ActionFactoryOptions, NoteActions } from "../../action-contracts";
+import NotesModel from '../../../notes/model';
 
-const {createUiErrorResult, createUiSuccessResult} = require('../../action-results');
-const {asArray, currentList, entityId, findList, positiveInteger, safeContent, safeString, useFallbackListIfNeeded} = require('../../list-action-model');
+import * as __cjsImport132 from '../../action-results';
 
+const { createUiErrorResult, createUiSuccessResult } = __cjsImport132;
+import * as __cjsImport133 from '../../list-action-model';
+const { asArray, currentList, entityId, findList, positiveInteger, safeContent, safeString, useFallbackListIfNeeded } = __cjsImport133;
 function loadNoteModel(): any {
-  return require('../../../notes/model');
+  return NotesModel;
 }
 
 
@@ -218,6 +221,7 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
   };
 }
 
-module.exports = {
+export { createNoteActions };
+export default {
   createNoteActions
 };

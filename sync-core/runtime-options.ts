@@ -108,7 +108,8 @@ function normalizeRuntimeOptions(options: FlatSyncOptions = {}) {
     return normalized;
 }
 
-module.exports = {
+export { defaultBuildCommitMessage, normalizeRuntimeOptions };
+export default {
     defaultBuildCommitMessage,
     normalizeRuntimeOptions
 };

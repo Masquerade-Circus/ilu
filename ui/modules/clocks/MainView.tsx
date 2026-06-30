@@ -26,8 +26,9 @@ import { createButton } from "../../components/Button";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
 
-const { searchTimezoneChoices }: { searchTimezoneChoices: (search?: unknown) => TimezoneChoice[] } = require("./actions");
+import * as __cjsImport130 from "./actions";
 
+const { searchTimezoneChoices }: { searchTimezoneChoices: (search?: unknown) => TimezoneChoice[] } = __cjsImport130;
 const CLOCK_OVERLAY_STATES = Object.freeze(["add-clock", "clock-details", "remove-clock-confirm"] as const);
 const TIMEZONE_CHOICE_HEIGHT = 5;
 const timezoneChoiceCache = new WeakMap<ClockRuntimeState, { query: string; choices: TimezoneChoice[] }>();

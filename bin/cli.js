@@ -1,4 +1,14 @@
 #!/usr/bin/env node
-process.env.TSX_TSCONFIG_PATH = require('node:path').resolve(__dirname, '..', 'tsconfig.json');
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
+
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
 require('tsx/cjs');
-require('../cli.ts');
+await tsImport('../cli.ts', {
+  parentURL: import.meta.url,
+  tsconfig: path.join(repoRoot, 'tsconfig.json')
+});

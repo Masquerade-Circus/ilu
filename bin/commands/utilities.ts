@@ -1,6 +1,7 @@
-const {Option} = require('commander');
-const {createActionAdapter, optionalInt} = require('./adapters');
-
+import * as __cjsImport4 from 'commander';
+const { Option } = __cjsImport4;
+import * as __cjsImport5 from './adapters.ts';
+const { createActionAdapter, optionalInt } = __cjsImport5;
 function registerUiCommand(program: any, deps: any) {
   program
     .command('ui')
@@ -48,4 +49,5 @@ function registerUtilityCommands(program: any, deps: any) {
   ));
 }
 
-module.exports = { registerUiCommand, registerUtilityCommands };
+export { registerUiCommand, registerUtilityCommands };
+export default { registerUiCommand, registerUtilityCommands };

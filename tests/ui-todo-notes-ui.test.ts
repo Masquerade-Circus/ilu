@@ -1,15 +1,15 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const {EventEmitter} = require('node:events');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
-const Ui = require('../ui/app.tsx');
-const {buildReadSnapshot} = require('../ui/read-model');
-const {createInitialNotesState, handleNotesCommand} = require('../ui/modules/notes/MainView.tsx');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import * as __cjsImport104 from 'node:events';
+const { EventEmitter } = __cjsImport104;
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
+import Ui from '../ui/app.tsx';
+import * as __cjsImport105 from '../ui/read-model';
+const { buildReadSnapshot } = __cjsImport105;
+import * as __cjsImport106 from '../ui/modules/notes/MainView.tsx';
+const { createInitialNotesState, handleNotesCommand } = __cjsImport106;
 function visible(output) {
   return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }

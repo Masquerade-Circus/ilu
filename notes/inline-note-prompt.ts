@@ -1,5 +1,4 @@
-const readline = require('node:readline');
-
+import readline from 'node:readline';
 function createState({message, initialValue = ''}: any = {}) {
   return {
     message: message || 'Content',
@@ -163,9 +162,10 @@ async function promptInlineNote({message, initialValue = '', input = process.std
   });
 }
 
-module.exports = Object.assign(promptInlineNote, {
+const __defaultExport = Object.assign(promptInlineNote, {
   createState,
   reduceInlineNotePrompt,
   render,
   mapKey
 });
+export default __defaultExport;

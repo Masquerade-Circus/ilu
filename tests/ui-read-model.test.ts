@@ -1,9 +1,11 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const {execFileSync} = require('node:child_process');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import * as __cjsImport84 from 'node:child_process';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { execFileSync } = __cjsImport84;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const readModelPath = path.join(repoRoot, 'ui', 'read-model.ts');
 
 function failMutator(name) {

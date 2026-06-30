@@ -1,9 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const factoryModulePath = path.join(repoRoot, 'utils', 'create-list-model.ts');
 
 function createCollection() {
@@ -61,7 +61,7 @@ function loadFactory() {
   delete require.cache[require.resolve(factoryModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './load-db') {
+    if (request === './load-db' || request === './load-db.ts') {
       return () => ({
         getCollection(name) {
           return fakeCollection;
@@ -69,7 +69,7 @@ function loadFactory() {
       });
     }
 
-    if (request === './persistence-sync') {
+    if (request === './persistence-sync' || request === './persistence-sync.ts') {
       return {
         createCollectionPersistenceNotifier(dbName, collectionName) {
           return action => syncCalls.push({dbName, collectionName, action});
@@ -90,7 +90,7 @@ function loadFactory() {
 
   try {
       return {
-        createListModel: require(factoryModulePath),
+        createListModel: require(factoryModulePath).default,
         fakeCollection,
         syncCalls
       };

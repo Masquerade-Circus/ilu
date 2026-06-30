@@ -1,8 +1,11 @@
-let {createSyncMachine, invoke} = require('./machine');
-let {classifyGitError} = require('./contracts');
-let {normalizeRuntimeOptions} = require('./runtime-options');
-let {resolveRuntimeDependencies} = require('./defaults');
-
+import * as __cjsImport43 from './machine.ts';
+const { createSyncMachine, invoke } = __cjsImport43;
+import * as __cjsImport44 from './contracts.ts';
+const { classifyGitError } = __cjsImport44;
+import * as __cjsImport45 from './runtime-options.ts';
+const { normalizeRuntimeOptions } = __cjsImport45;
+import * as __cjsImport46 from './defaults.ts';
+const { resolveRuntimeDependencies } = __cjsImport46;
 type SyncStatus =
     | 'disabled'
     | 'healthy'
@@ -280,7 +283,8 @@ function createSyncRuntimeFromResolvedOptions(normalized: ResolvedSyncRuntimeOpt
     };
 }
 
-module.exports = {
+export { createSyncRuntime, createSyncRuntimeFromResolvedOptions };
+export default {
     createSyncRuntime,
     createSyncRuntimeFromResolvedOptions
 };

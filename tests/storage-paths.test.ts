@@ -1,16 +1,14 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const {execFileSync} = require('node:child_process');
-const {withTempHome} = require('../support/home-sandbox');
-
-const repoRoot = path.resolve(__dirname, '..');
-const localPathsModulePath = path.join(repoRoot, 'utils', 'local-paths.ts');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import * as __cjsImport54 from 'node:child_process';
+const { execFileSync } = __cjsImport54;
+import * as __cjsImport55 from '../support/home-sandbox';
+const { withTempHome } = __cjsImport55;
+import localPaths from '../utils/local-paths';
+const repoRoot = path.resolve(import.meta.dirname, '..');
 
 test('utils/local-paths resuelve .ilu, bases de datos y sync bajo HOME', () => {
-  const localPaths = require(localPathsModulePath);
   return withTempHome(tempHome => {
     assert.equal(localPaths.storageDirPath(), path.join(tempHome, '.ilu'));
     assert.equal(localPaths.dbFilePath('notes'), path.join(tempHome, '.ilu', 'notes.json'));
@@ -24,26 +22,23 @@ test('utils/local-paths resuelve .ilu, bases de datos y sync bajo HOME', () => {
 });
 
 test('puede correr con HOME temporal sin tocar datos reales', () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-home-'));
+  return withTempHome(tempHome => {
+    const script = `
+      import fs from 'node:fs';
+      import paths from './utils/local-paths.ts';
+      import TodosModel from './todos/model.ts';
+      import Notes from './notes/notes.ts';
+      TodosModel.add({title: 'phase2', description: ''});
 
-  const script = `
-    const fs = require('node:fs');
-    const paths = require('./utils/local-paths.ts');
-    const TodosModel = require('./todos/model.ts');
-    const Notes = require('./notes/notes.ts');
+      process.stdout.write(JSON.stringify({
+        storageDir: paths.storageDirPath(),
+        todosDbFile: paths.dbFilePath('todos'),
+        notesDir: Notes.dir,
+        noteGetter: typeof Notes.getTempFilePath,
+        todosDbExists: fs.existsSync(paths.dbFilePath('todos'))
+      }));
+    `;
 
-    TodosModel.add({title: 'phase2', description: ''});
-
-    process.stdout.write(JSON.stringify({
-      storageDir: paths.storageDirPath(),
-      todosDbFile: paths.dbFilePath('todos'),
-      notesDir: Notes.dir,
-      noteGetter: typeof Notes.getTempFilePath,
-      todosDbExists: fs.existsSync(paths.dbFilePath('todos'))
-    }));
-  `;
-
-  try {
     const output = execFileSync(process.execPath, ['--import', 'tsx', '-e', script], {
       cwd: repoRoot,
       env: {...process.env, HOME: tempHome},
@@ -58,7 +53,5 @@ test('puede correr con HOME temporal sin tocar datos reales', () => {
     assert.equal(result.notesDir, `${expectedStorageDir}/`);
     assert.equal(result.noteGetter, 'undefined');
     assert.equal(result.todosDbExists, true);
-  } finally {
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+  }, {prefix: 'ilu-home-'});
 });

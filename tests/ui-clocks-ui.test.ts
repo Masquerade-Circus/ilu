@@ -1,12 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..');
-require('tsx/cjs');
-
-const Ui = require('../ui/app.tsx');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+const repoRoot = path.resolve(import.meta.dirname, '..');
+import 'tsx/cjs';
+import Ui from '../ui/app.tsx';
 function visible(output) {
   return output.replace(/\[[0-?]*[ -/]*[@-~]/g, '');
 }

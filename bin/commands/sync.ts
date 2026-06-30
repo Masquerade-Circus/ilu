@@ -1,5 +1,5 @@
-const {createActionAdapter} = require('./adapters');
-
+import * as __cjsImport2 from './adapters.ts';
+const { createActionAdapter } = __cjsImport2;
 function registerSyncCommands(program: any, deps: any) {
   const syncCommand = program
     .command('sync')
@@ -33,4 +33,5 @@ function registerSyncCommands(program: any, deps: any) {
     .action(createActionAdapter(deps.Sync.disable));
 }
 
-module.exports = { registerSyncCommands };
+export { registerSyncCommands };
+export default { registerSyncCommands };

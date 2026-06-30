@@ -1,10 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const {setTestHome, withTempHome} = require('../support/home-sandbox');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport56 from '../support/home-sandbox';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { setTestHome, withTempHome } = __cjsImport56;
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const adapterModulePath = path.join(repoRoot, 'sync', 'ilu-adapter.ts');
 
 function loadAdapterWithHome(tempHome) {

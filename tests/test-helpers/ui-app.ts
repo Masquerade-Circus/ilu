@@ -1,11 +1,12 @@
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const {EventEmitter} = require('node:events');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..', '..');
-require('tsx/cjs');
-
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import * as __cjsImport70 from 'node:events';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { EventEmitter } = __cjsImport70;
+import Module from 'node:module';
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
+import 'tsx/cjs';
 const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
 const uiModuleRegistryPath = path.join(repoRoot, 'ui', 'module-registry.ts');
 
@@ -315,7 +316,7 @@ function orderedTextIndex(output, labels) {
   return labels.map(label => text.indexOf(label));
 }
 
-module.exports = {
+const __defaultExport = {
   repoRoot,
   uiModulePath,
   uiModuleRegistryPath,
@@ -343,3 +344,32 @@ module.exports = {
   boardSnapshotModels,
   orderedTextIndex,
 };
+export {
+  repoRoot,
+  uiModulePath,
+  uiModuleRegistryPath,
+  countWord,
+  stripAnsi,
+  visibleLines,
+  terminalTitles,
+  scopedOverlayLines,
+  clickVisibleText,
+  mousePrimaryPressSequence,
+  mouseDragSequence,
+  mouseWheelDownSequence,
+  pressVisibleText,
+  doublePressVisibleText,
+  wheelDownVisibleText,
+  firstVisibleCardTitle,
+  findNodeById,
+  baseSnapshot,
+  richSnapshot,
+  realBoardSnapshot,
+  FakeStdin,
+  FakeStdout,
+  loadUiWithPatchedModules,
+  loadUiWithSyncHook,
+  boardSnapshotModels,
+  orderedTextIndex,
+};
+export default __defaultExport;

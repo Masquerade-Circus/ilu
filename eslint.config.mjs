@@ -16,7 +16,7 @@ export default tseslint.config(
     files: ["**/*.{js,ts,tsx}"],
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "commonjs",
+      sourceType: "module",
       globals: {
         ...globals.node
       }

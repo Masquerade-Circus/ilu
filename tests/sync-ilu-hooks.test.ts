@@ -1,56 +1,38 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
-const hooksModulePath = path.join(repoRoot, 'sync', 'ilu-hooks.ts');
-const syncIndexModulePath = path.join(repoRoot, 'sync', 'index.ts');
-const logModulePath = path.join(repoRoot, 'utils', 'log.ts');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import notifySync, { configureSyncExecutor } from '../sync/ilu-hooks';
 
 function loadHooks(events, options: any = {}) {
-  const originalLoad = Module._load;
+  const originalConsoleLog = console.log;
+  const restoreExecutor = configureSyncExecutor({
+    getSyncConfig() {
+      return options.config || {enabled: true, remoteUrl: './remote.git', autoSync: true};
+    },
+    notifyLocalMutation: async (context) => {
+      events.push(['sync', context]);
 
-  delete require.cache[require.resolve(hooksModulePath)];
-  delete require.cache[require.resolve(syncIndexModulePath)];
-  delete require.cache[require.resolve(logModulePath)];
+      if (typeof options.notifyLocalMutation === 'function') {
+        return options.notifyLocalMutation(context);
+      }
 
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './index' && parent && parent.filename === hooksModulePath) {
-      return {
-        getSyncConfig() {
-          return options.config || {enabled: true, remoteUrl: './remote.git', autoSync: true};
-        },
-        notifyLocalMutation: async (context) => {
-          events.push(['sync', context]);
+      return {status: 'healthy', hasPendingRemote: false};
+    }
+  });
 
-          if (typeof options.notifyLocalMutation === 'function') {
-            return options.notifyLocalMutation(context);
-          }
-
-          return {status: 'healthy', hasPendingRemote: false};
-        }
-      };
+  console.log = function patchedConsoleLog(message, ...args) {
+    if (typeof message === 'string' && message.includes('Syncing...')) {
+      events.push(['log.info', 'Syncing...']);
+      return;
     }
 
-    if (request === '../utils/log' && parent && parent.filename === hooksModulePath) {
-      return {
-        info(message) {
-          events.push(['log.info', message]);
-        }
-      };
-    }
-
-    return originalLoad.apply(this, arguments);
+    return originalConsoleLog.call(this, message, ...args);
   };
 
   return {
-    notifySync: require(hooksModulePath),
+    notifySync,
     restore() {
-      Module._load = originalLoad;
-      delete require.cache[require.resolve(hooksModulePath)];
-      delete require.cache[require.resolve(syncIndexModulePath)];
-      delete require.cache[require.resolve(logModulePath)];
+      console.log = originalConsoleLog;
+      restoreExecutor();
     }
   };
 }
@@ -139,7 +121,7 @@ test('ilu sync hook flushPending is a no-op when only status subscriber exists',
   try {
     const statuses = [];
     const context = {domain: 'boards', action: 'rename-column'};
-    notifySync.onSyncStatus((status) => statuses.push(status));
+    const unsubscribe = notifySync.onSyncStatus((status) => statuses.push(status));
 
     notifySync(context);
     await new Promise(resolve => setImmediate(resolve));
@@ -153,6 +135,7 @@ test('ilu sync hook flushPending is a no-op when only status subscriber exists',
       ['sync', context]
     ]);
     assert.deepEqual(statuses.map(status => status.state), ['syncing', 'synced']);
+    unsubscribe();
   } finally {
     restore();
   }

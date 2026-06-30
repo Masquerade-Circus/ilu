@@ -1,6 +1,6 @@
-let prompts = require('./prompts');
-let {log} = require('./');
-
+import prompts from './prompts.ts';
+import * as __cjsImport140 from './index.ts';
+const { log } = __cjsImport140;
 function ensureItems(items: any, emptyMessage: any) {
     if (items.length === 0) {
         log.info(emptyMessage.blue, 'blue');
@@ -65,7 +65,8 @@ async function selectMany(items: any, {message, emptyMessage, getChoiceName}: an
     return answers.indexes;
 }
 
-module.exports = {
+export { selectOne, selectMany };
+export default {
     selectOne,
     selectMany
 };

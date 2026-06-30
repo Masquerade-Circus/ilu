@@ -1,5 +1,5 @@
-const {createActionAdapter} = require('./adapters');
-
+import * as __cjsImport3 from './adapters.ts';
+const { createActionAdapter } = __cjsImport3;
 function createTodoActionAdapter(Todos: any) {
   return async (...actionArgs: any[]) => {
     const command = actionArgs[actionArgs.length - 1];
@@ -95,4 +95,5 @@ function registerNoteCommands(program: any, deps: any) {
     .action(createNoteActionAdapter(deps.Notes));
 }
 
-module.exports = { registerNoteCommands, registerTodoCommands };
+export { registerNoteCommands, registerTodoCommands };
+export default { registerNoteCommands, registerTodoCommands };

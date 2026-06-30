@@ -1,10 +1,12 @@
-const path = require('node:path');
-const {EventEmitter} = require('node:events');
-const {fork: defaultFork} = require('node:child_process');
-
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as __cjsImport33 from 'node:events';
+const { EventEmitter } = __cjsImport33;
+import * as __cjsImport34 from 'node:child_process';
+const { fork: defaultFork } = __cjsImport34;
 function createTuiSyncClient(options: any = {}) {
   const fork = options.fork || defaultFork;
-  const runnerPath = options.runnerPath || path.join(__dirname, 'tui-sync-runner.ts');
+  const runnerPath = options.runnerPath || path.join(path.dirname(fileURLToPath(import.meta.url)), 'tui-sync-runner.ts');
   const events = new EventEmitter();
   const pending = new Map();
   let nextId = 1;
@@ -131,6 +133,7 @@ function createTuiSyncClient(options: any = {}) {
   };
 }
 
-module.exports = {
+export { createTuiSyncClient };
+export default {
   createTuiSyncClient
 };

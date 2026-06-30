@@ -1,7 +1,7 @@
-let includes = require('lodash/includes');
-let loadDb = require('./load-db');
-let {createCollectionPersistenceNotifier} = require('./persistence-sync');
-
+import includes from 'lodash/includes.js';
+import loadDb from './load-db.ts';
+import * as __cjsImport138 from './persistence-sync.ts';
+const { createCollectionPersistenceNotifier } = __cjsImport138;
 type ListItem = Record<string, unknown> & {
     $id?: string | number;
     title?: string;
@@ -10,14 +10,15 @@ type ListItem = Record<string, unknown> & {
     index?: number;
     labels?: unknown[];
     done?: boolean;
+    [key: string]: any;
 };
 
 type Collection = {
-    get: (id: string | number) => ListItem;
-    find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
-    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
-    add: (item: ListItem) => ListItem;
-    update: (item: ListItem) => ListItem;
+    get: (...args: any[]) => any;
+    find: (...args: any[]) => any[];
+    findOne: (...args: any[]) => any;
+    add: (...args: any[]) => any;
+    update: (...args: any[]) => any;
     remove: (item: ListItem) => void;
     count: () => number;
 };
@@ -25,18 +26,18 @@ type Collection = {
 type Database = {getCollection: (name: string) => Collection};
 type ListModel = {
     collection: Collection;
-    get: (id: string | number) => ListItem;
-    find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
-    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
-    add: (item: ListItem) => ListItem;
-    save: (item: ListItem) => ListItem;
+    get: (...args: any[]) => any;
+    find: (...args: any[]) => any[];
+    findOne: (...args: any[]) => any;
+    add: (...args: any[]) => any;
+    save: (...args: any[]) => any;
     remove: (item?: ListItem) => void;
-    getCurrent: () => ListItem;
-    getFirst: () => ListItem;
-    getLast: () => ListItem | undefined;
+    getCurrent: () => any;
+    getFirst: () => any;
+    getLast: () => any;
     updateIndexes: () => void;
     use: (id: string | number) => ListItem;
-    [key: string]: unknown;
+    [key: string]: any;
 };
 
 type NestedCollectionOptions = {
@@ -125,8 +126,9 @@ function createNestedCollection(Model: ListModel, key: string, options: NestedCo
     return nestedCollection;
 }
 
-module.exports = function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: CreateListModelOptions) {
+function createListModel({dbName, collectionName, itemKey, itemHasCheck = false}: CreateListModelOptions) {
     let DB = loadDb(dbName) as Database;
+
     let afterPersist = createCollectionPersistenceNotifier(dbName, collectionName);
 
     let Model: ListModel = {
@@ -221,4 +223,7 @@ module.exports = function createListModel({dbName, collectionName, itemKey, item
     Model.labels = createNestedCollection(Model, 'labels');
 
     return Model;
-};
+}
+
+export { createListModel };
+export default createListModel;

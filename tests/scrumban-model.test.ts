@@ -1,9 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const Module = require('node:module');
-
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..');
 const modelModulePath = path.join(repoRoot, 'scrumban', 'model.ts');
 
 function createCollection() {
@@ -61,7 +61,7 @@ function loadModel() {
   delete require.cache[require.resolve(modelModulePath)];
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === '../utils/load-db') {
+    if (request === '../utils/load-db' || request === '../utils/load-db.ts') {
       return () => ({
         getCollection() {
           return fakeCollection;
@@ -69,7 +69,7 @@ function loadModel() {
       });
     }
 
-    if (request === '../utils/persistence-sync') {
+    if (request === '../utils/persistence-sync' || request === '../utils/persistence-sync.ts') {
       return {
         createPersistenceNotifier(collectionName) {
           return action => syncCalls.push({collectionName, action});
@@ -82,7 +82,7 @@ function loadModel() {
 
   try {
       return {
-        Model: require(modelModulePath),
+        Model: require(modelModulePath).default,
         fakeCollection,
         syncCalls
       };

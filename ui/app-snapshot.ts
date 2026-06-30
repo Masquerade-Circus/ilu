@@ -1,8 +1,9 @@
 import type { AppOptions, BuildSnapshot, SnapshotOptions, SnapshotRef } from "./app-runtime";
 import type { UiSnapshot, UiSnapshotDomain } from "./types";
 
-const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = require("./read-model");
+import * as __cjsImport120 from "./read-model";
 
+const { buildReadSnapshot, buildReadSnapshotDomain }: { buildReadSnapshot: (options?: SnapshotOptions) => UiSnapshot; buildReadSnapshotDomain: (domain?: UiSnapshotDomain, options?: SnapshotOptions) => Partial<UiSnapshot> | null } = __cjsImport120;
 export function createSnapshotRef(options: AppOptions = {}): SnapshotRef {
   if (options.snapshot) {
     return {
@@ -39,6 +40,6 @@ export function createSnapshotRef(options: AppOptions = {}): SnapshotRef {
   return ref;
 }
 
-module.exports = {
+export default {
   createSnapshotRef
 };

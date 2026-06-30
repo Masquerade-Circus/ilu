@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-let {generateSyncDiagrams} = require('../sync-core/diagram');
-
+import * as __cjsImport26 from '../sync-core/diagram.ts';
+const { generateSyncDiagrams } = __cjsImport26;
 generateSyncDiagrams()
     .then((result: any) => {
         console.log(`Sync SVG diagram: ${result.svgPath}`);

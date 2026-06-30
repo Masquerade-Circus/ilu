@@ -1,8 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-
-const repoRoot = path.resolve(__dirname, '..', '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 const engineModulePath = path.join(repoRoot, 'sync-core', 'engine.ts');
 const advancedModulePath = path.join(repoRoot, 'sync-core', 'advanced.ts');
 const coreDefaultsModulePath = path.join(repoRoot, 'sync-core', 'defaults.ts');

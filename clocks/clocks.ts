@@ -1,11 +1,10 @@
-require('colors');
-
-let prompts = require('../utils/prompts');
-let {log} = require('../utils');
-let Model = require('./model');
-let promptPriority = require('./priority-prompt');
-let isUndefined = require('lodash/isUndefined');
-
+import 'colors';
+import prompts from '../utils/prompts.ts';
+import * as __cjsImport12 from '../utils/index.ts';
+const { log } = __cjsImport12;
+import Model from './model.ts';
+import promptPriority from './priority-prompt.ts';
+import isUndefined from 'lodash/isUndefined.js';
 let FALLBACK_TIMEZONES = [
     'America/Mexico_City',
     'America/Monterrey',
@@ -252,4 +251,9 @@ let Clocks = {
     }
 };
 
-module.exports = Clocks;
+export const add = Clocks.add;
+export const show = Clocks.show;
+export const priority = Clocks.priority;
+export const remove = Clocks.remove;
+export const actions = Clocks.actions;
+export default Clocks;

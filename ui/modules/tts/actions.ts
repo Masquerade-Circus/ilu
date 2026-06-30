@@ -1,9 +1,8 @@
 import type { TtsActionFactoryOptions, TtsActions } from "../../action-contracts";
 
-const fs = require('node:fs');
-const path = require('node:path');
-const tts = require('../../../tts');
-
+import fs from 'node:fs';
+import path from 'node:path';
+import tts from '../../../tts';
 const MISSING_CREDENTIALS = 'Set up Text to Speech before creating audio.';
 const INVALID_INPUT = 'Choose a .txt or .md file.';
 const CREATE_FAILED = 'Could not create audio.';
@@ -131,6 +130,7 @@ function createTtsActions({
   };
 }
 
-module.exports = {
+export { createTtsActions };
+export default {
   createTtsActions
 };

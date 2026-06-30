@@ -1,6 +1,6 @@
-let defaultPrompts = require('../utils/prompts');
-let {integerPromptValidator} = require('../utils/prompt-integer-validation');
-
+import defaultPrompts from '../utils/prompts.ts';
+import * as __cjsImport21 from '../utils/prompt-integer-validation.ts';
+const { integerPromptValidator } = __cjsImport21;
 function normalizeCards(cards: any = []) {
   return Array.isArray(cards) ? cards : [];
 }
@@ -60,7 +60,9 @@ async function promptBoardPriority({columnTitle, cards, selectedPosition = 1, pr
   return {fromPosition, toPosition};
 }
 
-module.exports = Object.assign(promptBoardPriority, {
+const __defaultExport = Object.assign(promptBoardPriority, {
   createCardChoices,
   assertPosition
 });
+export { promptBoardPriority, createCardChoices, assertPosition };
+export default __defaultExport;

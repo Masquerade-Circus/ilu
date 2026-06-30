@@ -1,8 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-
-const promptModule = require('../notes/inline-note-prompt');
-
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import promptModule from '../notes/inline-note-prompt';
 test('inline note prompt agrega texto al final y Ctrl+N inserta nueva línea', () => {
   let state = promptModule.createState({message: 'Content of the note'});
 

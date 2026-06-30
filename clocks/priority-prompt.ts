@@ -1,6 +1,6 @@
-let defaultPrompts = require('../utils/prompts');
-let {integerPromptValidator} = require('../utils/prompt-integer-validation');
-
+import defaultPrompts from '../utils/prompts.ts';
+import * as __cjsImport14 from '../utils/prompt-integer-validation.ts';
+const { integerPromptValidator } = __cjsImport14;
 function normalizeClocks(clocks: any = []) {
   return Array.isArray(clocks) ? clocks : [];
 }
@@ -60,7 +60,9 @@ async function promptClockPriority({clocks, selectedPosition = 1, promptsModule 
   return {fromPosition, toPosition};
 }
 
-module.exports = Object.assign(promptClockPriority, {
+const __defaultExport = Object.assign(promptClockPriority, {
   createClockChoices,
   assertPosition
 });
+export { promptClockPriority, createClockChoices, assertPosition };
+export default __defaultExport;

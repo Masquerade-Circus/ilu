@@ -9,4 +9,4 @@ let colors = {
     White: 'black'
 };
 
-module.exports = colors;
+export default colors;

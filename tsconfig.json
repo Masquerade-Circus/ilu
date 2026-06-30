@@ -7,11 +7,13 @@
     "jsxImportSource": "valyrian.js",
     "esModuleInterop": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node"],
     "moduleDetection": "force",
-    "strict": true
+    "strict": true,
+    "noUncheckedIndexedAccess": false
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "tmp", "tests", "**/*.test.ts"]

@@ -1,8 +1,8 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const {execFileSync} = require('node:child_process');
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+import fs from 'node:fs';
+import path from 'node:path';
+import * as __cjsImport68 from 'node:child_process';
+const { execFileSync } = __cjsImport68;
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const TEST_TMP_ROOT = path.join(REPO_ROOT, 'tmp');
 
 function git(args, options: any = {}) {
@@ -50,4 +50,4 @@ function createTempGitRemote({seedFiles = null, branch = 'main'}: any = {}) {
   };
 }
 
-module.exports = createTempGitRemote;
+export default createTempGitRemote;

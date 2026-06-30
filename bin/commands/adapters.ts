@@ -12,4 +12,5 @@ function optionalInt(opt: any) {
   return typeof opt === 'boolean' ? opt : parseInt(opt, 10);
 }
 
-module.exports = { createActionAdapter, optionalInt };
+export { createActionAdapter, optionalInt };
+export default { createActionAdapter, optionalInt };

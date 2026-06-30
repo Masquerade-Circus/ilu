@@ -1,9 +1,12 @@
-require('colors');
+import 'colors';
+import * as __cjsImport118 from '../utils/index.ts';
+import * as __cjsImport119 from './google-translate-provider.ts';
 
-let {log} = require('../utils');
-let {createGoogleTranslateProvider} = require('./google-translate-provider');
-
+const { log } = __cjsImport118;
+const { createGoogleTranslateProvider } = __cjsImport119;
 async function writeToClipboard(value: string) {
+    // Runtime import is intentional: clipboardy pulls ESM-only transitive exports
+    // that fail under the current tsx/CommonJS test loader when loaded eagerly.
     const clipboardy = await import('clipboardy');
     const clipboard = clipboardy.default || clipboardy;
 
@@ -146,6 +149,8 @@ function createTranslator({
 
 let Translator = createTranslator();
 
-module.exports = Object.assign(Translator, {
+const __defaultExport = Object.assign(Translator, {
     createTranslator
 });
+export { createTranslator };
+export default __defaultExport;

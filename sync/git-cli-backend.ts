@@ -1,5 +1,5 @@
-let {createGitCliBackend: createCoreGitCliBackend, classifyGitError} = require('../sync-core/backends/git-cli');
-
+import * as __cjsImport27 from '../sync-core/backends/git-cli.ts';
+const { createGitCliBackend: createCoreGitCliBackend, classifyGitError } = __cjsImport27;
 function normalizeIgnorePattern(pattern: any) {
     if (typeof pattern !== 'string') {
         return null;
@@ -30,7 +30,8 @@ function createGitCliBackend(options: any = {}) {
     });
 }
 
-module.exports = {
+export { createGitCliBackend, classifyGitError };
+export default {
     createGitCliBackend,
     classifyGitError
 };

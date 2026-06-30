@@ -1,12 +1,13 @@
-let isUndefined = require('lodash/isUndefined');
-let prompts = require('../utils/prompts');
-let {required, log} = require('../utils');
-let {integerPromptValidator} = require('../utils/prompt-integer-validation');
-let Model = require('./model');
-let BoardLists = require('./board-lists');
-let renderBoard = require('./board-renderer');
-let promptBoardPriority = require('./board-priority-prompt');
-
+import isUndefined from 'lodash/isUndefined.js';
+import prompts from '../utils/prompts';
+import * as __cjsImport22 from '../utils';
+const { required, log } = __cjsImport22;
+import * as __cjsImport23 from '../utils/prompt-integer-validation';
+const { integerPromptValidator } = __cjsImport23;
+import Model from './model';
+import BoardLists from './board-lists';
+import renderBoard from './board-renderer';
+import promptBoardPriority from './board-priority-prompt';
 function getCurrentBoard() {
     let board = Model.getCurrent();
     if (!board) {
@@ -400,19 +401,19 @@ let Board = {
         await Board.show();
     },
     list() {
-        return BoardLists.show();
+        return (BoardLists as any).show();
     },
     async use() {
-        await BoardLists.use();
+        await (BoardLists as any).use();
     },
     async addBoard() {
-        await BoardLists.add();
+        await (BoardLists as any).add();
     },
     async editBoard() {
-        await BoardLists.edit();
+        await (BoardLists as any).edit();
     },
     async removeBoard() {
-        await BoardLists.remove();
+        await (BoardLists as any).remove();
     },
     async actions(args: any, opts: any) {
         switch (true) {
@@ -434,4 +435,19 @@ let Board = {
     }
 };
 
-module.exports = Board;
+export const add = Board.add;
+export const move = Board.move;
+export const priority = Board.priority;
+export const details = Board.details;
+export const edit = Board.edit;
+export const remove = Board.remove;
+export const columns = Board.columns;
+export const show = Board.show;
+export const showWithActions = Board.showWithActions;
+export const list = Board.list;
+export const use = Board.use;
+export const addBoard = Board.addBoard;
+export const editBoard = Board.editBoard;
+export const removeBoard = Board.removeBoard;
+export const actions = Board.actions;
+export default Board;
