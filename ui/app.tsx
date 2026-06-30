@@ -38,10 +38,12 @@ import {
 } from "./module-registry";
 import { createAppSyncLifecycle } from "./app-sync";
 
-// Runtime import is intentional: tests patch the terminal runtime and interactive
-// sessions must load the host adapter only when a TUI session starts.
-const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
 const { createTuiSyncRunnerCleanup, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook: notifySyncHook as NotifySyncHook, createTuiSyncClient, syncIndex });
+// Runtime import is intentional: tests and direct render helpers can load the
+// terminal package through a different module entry before a headless session
+// starts. Keeping the mounted runtime on the async entry prevents split module
+// state from dropping button and list press handlers in TTS flows.
+const terminalImport: Promise<TerminalRuntimeModule> = import("@valyrianjs/terminal");
 
 async function loadTerminalRuntime(): Promise<Runtime> {
   const terminal = await terminalImport;

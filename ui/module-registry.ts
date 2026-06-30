@@ -320,8 +320,6 @@ export function prepareActiveUtilityApp(state: AppRuntimeState, actions: Session
 }
 
 export function prepareUtilityPageState(state: AppRuntimeState, tab: string, syncActions: SyncActions, ttsActions: TtsActions, requestRender?: () => void): void {
-  state.utilities.activeOverlay = null;
-
   if (tab === "Sync") {
     prepareSyncViewState(state.utilities, syncActions, requestRender);
     return;

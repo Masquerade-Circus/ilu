@@ -3,6 +3,7 @@ import type {
   TerminalOutputStream,
   TerminalSession
 } from "@valyrianjs/terminal";
+import type * as terminalRuntime from "@valyrianjs/terminal";
 import type {
   AppState,
   BabelActionResult,
@@ -19,7 +20,7 @@ import type {
   UiSnapshotDomain
 } from "./types";
 
-export type TerminalRuntimeModule = typeof import("@valyrianjs/terminal");
+export type TerminalRuntimeModule = typeof terminalRuntime;
 export type ValyrianRuntime = { v: (tag: unknown, props?: Record<string, unknown>, ...children: unknown[]) => JSX.Element };
 export type Runtime = { terminal: TerminalRuntimeModule; valyrian: ValyrianRuntime };
 export type SyncStatusEvent = { state?: unknown; message?: unknown; context?: unknown };
