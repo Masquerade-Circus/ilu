@@ -13,7 +13,7 @@ function storageDirPath() {
     return path.join(os.homedir(), '.ilu');
 }
 
-function dbFilePath(dbname: any) {
+function dbFilePath(dbname: string) {
     return path.join(storageDirPath(), `${dbname}.json`);
 }
 

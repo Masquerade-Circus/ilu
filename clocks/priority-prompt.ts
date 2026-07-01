@@ -1,24 +1,42 @@
 import defaultPrompts from '../utils/prompts.ts';
 import * as __cjsImport14 from '../utils/prompt-integer-validation.ts';
 const { integerPromptValidator } = __cjsImport14;
-function normalizeClocks(clocks: any = []) {
+type Clock = {
+  name: string;
+  timezone: string;
+};
+
+type ClockMove = {
+  fromPosition: number;
+  toPosition: number;
+};
+
+type PromptsModule = Pick<typeof defaultPrompts, 'prompt'>;
+
+type PromptClockPriorityOptions = {
+  clocks?: Clock[];
+  selectedPosition?: number;
+  promptsModule?: PromptsModule;
+};
+
+function normalizeClocks(clocks: unknown = []): Clock[] {
   return Array.isArray(clocks) ? clocks : [];
 }
 
-function createClockChoices(clocks: any = []) {
-  return normalizeClocks(clocks).map((clock: any, index: any) => ({
+function createClockChoices(clocks: unknown = []) {
+  return normalizeClocks(clocks).map((clock, index) => ({
     name: `${index + 1}. ${clock.name} (${clock.timezone})`,
     value: index + 1
   }));
 }
 
-function assertPosition(value: any, count: any, label: any) {
+function assertPosition(value: unknown, count: number, label: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > count) {
     throw new Error(`Choose a valid ${label} position.`);
   }
 }
 
-async function promptClockPriority({clocks, selectedPosition = 1, promptsModule = defaultPrompts}: any = {}) {
+async function promptClockPriority({clocks, selectedPosition = 1, promptsModule = defaultPrompts}: PromptClockPriorityOptions = {}): Promise<ClockMove | null> {
   let normalizedClocks = normalizeClocks(clocks);
 
   if (normalizedClocks.length < 2) {

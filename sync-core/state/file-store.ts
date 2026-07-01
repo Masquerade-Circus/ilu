@@ -1,41 +1,51 @@
 import fs from 'node:fs';
 import path from 'node:path';
-function createFileStateStore({defaultState, getStateFilePath, fileSystem = fs, pathModule = path}: any = {}) {
+type SyncState = Record<string, unknown>;
+type FileStateStoreOptions = {
+    defaultState?: () => SyncState;
+    getStateFilePath?: () => string;
+    fileSystem?: Pick<typeof fs, 'existsSync' | 'mkdirSync' | 'readFileSync' | 'writeFileSync'>;
+    pathModule?: Pick<typeof path, 'dirname'>;
+};
+
+function createFileStateStore({defaultState, getStateFilePath, fileSystem = fs, pathModule = path}: FileStateStoreOptions = {}) {
     if (typeof defaultState !== 'function' || typeof getStateFilePath !== 'function') {
         throw new Error('File state store requires defaultState and getStateFilePath');
     }
+    let createDefaultState = defaultState;
+    let stateFilePath = getStateFilePath;
 
     function ensureStateDir() {
-        fileSystem.mkdirSync(pathModule.dirname(getStateFilePath()), {recursive: true});
+        fileSystem.mkdirSync(pathModule.dirname(stateFilePath()), {recursive: true});
     }
 
     function loadState() {
-        let file = getStateFilePath();
+        let file = stateFilePath();
 
         if (!fileSystem.existsSync(file)) {
-            return saveState(defaultState());
+            return saveState(createDefaultState());
         }
 
         return {
-            ...defaultState(),
+            ...createDefaultState(),
             ...JSON.parse(fileSystem.readFileSync(file, 'utf8'))
         };
     }
 
-    function saveState(state: any) {
+    function saveState<TState extends SyncState>(state: TState) {
         ensureStateDir();
         let nextState = {
-            ...defaultState(),
+            ...createDefaultState(),
             ...state
-        };
-        fileSystem.writeFileSync(getStateFilePath(), JSON.stringify(nextState, null, 2), 'utf8');
+        } as unknown as TState;
+        fileSystem.writeFileSync(stateFilePath(), JSON.stringify(nextState, null, 2), 'utf8');
         return nextState;
     }
 
     return {
-        defaultState,
+        defaultState: createDefaultState,
         ensureStateDir,
-        getStateFilePath,
+        getStateFilePath: stateFilePath,
         loadState,
         saveState
     };

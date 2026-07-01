@@ -5,11 +5,17 @@ const { required, log, colors, getLabel } = __cjsImport15;
 import Model from './model.ts';
 import * as __cjsImport16 from '../utils/prompt-index-selection.ts';
 const { selectOne, selectMany } = __cjsImport16;
-function getListChoiceName(item: any) {
+
+type NotesList = ReturnType<typeof Model.find>[number];
+type NoteItem = NotesList['notes'][number];
+type NoteLabel = NotesList['labels'][number];
+type CommandOptions = Record<string, unknown>;
+
+function getListChoiceName(item: NotesList) {
     return item.current ? `${item.index} ${item.title} (current)` : `${item.index} ${item.title}`;
 }
 
-async function selectListIndex(message: any) {
+async function selectListIndex(message: string) {
     return selectOne(Model.find(), {
         message,
         emptyMessage: 'You dont have any lists, try adding one.',
@@ -17,7 +23,7 @@ async function selectListIndex(message: any) {
     });
 }
 
-async function selectListIndexes(message: any) {
+async function selectListIndexes(message: string) {
     return selectMany(Model.find(), {
         message,
         emptyMessage: 'You dont have any lists, try adding one.',
@@ -26,12 +32,11 @@ async function selectListIndexes(message: any) {
 }
 
 let Lists = {
-    get(index: any) {
+    get(index: unknown) {
         let item = Model.findOne({index: index});
         if (!item) {
             log.warning(`The list "${index}" does not exists`.yellow, 'yellow');
             process.exit(1);
-            return;
         }
         return item;
     },
@@ -40,7 +45,6 @@ let Lists = {
         if (!item) {
             log.info(`You dont have any lists, try adding one.`.blue, 'blue');
             process.exit(1);
-            return;
         }
         return item;
     },
@@ -54,7 +58,7 @@ let Lists = {
         Model.add(answers);
         Lists.show();
     },
-    async edit(index: any) {
+    async edit(index: unknown) {
         if (typeof index !== 'number') {
             index = await selectListIndex('Select the list to edit');
         }
@@ -76,10 +80,9 @@ let Lists = {
         if (lists.length === 0) {
             log.info(`You dont have any lists, try adding one.`.blue, 'blue');
             process.exit(1);
-            return;
         }
 
-        lists.forEach((item: any) => {
+        lists.forEach((item) => {
             let str = `${item.index} ${item.title}`;
             if (item.current) {
                 log.pointerSmall(str.cyan + ' (current)'.gray, 'cyan');
@@ -88,7 +91,7 @@ let Lists = {
             log.pointerSmall(str);
         });
     },
-    async use(index: any) {
+    async use(index: unknown) {
         if (typeof index !== 'number') {
             index = await selectListIndex('Select the list to use');
         }
@@ -97,14 +100,14 @@ let Lists = {
         Model.use(item.$id);
         Lists.show();
     },
-    async remove(index: any) {
+    async remove(index: unknown) {
         let indexes = typeof index === 'number'
             ? [index]
             : await selectListIndexes('Select the lists to remove');
 
-        let items = indexes.map((index: any) => Lists.get(index));
+        let items = indexes.map((index: number) => Lists.get(index));
 
-        items.forEach((item: any) => {
+        items.forEach((item) => {
             Model.remove(item);
         });
 
@@ -123,7 +126,7 @@ let Lists = {
 
         Lists.show();
     },
-    async details(index: any) {
+    async details(index: unknown) {
         if (typeof index !== 'number') {
             index = await selectListIndex('Select the list to show');
         }
@@ -139,7 +142,7 @@ let Lists = {
 
         if (item.notes.length > 0) {
             log('Notes'.gray);
-            item.notes.forEach((note: any, index: any) => {
+            item.notes.forEach((note: NoteItem, index: number) => {
                 let str = `${index + 1} ${note.title}`;
                 log.pointerSmall(str.cyan, 'white', 4);
             });
@@ -148,7 +151,7 @@ let Lists = {
         if (item.labels.length > 0) {
             log('Labels'.gray);
             let labels = '';
-            item.labels.forEach((label: any, index: any) => {
+            item.labels.forEach((label: NoteLabel, index: number) => {
                 labels += getLabel(label.color, `${index + 1} ${label.title}`) + ' ';
             });
             log(labels, 4);
@@ -159,13 +162,13 @@ let Lists = {
         let item = Lists.getCurrent();
         await Lists.details(item.index);
     },
-    getLabel(index: any) {
+    getLabel(index: unknown) {
+        let labelIndex = index as number;
         let list = Lists.getCurrent();
-        let item = list.labels[index - 1];
+        let item = list.labels[labelIndex - 1];
         if (!item) {
             log.cross(`The label "${index}" does not exists`.red, 'red');
             process.exit(1);
-            return;
         }
 
         return item;
@@ -173,7 +176,7 @@ let Lists = {
     async addLabel() {
         Lists.getCurrent();
 
-        let choices = Object.keys(colors).map((color: any) => {
+        let choices = Object.keys(colors).map((color) => {
             let bgColor = `bg${color}`;
             return {
                 name: getLabel(color, color),
@@ -190,11 +193,12 @@ let Lists = {
         Model.labels.add(answers);
         Lists.current();
     },
-    async editLabel(index: any) {
+    async editLabel(index: unknown) {
         Lists.getCurrent();
-        let label = Lists.getLabel(index);
+        let labelIndex = index as number;
+        let label = Lists.getLabel(labelIndex);
 
-        let choices = Object.keys(colors).map((color: any) => {
+        let choices = Object.keys(colors).map((color) => {
             let bgColor = `bg${color}`;
             return {
                 name: getLabel(color, color),
@@ -208,10 +212,10 @@ let Lists = {
                 { type: 'select', name: 'color', message: 'Background color of the label', choices}
             ]);
 
-        Model.labels.edit(index, answers);
+        Model.labels.edit(labelIndex, answers);
         Lists.current();
     },
-    removeLabel(index: any) {
+    removeLabel(index: unknown) {
         if (typeof index === 'number') {
             Lists.getLabel(index);
             Model.labels.remove(index);
@@ -222,7 +226,7 @@ let Lists = {
         }
         Lists.current();
     },
-    async actions(args: any, opts: any) {
+    async actions(_args: unknown, opts: CommandOptions) {
         switch (true) {
             case !isUndefined(opts.add): await Lists.add(); break;
             case !isUndefined(opts.edit): await Lists.edit(opts.edit); break;

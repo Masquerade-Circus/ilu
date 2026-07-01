@@ -7,7 +7,14 @@ const { validateSyncBranch, validateSyncRemoteUrl } = __cjsImport25;
 const defaultDependencies = {fs, localPaths, configStore, sync};
 let dependencies = defaultDependencies;
 
-function configureCommandDependencies(overrides: any = {}) {
+type CommandDependencies = typeof defaultDependencies;
+type SyncConfig = Record<string, unknown> & {sync?: Record<string, unknown>};
+type InitOptions = {
+    remote?: string;
+    branch?: string;
+};
+
+function configureCommandDependencies(overrides: Partial<CommandDependencies> = {}) {
     let previous = dependencies;
     dependencies = {...dependencies, ...overrides};
 
@@ -20,15 +27,11 @@ function resetCommandDependencies() {
     dependencies = defaultDependencies;
 }
 
-function ensureSyncDir() {
-    dependencies.fs.mkdirSync(dependencies.localPaths.syncDirPath(), {recursive: true});
-}
-
-function saveConfig(config: any) {
+function saveConfig(config: SyncConfig) {
     return dependencies.configStore.saveSyncConfig(config.sync || {}, {fs: dependencies.fs, paths: dependencies.localPaths});
 }
 
-async function init(args: any, options: any = {}) {
+async function init(_args: string[] = [], options: InitOptions = {}) {
     let remoteUrl = validateSyncRemoteUrl(options.remote);
     let hasBranchOption = Object.prototype.hasOwnProperty.call(options, 'branch');
     let branch = hasBranchOption ? validateSyncBranch(options.branch) : 'main';
@@ -55,7 +58,7 @@ async function init(args: any, options: any = {}) {
         }
     });
 
-    let nextState = dependencies.sync.initializeSyncState({
+    let initialState = dependencies.sync.initializeSyncState({
         enabled: true,
         status: bootstrap.localHasData || bootstrap.remoteHasHistory ? 'pending_remote' : 'healthy'
     });
@@ -64,7 +67,7 @@ async function init(args: any, options: any = {}) {
         backend.ensureReady();
         backend.fetch();
         backend.adoptRemote();
-        nextState = dependencies.sync.initializeSyncState({...nextState, status: 'healthy', hasPendingRemote: false});
+        dependencies.sync.initializeSyncState({...initialState, status: 'healthy', hasPendingRemote: false});
     }
 
     if (bootstrap.localHasData && !bootstrap.remoteHasHistory) {

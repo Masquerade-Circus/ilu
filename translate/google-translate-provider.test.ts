@@ -67,15 +67,15 @@ test('google translate provider usa global fetch por defecto', async () => {
   const originalFetch = global.fetch;
   const requests = [];
 
-  (global as any).fetch = async (url, options) => {
+  global.fetch = (async (url, options) => {
     requests.push({ url, options });
     return {
       status: 200,
       async json() {
         return { sentences: [{ trans: 'Bonjour' }], src: 'en' };
       }
-    };
-  };
+    } as Response;
+  }) as typeof fetch;
 
   try {
     const { createGoogleTranslateProvider } = loadProviderModule();

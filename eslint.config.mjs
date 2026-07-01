@@ -8,6 +8,12 @@ export default tseslint.config(
       "node_modules/**",
       "tmp/**",
       "coverage/**",
+      "tests/**",
+      "**/tests/**",
+      "tests/**/__mocks__/**",
+      "tests/**/*mock*.{js,ts,tsx}",
+      "**/tests/**/__mocks__/**",
+      "**/tests/**/*mock*.{js,ts,tsx}",
       "package-lock.json"
     ]
   },
@@ -26,7 +32,7 @@ export default tseslint.config(
       "no-control-regex": "off",
       "no-undef": "off",
       "no-implied-eval": "error",
-      "no-new-func": "warn",
+      "no-new-func": "error",
       "no-redeclare": "off",
       "no-regex-spaces": "off",
       "no-useless-assignment": "off",

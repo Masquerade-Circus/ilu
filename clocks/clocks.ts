@@ -3,8 +3,32 @@ import prompts from '../utils/prompts.ts';
 import * as __cjsImport12 from '../utils/index.ts';
 const { log } = __cjsImport12;
 import Model from './model.ts';
+import type { Clock } from './model.ts';
 import promptPriority from './priority-prompt.ts';
-import isUndefined from 'lodash/isUndefined.js';
+type TimezoneAlias = {
+    label: string;
+    value: string;
+    terms: string[];
+};
+
+type ClockChoice = {
+    name: string;
+    value: number | string;
+};
+
+type PromptAnswer = Record<string, unknown>;
+
+type ClockActionOptions = {
+    add?: unknown;
+    show?: unknown;
+    priority?: unknown;
+    remove?: number | boolean;
+};
+
+function hasOption(opts: ClockActionOptions, key: keyof ClockActionOptions) {
+    return opts[key] !== void 0;
+}
+
 let FALLBACK_TIMEZONES = [
     'America/Mexico_City',
     'America/Monterrey',
@@ -16,7 +40,7 @@ let FALLBACK_TIMEZONES = [
     'Asia/Tokyo'
 ];
 
-let TIMEZONE_ALIASES = [
+let TIMEZONE_ALIASES: TimezoneAlias[] = [
     {
         label: 'UTC (Etc/UTC)',
         value: 'Etc/UTC',
@@ -24,20 +48,20 @@ let TIMEZONE_ALIASES = [
     }
 ];
 
-function fail(message: any) {
+function fail(message: string) {
     log.cross(message, 'red');
     process.exit(1);
 }
 
-function normalizeTimezone(timezone: any) {
+function normalizeTimezone(timezone: unknown) {
     return String(timezone || '').trim();
 }
 
-function normalizeName(name: any) {
+function normalizeName(name: unknown) {
     return String(name || '').trim();
 }
 
-function normalizeSearch(search: any) {
+function normalizeSearch(search: unknown) {
     return String(search || '').trim().toLowerCase();
 }
 
@@ -49,7 +73,7 @@ function getAvailableTimezones() {
             if (Array.isArray(timezones) && timezones.length > 0) {
                 return timezones;
             }
-        } catch (error: any) {
+        } catch {
             // fall back to local list
         }
     }
@@ -57,21 +81,21 @@ function getAvailableTimezones() {
     return FALLBACK_TIMEZONES;
 }
 
-function searchTimezones(search: any) {
+function searchTimezones(search: unknown) {
     let normalizedSearch = normalizeSearch(search);
 
     return getAvailableTimezones()
-        .filter((timezone: any) => normalizedSearch.length === 0 || timezone.toLowerCase().includes(normalizedSearch));
+        .filter((timezone) => normalizedSearch.length === 0 || timezone.toLowerCase().includes(normalizedSearch));
 }
 
-function searchTimezoneChoices(search: any = '') {
+function searchTimezoneChoices(search: unknown = ''): ClockChoice[] {
     let normalizedSearch = normalizeSearch(search);
-    let choices: any = [];
-    let seen = new Set();
+    let choices: ClockChoice[] = [];
+    let seen = new Set<string>();
 
     TIMEZONE_ALIASES
-        .filter((alias: any) => normalizedSearch.length === 0 || alias.terms.some((term: any) => term.includes(normalizedSearch) || normalizedSearch.includes(term)))
-        .forEach((alias: any) => {
+        .filter((alias) => normalizedSearch.length === 0 || alias.terms.some((term) => term.includes(normalizedSearch) || normalizedSearch.includes(term)))
+        .forEach((alias) => {
             if (seen.has(alias.value)) {
                 return;
             }
@@ -80,7 +104,7 @@ function searchTimezoneChoices(search: any = '') {
             choices.push({name: alias.label, value: alias.value});
         });
 
-    searchTimezones(search).forEach((timezone: any) => {
+    searchTimezones(search).forEach((timezone) => {
         if (seen.has(timezone)) {
             return;
         }
@@ -92,23 +116,23 @@ function searchTimezoneChoices(search: any = '') {
     return choices;
 }
 
-function getClockChoice(item: any, index: any) {
+function getClockChoice(item: Clock, index: number) {
     return {
         name: `${index + 1} ${item.name} (${item.timezone})`,
         value: index + 1
     };
 }
 
-function validTimezone(timezone: any) {
+function validTimezone(timezone: string) {
     try {
         Intl.DateTimeFormat(undefined, {timeZone: timezone}).format(new Date());
         return true;
-    } catch (error: any) {
+    } catch {
         return false;
     }
 }
 
-function formatTime(timezone: any) {
+function formatTime(timezone: string) {
     return new Intl.DateTimeFormat(undefined, {
         timeZone: timezone,
         hour: '2-digit',
@@ -118,7 +142,7 @@ function formatTime(timezone: any) {
 }
 
 let Clocks = {
-    get(index: any) {
+    get(index: number) {
         let item = Model.get(index);
 
         if (!item) {
@@ -143,14 +167,14 @@ let Clocks = {
                 name: 'name',
                 message: 'Name of the clock',
                 suffix: ' (required)',
-                validate(value: any) {
+                validate(value: unknown) {
                     return normalizeName(value).length > 0 || 'Please provide a name';
                 }
             }
         ]);
 
-        let timezone = normalizeTimezone(timezoneAnswer.timezone);
-        let name = normalizeName(nameAnswer.name);
+        let timezone = normalizeTimezone((timezoneAnswer as PromptAnswer).timezone);
+        let name = normalizeName((nameAnswer as PromptAnswer).name);
 
         if (!validTimezone(timezone)) {
             fail('Invalid timezone. Please provide a valid IANA timezone.');
@@ -174,7 +198,7 @@ let Clocks = {
             return;
         }
 
-        clocks.forEach((item: any, index: any) => {
+        clocks.forEach((item, index) => {
             log.pointerSmall(`${index + 1} ${formatTime(item.timezone).cyan.bold} - ${item.name.white} ${`(${item.timezone})`.gray}`);
         });
     },
@@ -191,7 +215,7 @@ let Clocks = {
             return;
         }
 
-        let move = await promptPriority({clocks: clocks.map((clock: any) => ({...clock}))});
+        let move = await promptPriority({clocks: clocks.map((clock) => ({...clock}))});
 
         if (move && move.fromPosition !== move.toPosition) {
             Model.move(move);
@@ -199,7 +223,7 @@ let Clocks = {
 
         Clocks.show();
     },
-    async remove(index: any) {
+    async remove(index: number | boolean) {
         if (typeof index === 'number') {
             Clocks.get(index);
             Model.remove(index);
@@ -226,26 +250,29 @@ let Clocks = {
                 name: 'indexes',
                 message: 'Select clocks to remove.',
                 choices: clocks.map(getClockChoice),
-                validate(value: any) {
-                    return value.length > 0 || 'Please select at least one clock';
+                validate(value: unknown) {
+                    return Array.isArray(value) && value.length > 0 || 'Please select at least one clock';
                 }
             }
         ]);
 
-        Model.remove(answers.indexes);
-        log.info(`${answers.indexes.length} ${answers.indexes.length === 1 ? 'clock has' : 'clocks have'} been removed.`);
+        let indexes = (answers as PromptAnswer).indexes;
+        let selectedIndexes = Array.isArray(indexes) ? indexes : [];
+
+        Model.remove(selectedIndexes as Array<number | string>);
+        log.info(`${selectedIndexes.length} ${selectedIndexes.length === 1 ? 'clock has' : 'clocks have'} been removed.`);
 
         if (Model.find().length > 0) {
             Clocks.show();
         }
 
     },
-    async actions(args: any, opts: any) {
+    async actions(args: unknown[], opts: ClockActionOptions) {
         switch (true) {
-            case !isUndefined(opts.add): await Clocks.add(); break;
-            case !isUndefined(opts.show): Clocks.show(); break;
-            case !isUndefined(opts.priority): await Clocks.priority(); break;
-            case !isUndefined(opts.remove): await Clocks.remove(opts.remove); break;
+            case hasOption(opts, 'add'): await Clocks.add(); break;
+            case hasOption(opts, 'show'): Clocks.show(); break;
+            case hasOption(opts, 'priority'): await Clocks.priority(); break;
+            case hasOption(opts, 'remove'): await Clocks.remove(opts.remove as number | boolean); break;
             default: Clocks.show(); break;
         }
     }

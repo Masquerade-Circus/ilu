@@ -1,5 +1,42 @@
 import readline from 'node:readline';
-function createState({message, initialValue = ''}: any = {}) {
+
+type InlinePromptState = {
+  message: string;
+  value: string;
+  status: 'idle' | 'confirmed' | 'cancelled';
+};
+
+type InlinePromptAction =
+  | {type: 'input'; value: string}
+  | {type: 'newline'}
+  | {type: 'backspace'}
+  | {type: 'confirm'}
+  | {type: 'cancel'}
+  | {type: 'interrupt'};
+
+type InlineKey = {
+  ctrl?: boolean;
+  meta?: boolean;
+  name?: string;
+  shift?: boolean;
+};
+
+type InlinePromptInput = NodeJS.ReadStream & {
+  isTTY?: boolean;
+  isRaw?: boolean;
+  pause?: () => void;
+  resume?: () => void;
+  setRawMode?: (mode: boolean) => void;
+};
+
+type InlinePromptOptions = {
+  message?: string;
+  initialValue?: string;
+  input?: InlinePromptInput;
+  output?: NodeJS.WriteStream;
+};
+
+function createState({message, initialValue = ''}: Pick<InlinePromptOptions, 'message' | 'initialValue'> = {}): InlinePromptState {
   return {
     message: message || 'Content',
     value: initialValue,
@@ -7,7 +44,7 @@ function createState({message, initialValue = ''}: any = {}) {
   };
 }
 
-function reduceInlineNotePrompt(state: any, action: any = {}) {
+function reduceInlineNotePrompt(state: InlinePromptState, action: Partial<InlinePromptAction> = {}): InlinePromptState {
   if (state.status !== 'idle') {
     return state;
   }
@@ -36,7 +73,7 @@ function reduceInlineNotePrompt(state: any, action: any = {}) {
   }
 }
 
-function render(state: any) {
+function render(state: InlinePromptState) {
   const content = state.value.length > 0 ? state.value : '(empty)';
 
   return [
@@ -47,12 +84,12 @@ function render(state: any) {
   ].join('\n');
 }
 
-function failInteractivePrompt(message: any) {
+function failInteractivePrompt(message: string) {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 }
 
-function mapKey(sequence: any, key: any = {}) {
+function mapKey(sequence: unknown, key: InlineKey = {}): InlinePromptAction | null {
   if (key.ctrl && key.name === 'c') {
     return {type: 'interrupt'};
   }
@@ -84,12 +121,12 @@ function mapKey(sequence: any, key: any = {}) {
   return null;
 }
 
-async function promptInlineNote({message, initialValue = '', input = process.stdin, output = process.stdout}: any = {}) {
+async function promptInlineNote({message, initialValue = '', input = process.stdin, output = process.stdout}: InlinePromptOptions = {}) {
   if (!input || !input.isTTY) {
     failInteractivePrompt('This command requires an interactive terminal (TTY). Piped or non-interactive stdin is not supported.');
   }
 
-  return new Promise((resolve: any) => {
+  return new Promise<string | null>((resolve) => {
     let state = createState({message, initialValue});
     const wasRaw = typeof input.isRaw === 'boolean' ? input.isRaw : false;
 
@@ -113,7 +150,7 @@ async function promptInlineNote({message, initialValue = '', input = process.std
       output.write(`${render(state)}\n`);
     }
 
-    function finish(value: any) {
+    function finish(value: string | null) {
       cleanup();
       if (output !== process.stdout) {
         output.write('\n');
@@ -121,7 +158,7 @@ async function promptInlineNote({message, initialValue = '', input = process.std
       resolve(value);
     }
 
-    function handleKeypress(sequence: any, key: any) {
+    function handleKeypress(sequence: string, key: InlineKey) {
       const action = mapKey(sequence, key);
 
       if (!action) {

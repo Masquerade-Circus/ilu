@@ -4,7 +4,11 @@ import * as __cjsImport41 from 'x-robot/documentate';
 const { documentate } = __cjsImport41;
 import * as __cjsImport42 from './machine.ts';
 const { createSyncMachine } = __cjsImport42;
-async function generateSyncDiagrams(options: any = {}) {
+type GenerateSyncDiagramsOptions = {
+    outDir?: string | null;
+};
+
+async function generateSyncDiagrams(options: GenerateSyncDiagramsOptions = {}) {
     let outDir = options.outDir || path.join(process.cwd(), 'docs', 'diagrams');
     let svgPath = path.join(outDir, 'sync-machine.svg');
     let mermaidPath = path.join(outDir, 'sync-machine.mmd');

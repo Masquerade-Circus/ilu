@@ -3,9 +3,40 @@ import { createPromptRunner } from '@valyrianjs/terminal';
 type PromptChoice = {
     name?: string;
     label?: string;
-    value: any;
+    value: unknown;
     description?: string;
     checked?: boolean;
+};
+
+type PromptAnswerMap = Record<string, unknown>;
+type PromptAnswerValue = string | number | boolean | null | unknown[] | Record<string, unknown>;
+type PromptAnswerReturnMap = Record<string, PromptAnswerValue> & {
+    columnIndex: number;
+    columns: string;
+    cardKey: string;
+    cardKeys: string[];
+    checked: number[];
+    content: string;
+    defaultColumnId: string;
+    description: string;
+    fromPosition: number;
+    index: number;
+    indexes: number[];
+    labels: unknown[];
+    title: string;
+    toPosition: number;
+    wipLimit: number;
+};
+type PromptRunnerPrompt = ReturnType<typeof createPromptRunner>['prompt'];
+type PromptValidationResult = boolean | string | void | Promise<boolean | string | void>;
+type PromptValidator<T = never> = (value: T) => PromptValidationResult;
+
+type NumberPromptOptions = {
+    message: string;
+    validate?: PromptValidator<number>;
+    defaultValue?: number;
+    min?: number;
+    max?: number;
 };
 
 type PromptQuestion = {
@@ -13,10 +44,10 @@ type PromptQuestion = {
     name: string;
     message: string;
     choices?: PromptChoice[];
-    source?: (search?: any) => PromptChoice[] | Promise<PromptChoice[]>;
-    validate?: (value: any) => boolean | string | void | Promise<boolean | string | void>;
-    default?: any;
-    defaultValue?: any;
+    source?: (search?: unknown) => PromptChoice[] | Promise<PromptChoice[]>;
+    validate?: PromptValidator;
+    default?: unknown;
+    defaultValue?: unknown;
     min?: number;
     max?: number;
     mask?: string | boolean;
@@ -57,7 +88,7 @@ function toValyrianChoice(choice: PromptChoice, index: number) {
     };
 }
 
-function toValyrianChoices(choices: PromptChoice[] = [], preferredValue?: any) {
+function toValyrianChoices(choices: PromptChoice[] = [], preferredValue?: unknown) {
     let normalized = choices.map(toValyrianChoice);
 
     if (typeof preferredValue === 'undefined') {
@@ -85,7 +116,7 @@ function defaultValuesFromChecked(choices: PromptChoice[] = []) {
         .map((choice) => choice.value);
 }
 
-function assertChoiceDefaults(choices: PromptChoice[] = [], defaultValues: any[] = []) {
+function assertChoiceDefaults(choices: PromptChoice[] = [], defaultValues: unknown[] = []) {
     for (let defaultValue of defaultValues) {
         if (!choices.some((choice) => Object.is(choice.value, defaultValue))) {
             throw new TypeError('SelectionList defaultValue does not match any choice');
@@ -93,7 +124,7 @@ function assertChoiceDefaults(choices: PromptChoice[] = [], defaultValues: any[]
     }
 }
 
-function normalizeOptionalInteger(value: any) {
+function normalizeOptionalInteger(value: unknown) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
         return null;
     }
@@ -101,14 +132,14 @@ function normalizeOptionalInteger(value: any) {
     return value;
 }
 
-async function withRunner<T>(run: (prompt: any) => Promise<T>) {
+async function withRunner<T>(run: (prompt: PromptRunnerPrompt) => Promise<T>) {
     assertInteractiveTerminal();
 
     let runner = createPromptRunner();
 
     try {
         return await run(runner.prompt);
-    } catch (error: any) {
+    } catch (error: unknown) {
         if (error instanceof Error && (error.name === 'PromptAbortError' || error.name === 'PromptRunnerDestroyedError')) {
             failInteractivePrompt('Interactive prompt cancelled or closed before completion.');
         }
@@ -123,7 +154,7 @@ async function input(question: PromptQuestion) {
     return withRunner((prompt) => prompt.input({
         message: question.message,
         defaultValue: String(promptDefault(question) || ''),
-        validate: question.validate
+        validate: question.validate as PromptValidator<string> | undefined
     }));
 }
 
@@ -131,15 +162,15 @@ async function password(question: PromptQuestion) {
     return withRunner((prompt) => prompt.password({
         message: question.message,
         mask: typeof question.mask === 'undefined' ? true : question.mask,
-        validate: question.validate
+        validate: question.validate as PromptValidator<string> | undefined
     }));
 }
 
 async function number(question: PromptQuestion) {
     return withRunner((prompt) => {
-        let options: any = {
+        let options: NumberPromptOptions = {
             message: question.message,
-            validate: question.validate
+            validate: question.validate as PromptValidator<number> | undefined
         };
         let defaultValue = normalizeOptionalInteger(promptDefault(question));
 
@@ -170,7 +201,7 @@ async function select(question: PromptQuestion) {
     return withRunner((prompt) => prompt.select({
         message: question.message,
         choices: toValyrianChoices(question.choices || [], promptDefault(question)),
-        validate: question.validate
+        validate: question.validate as PromptValidator<unknown> | undefined
     }));
 }
 
@@ -183,7 +214,7 @@ async function selectionList(question: PromptQuestion) {
         message: question.message,
         choices: toValyrianChoices(choices),
         defaultValue,
-        validate: question.validate
+        validate: question.validate as PromptValidator<unknown[]> | undefined
     }));
 }
 
@@ -197,13 +228,13 @@ async function search(question: PromptQuestion) {
     return withRunner((prompt) => prompt.search({
         message: question.message,
         choices: toValyrianChoices(choices, promptDefault(question)),
-        validate: question.validate,
+        validate: question.validate as PromptValidator<unknown> | undefined,
         emptyMessage: 'No matching options'
     }));
 }
 
 async function prompt(questions: PromptQuestion[]) {
-    let answers: any = {};
+    let answers: PromptAnswerMap = {};
 
     for (let question of questions) {
         switch (question.type) {
@@ -234,7 +265,7 @@ async function prompt(questions: PromptQuestion[]) {
         }
     }
 
-    return answers;
+    return answers as PromptAnswerReturnMap;
 }
 
 export { prompt, input, password, number, confirm, select, selectionList, search, toValyrianChoices, initialSelectionFromChecked, defaultValuesFromChecked, assertChoiceDefaults, normalizeOptionalInteger };

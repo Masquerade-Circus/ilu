@@ -3,6 +3,8 @@ import path from 'node:path';
 import localPaths from '../utils/local-paths.ts';
 import * as __cjsImport32 from '../sync-core/state/file-store.ts';
 const { createFileStateStore } = __cjsImport32;
+type SyncState = Record<string, unknown>;
+
 function defaultState() {
     return {
         enabled: false,
@@ -42,7 +44,7 @@ function loadState() {
     return fileStateStore.loadState();
 }
 
-function saveState(state: any) {
+function saveState(state: SyncState) {
     return fileStateStore.saveState(state);
 }
 

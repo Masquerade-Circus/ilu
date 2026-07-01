@@ -4,4 +4,4 @@ import * as __cjsImport139 from './local-paths.ts';
 const { dbFilePath } = __cjsImport139;
 IluDb.use(IluDbNodeJsonPlugin);
 
-export default (dbname: any) => IluDb(dbFilePath(dbname));
+export default (dbname: string) => IluDb(dbFilePath(dbname));

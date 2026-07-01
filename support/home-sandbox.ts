@@ -12,7 +12,7 @@ function isInsidePath(childPath: string, parentPath: string) {
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-function assertNotRealHome(homePath: any, label = 'Test HOME') {
+function assertNotRealHome(homePath: unknown, label = 'Test HOME') {
   if (typeof homePath !== 'string' || homePath.trim() === '') {
     throw new Error(`${label} must be a non-empty path`);
   }
@@ -26,7 +26,7 @@ function assertNotRealHome(homePath: any, label = 'Test HOME') {
   return resolvedHome;
 }
 
-function assertRepoTempHome(homePath: any, label = 'Test HOME') {
+function assertRepoTempHome(homePath: unknown, label = 'Test HOME') {
   const resolvedHome = assertNotRealHome(homePath, label);
   const resolvedTmpRoot = path.resolve(TEST_TMP_ROOT);
 
@@ -37,7 +37,7 @@ function assertRepoTempHome(homePath: any, label = 'Test HOME') {
   return resolvedHome;
 }
 
-function setTestHome(tempHome: any) {
+function setTestHome(tempHome: unknown) {
   const resolvedTempHome = assertNotRealHome(tempHome);
 
   const originalHome = process.env.HOME;
@@ -53,8 +53,8 @@ function setTestHome(tempHome: any) {
   };
 }
 
-async function withTempHome(run: any, options: any = {}) {
-  const prefix = options.prefix || 'ilu-test-home-';
+async function withTempHome<T>(run: (tempHome: string) => T | Promise<T>, options: { prefix?: string } = {}) {
+  const prefix = typeof options.prefix === 'string' && options.prefix.length > 0 ? options.prefix : 'ilu-test-home-';
   fs.mkdirSync(TEST_TMP_ROOT, {recursive: true});
   const tempHome = fs.mkdtempSync(path.join(TEST_TMP_ROOT, prefix));
   const restoreHome = setTestHome(tempHome);

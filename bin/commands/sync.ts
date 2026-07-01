@@ -1,6 +1,20 @@
 import * as __cjsImport2 from './adapters.ts';
 const { createActionAdapter } = __cjsImport2;
-function registerSyncCommands(program: any, deps: any) {
+
+import type { Command } from 'commander';
+import type { ActionHandler } from './adapters.ts';
+
+type SyncDeps = {
+  Sync: {
+    init: ActionHandler;
+    status: ActionHandler;
+    retry: ActionHandler;
+    enable: ActionHandler;
+    disable: ActionHandler;
+  };
+};
+
+function registerSyncCommands(program: Command, deps: SyncDeps) {
   const syncCommand = program
     .command('sync')
     .description('Manage personal data sync');

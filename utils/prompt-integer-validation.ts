@@ -1,4 +1,4 @@
-function validateInteger(value: any, message: string) {
+function validateInteger(value: unknown, message: string) {
     if (typeof value !== 'number' || !Number.isInteger(value)) {
         return message;
     }
@@ -7,7 +7,7 @@ function validateInteger(value: any, message: string) {
 }
 
 function integerPromptValidator(message: string) {
-    return (value: any) => validateInteger(value, message);
+    return (value: unknown) => validateInteger(value, message);
 }
 
 export { integerPromptValidator, validateInteger };

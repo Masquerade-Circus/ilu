@@ -8,9 +8,16 @@ import localPaths from '../utils/local-paths.ts';
 import * as __cjsImport18 from '../utils/prompt-index-selection.ts';
 const { selectOne, selectMany } = __cjsImport18;
 import promptInlineNote from './inline-note-prompt.ts';
-function getNoteChoice(item: any, index: any) {
+
+type NotesList = ReturnType<typeof Model.getCurrent>;
+type NoteItem = NotesList['notes'][number];
+type NoteLabel = NotesList['labels'][number];
+type PromptQuestions = Parameters<typeof prompts.prompt>[0];
+type CommandOptions = Record<string, unknown>;
+
+function getNoteChoice(item: NoteItem, index: number) {
     let labels = '';
-    item.labels.forEach((label: any) => {
+    (item.labels as NoteLabel[]).forEach((label) => {
         labels += ` ${getLabel(label.color, label.title)}`;
     });
 
@@ -24,30 +31,28 @@ let Notes = {
         if (!list) {
             log.info(`You dont have any lists, try adding one.`.blue, 'blue');
             process.exit(1);
-            return;
         }
 
         return list;
     },
-    get(index: any) {
+    get(index: number) {
         let list = Notes.getCurrent();
         let item = list.notes[index - 1];
         if (!item) {
             log.cross(`The note "${index}" does not exists`.red, 'red');
             process.exit(1);
-            return;
         }
 
         return item;
     },
     async add() {
         let list = Notes.getCurrent();
-        let questions: any[] = [
+        let questions: PromptQuestions = [
             { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title')}
         ];
 
         if (list.labels.length > 0) {
-            let choices = list.labels.map((label: any) => {
+            let choices = list.labels.map((label: NoteLabel) => {
                 return {
                     name: getLabel(label.color, label.title),
                     value: label
@@ -73,19 +78,18 @@ let Notes = {
         if (list.notes.length === 0) {
             log.info(`You dont have any notes, try adding one.`.blue, 'blue');
             process.exit(1);
-            return;
         }
 
-        list.notes.forEach((item: any, index: any) => {
+        list.notes.forEach((item: NoteItem, index: number) => {
             let str = `${index + 1} ${item.title}`;
             let labels = '';
-            item.labels.forEach((label: any) => {
+            (item.labels as NoteLabel[]).forEach((label) => {
                 labels += ' ' + getLabel(label.color, label.title);
             });
             log.pointerSmall(str + labels);
         });
     },
-    async selectIndex(message: any) {
+    async selectIndex(message: string) {
         let list = Notes.getCurrent();
 
         return selectOne(list.notes, {
@@ -94,7 +98,7 @@ let Notes = {
             getChoiceName: getNoteChoice
         });
     },
-    async selectIndexes(message: any) {
+    async selectIndexes(message: string) {
         let list = Notes.getCurrent();
 
         return selectMany(list.notes, {
@@ -107,8 +111,8 @@ let Notes = {
         let indexes = await Notes.selectIndexes('Select notes to remove.');
 
         [...indexes]
-            .sort((left: any, right: any) => right - left)
-            .forEach((position: any) => {
+            .sort((left: number, right: number) => right - left)
+            .forEach((position: number) => {
                 Notes.get(position);
                 Model.notes.remove(position);
             });
@@ -128,7 +132,7 @@ let Notes = {
         if (item.labels.length > 0) {
             log('Labels'.gray);
             let labels = '';
-            item.labels.forEach((label: any) => {
+            (item.labels as NoteLabel[]).forEach((label) => {
                 labels += getLabel(label.color, label.title) + ' ';
             });
             log(labels, 4);
@@ -139,12 +143,12 @@ let Notes = {
         let item = Notes.get(selectedIndex);
         let list = Notes.getCurrent();
 
-        let questions: any[] = [
+        let questions: PromptQuestions = [
             { type: 'input', name: 'title', message: 'Title of the note', suffix: ' (required)', validate: required('title'), default: item.title}
         ];
 
         if (list.labels.length > 0) {
-            let choices = list.labels.map((label: any) => {
+            let choices = list.labels.map((label: NoteLabel) => {
 
                 return {
                     name: getLabel(label.color, label.title),
@@ -167,7 +171,7 @@ let Notes = {
         Model.notes.edit(selectedIndex, answers);
         Notes.show();
     },
-    async actions(args: any, opts: any) {
+    async actions(_args: unknown, opts: CommandOptions) {
         switch (true) {
             case !isUndefined(opts.add): await Notes.add(); break;
             case !isUndefined(opts.details): await Notes.details(); break;

@@ -3,11 +3,19 @@ import prompts from '../utils/prompts.ts';
 import * as __cjsImport19 from '../utils/index.ts';
 const { required, log } = __cjsImport19;
 import Model from './model.ts';
+import type { BoardItem } from './model.ts';
 import * as __cjsImport20 from '../utils/prompt-index-selection.ts';
 const { selectOne, selectMany } = __cjsImport20;
 let SIMPLE_DEFAULT_COLUMNS = ['Backlog', 'Ready', 'In Progress', 'Done'];
 
-function sanitizeColumnId(value: any) {
+type PromptColumn = {
+    id: string;
+    title: string;
+};
+
+type BoardListOptions = Record<string, unknown>;
+
+function sanitizeColumnId(value: unknown) {
     return String(value || '')
         .trim()
         .toLowerCase()
@@ -15,10 +23,10 @@ function sanitizeColumnId(value: any) {
         .replace(/^-+|-+$/g, '');
 }
 
-function buildPromptColumns(columns: any) {
-    let usedIds = new Set();
+function buildPromptColumns(columns: string[]) {
+    let usedIds = new Set<string>();
 
-    return columns.map((title: any) => {
+    return columns.map((title: string): PromptColumn => {
         let baseId = sanitizeColumnId(title) || 'column';
         let id = baseId;
         let suffix = 2;
@@ -37,10 +45,10 @@ function buildPromptColumns(columns: any) {
     });
 }
 
-function parseInitialColumns(value: any) {
+function parseInitialColumns(value: unknown) {
     let titles = String(value || '')
         .split(',')
-        .map((item: any) => item.trim())
+        .map((item: string) => item.trim())
         .filter(Boolean);
 
     if (titles.length === 0) {
@@ -50,21 +58,11 @@ function parseInitialColumns(value: any) {
     return buildPromptColumns(titles);
 }
 
-function getBoardChoiceName(item: any) {
+function getBoardChoiceName(item: BoardItem) {
     return item.current ? `${item.index} ${item.title} (current)` : `${item.index} ${item.title}`;
 }
 
-function filterChoices(choices: any, search: any) {
-    let normalizedSearch = String(search || '').trim().toLowerCase();
-
-    if (normalizedSearch.length === 0) {
-        return choices;
-    }
-
-    return choices.filter((choice: any) => choice.name.toLowerCase().includes(normalizedSearch));
-}
-
-async function selectBoardIndex(message: any) {
+async function selectBoardIndex(message: string) {
     return selectOne(Model.find(), {
         message,
         emptyMessage: 'You dont have any boards, try adding one.',
@@ -72,7 +70,7 @@ async function selectBoardIndex(message: any) {
     });
 }
 
-async function selectBoardIndexes(message: any) {
+async function selectBoardIndexes(message: string) {
     return selectMany(Model.find(), {
         message,
         emptyMessage: 'You dont have any boards, try adding one.',
@@ -81,21 +79,21 @@ async function selectBoardIndexes(message: any) {
 }
 
 let BoardLists = {
-    get(index: any) {
+    get(index: number): BoardItem {
         let item = Model.findOne({index});
         if (!item) {
             log.warning(`The board "${index}" does not exists`.yellow, 'yellow');
             process.exit(1);
-            return;
+            throw new Error('Board selection failed');
         }
         return item;
     },
-    getCurrent() {
+    getCurrent(): BoardItem {
         let item = Model.getCurrent();
         if (!item) {
             log.info(`You dont have any boards, try adding one.`.blue, 'blue');
             process.exit(1);
-            return;
+            throw new Error('Current board selection failed');
         }
         return item;
     },
@@ -107,7 +105,7 @@ let BoardLists = {
         ]);
 
         let columns = parseInitialColumns(answers.columns);
-        let defaultColumnChoices = columns.map((column: any) => ({name: column.title, value: column.id}));
+        let defaultColumnChoices = columns.map((column: PromptColumn) => ({name: column.title, value: column.id}));
         let defaultColumn = await prompts.prompt([
             {
                 type: 'search',
@@ -121,17 +119,17 @@ let BoardLists = {
         Model.add({
             title: answers.title,
             description: answers.description,
-            columns: columns.map((column: any) => ({title: column.title})),
+            columns: columns.map((column: PromptColumn) => ({title: column.title})),
             defaultColumnId: defaultColumn.defaultColumnId
         });
         BoardLists.show();
     },
-    async edit(index: any) {
-        if (typeof index !== 'number') {
-            index = await selectBoardIndex('Select the board to edit');
-        }
+    async edit(index: unknown) {
+        let boardIndex = typeof index === 'number'
+            ? index
+            : await selectBoardIndex('Select the board to edit');
 
-        let item = BoardLists.get(index);
+        let item = BoardLists.get(boardIndex);
         let answers = await prompts.prompt([
             {type: 'input', name: 'title', message: 'Title of the board', suffix: ' (required)', validate: required('title'), default: item.title},
             {type: 'input', name: 'description', message: 'Description of the board', default: item.description}
@@ -150,7 +148,7 @@ let BoardLists = {
             return;
         }
 
-        boards.forEach((item: any) => {
+        boards.forEach((item: BoardItem) => {
             let str = `${item.index} ${item.title}`;
             if (item.current) {
                 log.pointerSmall(str.cyan + ' (current)'.gray, 'cyan');
@@ -159,28 +157,28 @@ let BoardLists = {
             log.pointerSmall(str);
         });
     },
-    async use(index: any) {
-        if (typeof index !== 'number') {
-            index = await selectBoardIndex('Select the board to use');
-        }
+    async use(index: unknown) {
+        let boardIndex = typeof index === 'number'
+            ? index
+            : await selectBoardIndex('Select the board to use');
 
-        let item = BoardLists.get(index);
-        Model.use(item.$id);
+        let item = BoardLists.get(boardIndex);
+        Model.use(item.$id ?? item.id ?? item.index);
         BoardLists.show();
     },
-    async remove(index: any) {
+    async remove(index: unknown) {
         let indexes = typeof index === 'number'
             ? [index]
             : await selectBoardIndexes('Select the boards to remove');
 
-        let items = indexes.map((position: any) => BoardLists.get(position));
-        items.forEach((item: any) => Model.remove(item));
+        let items = indexes.map((position: number) => BoardLists.get(position));
+        items.forEach((item: BoardItem) => Model.remove(item));
 
         let current = Model.getCurrent();
         if (!current) {
             let first = Model.getFirst();
             if (first) {
-                Model.use(first.$id);
+                Model.use(first.$id ?? first.id ?? first.index);
             }
         }
 
@@ -191,12 +189,12 @@ let BoardLists = {
 
         BoardLists.show();
     },
-    async details(index: any) {
-        if (typeof index !== 'number') {
-            index = await selectBoardIndex('Select the board to show');
-        }
+    async details(index: unknown) {
+        let boardIndex = typeof index === 'number'
+            ? index
+            : await selectBoardIndex('Select the board to show');
 
-        let item = BoardLists.get(index);
+        let item = BoardLists.get(boardIndex);
         log('Title'.gray);
         log(item.title.cyan, 4);
 
@@ -207,7 +205,7 @@ let BoardLists = {
 
         if (item.columns.length > 0) {
             log('Columns'.gray);
-            item.columns.forEach((column: any, columnIndex: any) => {
+            item.columns.forEach((column, columnIndex: number) => {
                 let suffix = column.wipLimit === null || typeof column.wipLimit === 'undefined'
                     ? ''
                     : ` (WIP ${column.wipLimit})`;
@@ -219,7 +217,7 @@ let BoardLists = {
         let item = BoardLists.getCurrent();
         await BoardLists.details(item.index);
     },
-    async actions(args: any, opts: any) {
+    async actions(args: unknown, opts: BoardListOptions) {
         switch (true) {
             case !isUndefined(opts.add): await BoardLists.add(); break;
             case !isUndefined(opts.edit): await BoardLists.edit(opts.edit); break;

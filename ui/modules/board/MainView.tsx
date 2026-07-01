@@ -345,7 +345,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     }
 
     const columns = Array.isArray(current.columns) ? current.columns : [];
-    return columns.some((column: any) => {
+    return columns.some((column: BoardColumn) => {
       if (typeof column.count === "number" && column.count > 0) {
         return true;
       }
@@ -676,13 +676,13 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorFocusStyle="editor.focus"
         primaryActionId="board-add-save"
         cancelActionId="board-add-cancel"
-        onTitleInput={(value: any) => {
+        onTitleInput={(value: string) => {
           const next = normalizeAddCardState(state.addCard);
           next.title = value;
           next.error = "";
           state.addCard = next;
         }}
-        onEditorInput={(value: any) => {
+        onEditorInput={(value: string) => {
           const next = normalizeAddCardState(state.addCard);
           next.description = value;
           next.error = "";
@@ -803,13 +803,13 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorFocusStyle="editor.focus"
         primaryActionId="board-edit-save"
         cancelActionId="board-edit-cancel"
-        onTitleInput={(value: any) => {
+        onTitleInput={(value: string) => {
           const next = normalizeCardFormState(state.editCard);
           next.title = value;
           next.error = "";
           state.editCard = next;
         }}
-        onEditorInput={(value: any) => {
+        onEditorInput={(value: string) => {
           const next = normalizeCardFormState(state.editCard);
           next.description = value;
           next.error = "";

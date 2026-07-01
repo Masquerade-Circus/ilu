@@ -2,14 +2,23 @@ import * as __cjsImport4 from 'commander';
 const { Option } = __cjsImport4;
 import * as __cjsImport5 from './adapters.ts';
 const { createActionAdapter, optionalInt } = __cjsImport5;
-function registerUiCommand(program: any, deps: any) {
+import type { Command } from 'commander';
+import type { ActionHandler } from './adapters.ts';
+
+type UtilityDeps = {
+  Translate: { osLang: string; validate: (text: unknown) => unknown; action: ActionHandler };
+  Clocks: { actions: ActionHandler };
+  Tts: { action: ActionHandler; voiceAction: ActionHandler };
+};
+
+function registerUiCommand(program: Command, deps: { Ui: { action: ActionHandler } }) {
   program
     .command('ui')
     .description('Open the ilu terminal workspace preview')
     .action(createActionAdapter(deps.Ui.action));
 }
 
-function registerUtilityCommands(program: any, deps: any) {
+function registerUtilityCommands(program: Command, deps: UtilityDeps) {
   program
     .command('babel')
     .alias('b')
@@ -19,7 +28,7 @@ function registerUtilityCommands(program: any, deps: any) {
     .argument('<text...>', 'Text to translate')
     .action(createActionAdapter(
       deps.Translate.action,
-      ([text]: any) => ({text: deps.Translate.validate(text)})
+      ([text]: unknown[]) => ({text: deps.Translate.validate(text)})
     ));
 
   program
@@ -45,7 +54,7 @@ function registerUtilityCommands(program: any, deps: any) {
 
   ttsCommand.action(createActionAdapter(
     deps.Tts.action,
-    ([inputFile, outputFile]: any) => ({inputFile, outputFile})
+    ([inputFile, outputFile]: unknown[]) => ({inputFile, outputFile})
   ));
 }
 

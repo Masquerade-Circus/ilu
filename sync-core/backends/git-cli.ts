@@ -4,27 +4,53 @@ import * as __cjsImport37 from 'node:child_process';
 const { execFileSync } = __cjsImport37;
 import * as __cjsImport38 from '../contracts.ts';
 const { classifyGitError } = __cjsImport38;
-function normalizeIgnorePatterns(ignorePatterns: any = []) {
+type IgnoreMatcher = (relativePath: string) => boolean;
+type CollectFilesOptions = {
+    isIgnored?: IgnoreMatcher;
+    includeGitFiles?: boolean;
+};
+type GitCliBackendOptions = {
+    repoPath?: string | null;
+    branch?: string;
+    remote?: string;
+    remoteUrl?: string | null;
+    ignorePatterns?: unknown;
+};
+type SyncWorkingTreeOptions = {
+    sourceRoot: string;
+    ignorePatterns?: unknown;
+};
+type CommitOptions = {
+    entries?: string[];
+};
+type InspectBootstrapOptions = {
+    sourceRoot: string;
+    ignorePatterns?: unknown;
+};
+
+function normalizeIgnorePatterns(ignorePatterns: unknown = []) {
+    if (!Array.isArray(ignorePatterns)) {
+        return [];
+    }
+
     return ignorePatterns
-        .filter((entry: any) => typeof entry === 'string')
-        .map((entry: any) => entry.trim())
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
         .filter(Boolean);
 }
 
-function normalizeRelativePath(value: any) {
+function normalizeRelativePath(value: string) {
     return value.split(path.sep).join('/');
 }
 
-function createIgnoreMatcher(ignorePatterns: any = []) {
-    let normalizedPatterns = ignorePatterns
-        .filter((pattern: any) => typeof pattern === 'string')
-        .map((pattern: any) => normalizeRelativePath(pattern.trim()))
-        .filter(Boolean);
+function createIgnoreMatcher(ignorePatterns: unknown = []) {
+    let normalizedPatterns = normalizeIgnorePatterns(ignorePatterns)
+        .map((pattern) => normalizeRelativePath(pattern));
 
-    return function isIgnored(relativePath: any) {
+    return function isIgnored(relativePath: string) {
         let normalizedPath = normalizeRelativePath(relativePath);
 
-        return normalizedPatterns.some((pattern: any) => {
+        return normalizedPatterns.some((pattern) => {
             if (pattern.endsWith('/**')) {
                 let prefix = pattern.slice(0, -3);
                 return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
@@ -37,17 +63,19 @@ function createIgnoreMatcher(ignorePatterns: any = []) {
     };
 }
 
-function collectFiles(rootPath: any, {isIgnored = (_relativePath: any) => false, includeGitFiles = false}: any = {}) {
-    let collected: any = [];
+function collectFiles(rootPath: string | null | undefined, {isIgnored = (_relativePath: string) => false, includeGitFiles = false}: CollectFilesOptions = {}) {
+    let collected: string[] = [];
 
     if (!rootPath || !fs.existsSync(rootPath)) {
         return collected;
     }
 
-    function walk(currentPath: any) {
+    let basePath: string = rootPath;
+
+    function walk(currentPath: string) {
         let entries = fs.readdirSync(currentPath, {withFileTypes: true});
 
-        entries.forEach((entry: any) => {
+        entries.forEach((entry) => {
             if (!includeGitFiles && entry.name === '.git') {
                 return;
             }
@@ -57,7 +85,7 @@ function collectFiles(rootPath: any, {isIgnored = (_relativePath: any) => false,
             }
 
             let absolutePath = path.join(currentPath, entry.name);
-            let relativePath = normalizeRelativePath(path.relative(rootPath, absolutePath));
+            let relativePath = normalizeRelativePath(path.relative(basePath, absolutePath));
 
             if (isIgnored(relativePath)) {
                 return;
@@ -76,11 +104,11 @@ function collectFiles(rootPath: any, {isIgnored = (_relativePath: any) => false,
     return collected;
 }
 
-function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remoteUrl = null, ignorePatterns = []}: any = {}) {
+function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remoteUrl = null, ignorePatterns = []}: GitCliBackendOptions = {}) {
     let normalizedIgnorePatterns = normalizeIgnorePatterns(ignorePatterns);
 
-    function getRuntimeIgnorePatterns(ignorePatterns: any = []) {
-        return normalizeIgnorePatterns([...normalizedIgnorePatterns, ...ignorePatterns]);
+    function getRuntimeIgnorePatterns(ignorePatterns: unknown = []) {
+        return normalizeIgnorePatterns([...normalizedIgnorePatterns, ...normalizeIgnorePatterns(ignorePatterns)]);
     }
 
     function ensureIgnoreFile() {
@@ -88,14 +116,18 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
             return;
         }
 
+        if (!repoPath) {
+            throw new Error('Missing repo path');
+        }
+
         let ignoreFile = path.join(repoPath, '.gitignore');
-        let lines: any = [];
+        let lines: string[] = [];
 
         if (fs.existsSync(ignoreFile)) {
             lines = fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/).filter(Boolean);
         }
 
-        normalizedIgnorePatterns.forEach((entry: any) => {
+        normalizedIgnorePatterns.forEach((entry) => {
             if (!lines.includes(entry)) {
                 lines.push(entry);
             }
@@ -104,10 +136,10 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
         fs.writeFileSync(ignoreFile, `${lines.join('\n')}\n`, 'utf8');
     }
 
-    function run(args: any, options: any = {}) {
+    function run(args: string[], options: Parameters<typeof execFileSync>[2] = {}) {
         let cwd = repoPath && fs.existsSync(repoPath) ? repoPath : process.cwd();
 
-        return execFileSync('git', args, {
+        return String(execFileSync('git', args, {
             cwd,
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,18 +152,18 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
                 GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'sync@ilu.local'
             },
             ...options
-        }).trim();
+        })).trim();
     }
 
-    function ensureDir(filePath: any) {
+    function ensureDir(filePath: string) {
         fs.mkdirSync(path.dirname(filePath), {recursive: true});
     }
 
-    function isTracked(entry: any) {
+    function isTracked(entry: string) {
         try {
             run(['ls-files', '--error-unmatch', '--', entry]);
             return true;
-        } catch (error: any) {
+        } catch {
             return false;
         }
     }
@@ -155,7 +187,7 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
 
                 try {
                     currentRemoteUrl = run(['remote', 'get-url', remote]);
-                } catch (error: any) {
+                } catch {
                     currentRemoteUrl = '';
                 }
 
@@ -166,13 +198,17 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
                 }
             }
         },
-        syncWorkingTree({sourceRoot, ignorePatterns = []}: any) {
+        syncWorkingTree({sourceRoot, ignorePatterns = []}: SyncWorkingTreeOptions) {
+            if (!repoPath) {
+                throw new Error('Missing repo path');
+            }
+
             let isIgnored = createIgnoreMatcher(getRuntimeIgnorePatterns(ignorePatterns));
             let sourceFiles = collectFiles(sourceRoot, {isIgnored});
             let sourceRootPath = sourceRoot ? path.resolve(sourceRoot) : null;
             let repoRootPath = repoPath ? path.resolve(repoPath) : null;
 
-            sourceFiles.forEach((entry: any) => {
+            sourceFiles.forEach((entry) => {
                 let sourceFile = path.join(sourceRoot, entry);
                 let targetFile = path.join(repoPath, entry);
 
@@ -189,7 +225,7 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
                 fs.copyFileSync(sourceFile, targetFile);
             });
 
-            collectFiles(repoPath, {isIgnored}).forEach((entry: any) => {
+            collectFiles(repoPath, {isIgnored}).forEach((entry) => {
                 if (entry === '.gitignore' || sourceFiles.includes(entry)) {
                     return;
                 }
@@ -200,35 +236,38 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
         hasChanges() {
             return run(['status', '--porcelain']).length > 0;
         },
-        commit(message: any, {entries = []}: any = {}) {
+        commit(message: string, {entries = []}: CommitOptions = {}) {
             let trackedEntries = entries.length > 0 ? entries : ['.'];
 
             if (trackedEntries.length === 1 && trackedEntries[0] === '.') {
                 run(['add', '--all', '--', '.']);
             } else {
-                trackedEntries.forEach((entry: any) => {
+                trackedEntries.forEach((entry) => {
+                    if (!repoPath) {
+                        throw new Error('Missing repo path');
+                    }
                     if (fs.existsSync(path.join(repoPath, entry)) || isTracked(entry)) {
                         run(['add', '--all', '--', entry]);
                     }
                 });
             }
 
-            return run(['commit', '-m', message]);
+            run(['commit', '-m', message]);
         },
         fetch() {
-            return run(['fetch', remote]);
+            run(['fetch', remote]);
         },
         adoptRemote() {
-            return run(['checkout', '-B', branch, `${remote}/${branch}`]);
+            run(['checkout', '-B', branch, `${remote}/${branch}`]);
         },
-        inspectBootstrap({sourceRoot, ignorePatterns = []}: any = {}) {
+        inspectBootstrap({sourceRoot, ignorePatterns = []}: InspectBootstrapOptions) {
             let isIgnored = createIgnoreMatcher(getRuntimeIgnorePatterns(ignorePatterns));
             let localHasData = collectFiles(sourceRoot, {isIgnored}).length > 0;
             let remoteHasHistory = false;
 
             try {
                 remoteHasHistory = run(['ls-remote', '--heads', remoteUrl || remote]).length > 0;
-            } catch (error: any) {
+            } catch (error: unknown) {
                 throw classifyGitError(error).error;
             }
 
@@ -236,13 +275,13 @@ function createGitCliBackend({repoPath, branch = 'main', remote = 'origin', remo
         },
         integrate() {
             if (run(['ls-remote', '--heads', remote, branch]).length === 0) {
-                return '';
+                return;
             }
 
-            return run(['pull', '--rebase', remote, branch]);
+            run(['pull', '--rebase', remote, branch]);
         },
         push() {
-            return run(['push', remote, branch]);
+            run(['push', remote, branch]);
         },
         getStatus() {
             return run(['status', '--short', '--branch']);

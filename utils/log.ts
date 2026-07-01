@@ -1,5 +1,8 @@
-type LogMethod = (message: any, color?: any, spaces?: any) => void;
-type LogFunction = ((message: any, spaces?: any, type?: any, color?: any) => void) & Record<string, LogMethod>;
+type SymbolName = keyof typeof fallbackSymbols;
+type ColorizedIcon = string & Record<string, string | undefined>;
+type LogMethod = (message: unknown, color?: string, spaces?: number) => void;
+type LogFunction = ((message: unknown, spaces?: number, type?: SymbolName | null, color?: string) => void) &
+    Record<SymbolName, LogMethod>;
 
 let fallbackSymbols = {
     tick: '✔',
@@ -41,9 +44,10 @@ let fallbackSymbols = {
     checkboxCircleOff: 'Ⓘ'
 };
 
-function symbol(type: any, color: any) {
-    let icon = (fallbackSymbols as any)[type] || '';
-    return color && icon[color] ? icon[color] : icon;
+function symbol(type: SymbolName, color: string) {
+    let icon = fallbackSymbols[type] || '';
+    let colorizedIcon = icon as ColorizedIcon;
+    return color && colorizedIcon[color] ? colorizedIcon[color] : icon;
 }
 
 let logMethods = [
@@ -84,9 +88,9 @@ let logMethods = [
     'checkboxOff',
     'checkboxCircleOn',
     'checkboxCircleOff'
-];
+] as const;
 
-const log = (function log(message: any, spaces: any = 2, type: any = null, color: any = 'white') {
+const log = (function log(message: unknown, spaces = 2, type: SymbolName | null = null, color = 'white') {
     let str = '';
     for (;spaces--;) {
         str += ' ';
@@ -99,8 +103,8 @@ const log = (function log(message: any, spaces: any = 2, type: any = null, color
     console.log(str);
 }) as LogFunction;
 
-logMethods.forEach((method: any) => {
-    log[method] = (message: any, color: any, spaces: any) => log(message, spaces, method, color);
+logMethods.forEach((method) => {
+    log[method] = (message: unknown, color?: string, spaces?: number) => log(message, spaces, method, color);
 });
 
 export default log;

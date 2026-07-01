@@ -6,16 +6,37 @@ import * as __cjsImport132 from '../../action-results';
 const { createUiErrorResult, createUiSuccessResult } = __cjsImport132;
 import * as __cjsImport133 from '../../list-action-model';
 const { asArray, currentList, entityId, findList, positiveInteger, safeContent, safeString, useFallbackListIfNeeded } = __cjsImport133;
-function loadNoteModel(): any {
-  return NotesModel;
+type NoteList = { notes?: unknown; title?: string; description?: string; [key: string]: unknown };
+type NoteModel = {
+  getCurrent?: () => NoteList | null | undefined;
+  getFirst?: () => NoteList | null | undefined;
+  find?: () => unknown;
+  get?: (id: number | string) => NoteList | null | undefined;
+  use: (id: number | string | null) => unknown;
+  add: (values: { title: string; description: string }) => unknown;
+  save: (list: NoteList) => unknown;
+  remove: (list: NoteList) => void;
+  notes: {
+    add: (values: { title: string; content: string }) => unknown;
+    edit: (position: number, values: { title: string; content: string }) => unknown;
+    remove: (position: number) => unknown;
+    reorder: (values: { fromIndex: number; toIndex: number }) => unknown;
+  };
+};
+type NoteActionValues = Record<string, unknown>;
+type NoteListResult = { ok: true; notes: unknown[] } | { ok: false; error: string };
+type MoveTargetResult = { ok: true; noop: true } | { ok: true; noop?: false; fromIndex: number; toIndex: number } | { ok: false; error: string };
+
+function loadNoteModel(): NoteModel {
+  return NotesModel as unknown as NoteModel;
 }
 
 
 function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
-  const injectedModel = options.model;
-  const modelFor = () => injectedModel || loadNoteModel();
+  const injectedModel = options.model as NoteModel | null | undefined;
+  const modelFor = (): NoteModel => injectedModel || loadNoteModel();
 
-  function currentNotes(model: any, missingMessage: any): any {
+  function currentNotes(model: NoteModel, missingMessage: string): NoteListResult {
     const result = currentList(model, missingMessage);
 
     if (!result.ok) {
@@ -25,7 +46,7 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
     return {ok: true, notes: asArray(result.list.notes)};
   }
 
-  function noteMoveTarget(model: any, values: any): any {
+  function noteMoveTarget(model: NoteModel, values: NoteActionValues): MoveTargetResult {
     const position = values.position;
 
     if (!positiveInteger(position)) {
@@ -59,7 +80,7 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
   }
 
   return {
-    addNote(values: any = {}) {
+    addNote(values: NoteActionValues = {}) {
       const title = safeString(values.title);
       const content = safeContent(values.content);
 
@@ -76,12 +97,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         }
 
         return createUiSuccessResult({note: model.notes.add({title, content})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Note could not be saved. Try again.');
       }
     },
 
-    editNote(values: any = {}) {
+    editNote(values: NoteActionValues = {}) {
       const position = values.position;
       const title = safeString(values.title);
       const content = safeContent(values.content);
@@ -103,12 +124,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         }
 
         return createUiSuccessResult({note: model.notes.edit(position, {title, content})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Note could not be updated. Try again.');
       }
     },
 
-    removeNote(values: any = {}) {
+    removeNote(values: NoteActionValues = {}) {
       const position = values.position;
 
       if (!positiveInteger(position)) {
@@ -124,12 +145,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         }
 
         return createUiSuccessResult({list: model.notes.remove(position)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Note could not be removed. Try again.');
       }
     },
 
-    moveNote(values: any = {}) {
+    moveNote(values: NoteActionValues = {}) {
       try {
         const model = modelFor();
         const target = noteMoveTarget(model, values);
@@ -143,12 +164,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         }
 
         return createUiSuccessResult({list: model.notes.reorder({fromIndex: target.fromIndex, toIndex: target.toIndex})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Note could not be moved. Try again.');
       }
     },
 
-    useList(values: any = {}) {
+    useList(values: NoteActionValues = {}) {
       try {
         const model = modelFor();
         const list = findList(model, values.listId);
@@ -158,12 +179,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         }
 
         return createUiSuccessResult({list: model.use(entityId(list))});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be opened. Try again.');
       }
     },
 
-    addList(values: any = {}) {
+    addList(values: NoteActionValues = {}) {
       const title = safeString(values.title);
       const description = safeString(values.description);
 
@@ -173,12 +194,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
 
       try {
         return createUiSuccessResult({list: modelFor().add({title, description})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be saved. Try again.');
       }
     },
 
-    renameList(values: any = {}) {
+    renameList(values: NoteActionValues = {}) {
       const title = safeString(values.title);
       const description = safeString(values.description);
 
@@ -197,12 +218,12 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         list.title = title;
         list.description = description;
         return createUiSuccessResult({list: model.save(list)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be renamed. Try again.');
       }
     },
 
-    removeList(values: any = {}) {
+    removeList(values: NoteActionValues = {}) {
       try {
         const model = modelFor();
         const list = findList(model, values.listId);
@@ -214,7 +235,7 @@ function createNoteActions(options: ActionFactoryOptions = {}): NoteActions {
         model.remove(list);
         useFallbackListIfNeeded(model);
         return createUiSuccessResult();
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be removed. Try again.');
       }
     }

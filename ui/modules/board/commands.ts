@@ -25,7 +25,7 @@ type SnapshotRef = {
   refresh: (domain?: "board") => UiSnapshot;
 };
 
-export function safeBoardActionResult(result: unknown, fallback: any = "Card could not be saved. Try again."): BoardActionResult {
+export function safeBoardActionResult(result: unknown, fallback: string = "Card could not be saved. Try again."): BoardActionResult {
   if (typeof result === "object" && result !== null && typeof (result as Record<string, unknown>).ok === "boolean") {
     return result as BoardActionResult;
   }
@@ -98,7 +98,7 @@ function boardColumnsFromSnapshot(snapshotRef: SnapshotRef): BoardColumn[] {
   return Array.isArray(columns) ? columns : [];
 }
 
-export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: any = true, context?: TerminalCommandContext): boolean {
+export function handleBoardColumnKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: boolean = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.column-left" && command.id !== "ilu.column-right" && command.id !== "ilu.board-column-header-left" && command.id !== "ilu.board-column-header-right") {
     return false;
   }
@@ -187,7 +187,7 @@ export function handleBoardColumnKeyCommand(command: TerminalCommand, state: Boa
   return true;
 }
 
-function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: any = true, context?: TerminalCommandContext): boolean {
+function handleBoardCardPriorityKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, boardActions: BoardActions, isActive: boolean = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.board-card-priority-up" && command.id !== "ilu.board-card-priority-down") {
     return false;
   }
@@ -299,7 +299,7 @@ function openBoardColumnDetailsFromKeyboard(state: BoardRuntimeState, snapshotRe
   return true;
 }
 
-function handleBoardOpenDetailsKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, isActive: any = true, context?: TerminalCommandContext): boolean {
+function handleBoardOpenDetailsKeyCommand(command: TerminalCommand, state: BoardRuntimeState, snapshotRef: SnapshotRef, isActive: boolean = true, context?: TerminalCommandContext): boolean {
   if (command.id !== "ilu.board-open-details") {
     return false;
   }
@@ -320,7 +320,7 @@ export function handleBoardCommand(
   state: BoardRuntimeState,
   snapshotRef: SnapshotRef,
   boardActions: BoardActions,
-  isActive: any = true,
+  isActive: boolean = true,
   context?: TerminalCommandContext
 ): boolean {
   if (command.id === "ilu.add") {

@@ -6,9 +6,36 @@ import adapter from './ilu-adapter.ts';
 import * as __cjsImport31 from './git-cli-backend.ts';
 const { createGitCliBackend } = __cjsImport31;
 import stateStore from './state-store.ts';
-let runtime: any = null;
+type SyncMutationContext = {
+  domain?: string;
+  action?: string;
+  reason?: string;
+} & Record<string, unknown>;
 
-function getRuntimeOptions(consumerAdapter: any = adapter, overrides: any = {}) {
+type SyncAdapter = {
+  getSyncConfig: () => Record<string, unknown>;
+  getSourceRoot: () => string;
+  getIgnorePatterns?: () => string[];
+  buildCommitMessage: (context: SyncMutationContext) => string;
+};
+
+type SyncRuntimeOverrides = Record<string, unknown> & {
+  buildCommitMessage?: (context: SyncMutationContext) => string;
+};
+
+type SyncRuntimeAdvancedOptions = NonNullable<Parameters<typeof createEngineRuntimeAdvanced>[0]>;
+type SyncStatus = Record<string, unknown>;
+type SyncRuntime = {
+  notifyLocalMutation: (context: SyncMutationContext) => Promise<SyncStatus>;
+  getSyncStatus: () => SyncStatus;
+  retry: (context: SyncMutationContext) => Promise<unknown>;
+  enable?: () => Promise<SyncStatus>;
+  disable?: () => Promise<SyncStatus>;
+};
+
+let runtime: SyncRuntime | null = null;
+
+function getRuntimeOptions(consumerAdapter: SyncAdapter = adapter, overrides: SyncRuntimeOverrides = {}) {
   let config = consumerAdapter.getSyncConfig();
 
   return {
@@ -40,7 +67,7 @@ function getRuntimeOptions(consumerAdapter: any = adapter, overrides: any = {}) 
         : []),
     buildCommitMessage: typeof overrides.buildCommitMessage === 'function'
       ? overrides.buildCommitMessage
-      : (context: any) => consumerAdapter.buildCommitMessage(context)
+      : (context: SyncMutationContext) => consumerAdapter.buildCommitMessage(context)
   };
 }
 
@@ -57,7 +84,7 @@ function getBootstrapContext() {
   };
 }
 
-function createBootstrapBackend(options: any = {}) {
+function createBootstrapBackend(options: Record<string, string | null> = {}) {
   let config = getSyncConfig();
   let bootstrapContext = getBootstrapContext();
 
@@ -69,27 +96,27 @@ function createBootstrapBackend(options: any = {}) {
   });
 }
 
-function initializeSyncState(state: any = {}) {
+function initializeSyncState(state: Record<string, unknown> = {}) {
   return stateStore.saveState({
     ...stateStore.defaultState(),
     ...state
   });
 }
 
-function createSyncRuntime(overrides: any = {}) {
+function createSyncRuntime(overrides: SyncRuntimeOverrides = {}) {
   let forbidden = ['backend', 'stateStore', 'adapter', 'config']
-    .filter((key: any) => Object.prototype.hasOwnProperty.call(overrides, key));
+    .filter((key) => Object.prototype.hasOwnProperty.call(overrides, key));
 
   if (forbidden.length > 0) {
     throw new Error(`sync.createSyncRuntime does not accept ${forbidden.join(' or ')} overrides`);
   }
 
-  runtime = createEngineRuntime(getRuntimeOptions(adapter, overrides));
+  runtime = createEngineRuntime(getRuntimeOptions(adapter, overrides)) as unknown as SyncRuntime;
 
   return runtime;
 }
 
-function createSyncRuntimeAdvanced(options: any = {}) {
+function createSyncRuntimeAdvanced(options: SyncRuntimeAdvancedOptions = {}) {
   runtime = createEngineRuntimeAdvanced({
     ...options,
     sourceRoot: options.sourceRoot || adapter.getSourceRoot(),
@@ -100,9 +127,9 @@ function createSyncRuntimeAdvanced(options: any = {}) {
         : []),
     buildCommitMessage: typeof options.buildCommitMessage === 'function'
       ? options.buildCommitMessage
-      : (context: any) => adapter.buildCommitMessage(context),
-    stateStore: options.stateStore || stateStore
-  });
+      : (context: SyncMutationContext) => adapter.buildCommitMessage(context),
+    stateStore: options.stateStore || (stateStore as unknown as NonNullable<SyncRuntimeAdvancedOptions['stateStore']>)
+  }) as unknown as SyncRuntime;
 
   return runtime;
 }
@@ -115,7 +142,7 @@ function ensureRuntime() {
   return runtime;
 }
 
-function notifyLocalMutation(context: any) {
+function notifyLocalMutation(context: SyncMutationContext) {
   return ensureRuntime().notifyLocalMutation(context);
 }
 
@@ -123,7 +150,7 @@ function getSyncStatus() {
   return ensureRuntime().getSyncStatus();
 }
 
-function retry(context: any) {
+function retry(context: SyncMutationContext) {
   return ensureRuntime().retry(context);
 }
 

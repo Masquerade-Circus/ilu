@@ -21,7 +21,7 @@
     "no-multiple-empty-lines":"error",
     "one-var":"off",
     "no-continue":"off",
-    "no-new-func":"warn",
+    "no-new-func":"error",
     "no-plusplus":"off",
     "no-console":"off",
     "no-undefined":1,

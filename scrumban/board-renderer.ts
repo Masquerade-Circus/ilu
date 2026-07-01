@@ -1,5 +1,26 @@
 import CliTable from 'cli-table';
-function getHeader(column: any) {
+
+type RenderCard = {
+    title: string;
+    position: number;
+};
+
+type RenderColumn = {
+    title: string;
+    wipLimit?: number | null;
+    cards: RenderCard[];
+};
+
+type RenderOptions = {
+    terminalColumns?: number;
+};
+
+type RemainderOrder = {
+    index: number;
+    remainder: number;
+};
+
+function getHeader(column: RenderColumn) {
     return column.wipLimit === null || typeof column.wipLimit === 'undefined'
         ? column.title
         : `${column.title} (${column.cards.length}/${column.wipLimit})`;
@@ -8,25 +29,25 @@ const DEFAULT_TERMINAL_COLUMNS = 80;
 const MIN_COLUMN_WIDTH = 5;
 const CLI_TABLE_CELL_HORIZONTAL_PADDING = 2;
 
-function getCardText(card: any) {
+function getCardText(card: RenderCard) {
     return `${card.position} ${card.title}`;
 }
 
-function wrapText(text: any, width: any) {
+function wrapText(text: unknown, width: number) {
     if (!text || width < 1) {
         return text;
     }
 
     let paragraphs = String(text).split('\n');
 
-    return paragraphs.map((paragraph: any) => {
+    return paragraphs.map((paragraph: string) => {
         let words = paragraph.match(/\S+/g);
 
         if (!words) {
             return '';
         }
 
-        let lines: any = [];
+        let lines: string[] = [];
         let currentLine = '';
 
         for (let word of words) {
@@ -63,9 +84,11 @@ function wrapText(text: any, width: any) {
     }).join('\n');
 }
 
-function getTerminalColumns(options: any) {
-    if (options && Number.isInteger(options.terminalColumns) && options.terminalColumns > 0) {
-        return options.terminalColumns;
+function getTerminalColumns(options: RenderOptions) {
+    let terminalColumns = options.terminalColumns;
+
+    if (typeof terminalColumns === 'number' && Number.isInteger(terminalColumns) && terminalColumns > 0) {
+        return terminalColumns;
     }
 
     if (process.stdout && Number.isInteger(process.stdout.columns) && process.stdout.columns > 0) {
@@ -75,14 +98,14 @@ function getTerminalColumns(options: any) {
     return DEFAULT_TERMINAL_COLUMNS;
 }
 
-function getVisibleColumnWidth(column: any) {
+function getVisibleColumnWidth(column: RenderColumn) {
     let headerWidth = getHeader(column).length;
-    let cardWidths = column.cards.map((card: any) => getCardText(card).length);
+    let cardWidths = column.cards.map((card: RenderCard) => getCardText(card).length);
 
     return Math.max(headerWidth, ...cardWidths, 1);
 }
 
-function getColumnWidths(columns: any, terminalColumns: any) {
+function getColumnWidths(columns: RenderColumn[], terminalColumns: number) {
     let columnCount = columns.length;
 
     if (columnCount === 0) {
@@ -99,24 +122,24 @@ function getColumnWidths(columns: any, terminalColumns: any) {
     }
 
     let weights = columns.map(getVisibleColumnWidth);
-    let totalWeight = weights.reduce((sum: any, weight: any) => sum + weight, 0);
-    let allocatedExtraWidth = weights.map((weight: any) => Math.floor((weight / totalWeight) * extraWidth));
-    let remainder = extraWidth - allocatedExtraWidth.reduce((sum: any, width: any) => sum + width, 0);
+    let totalWeight = weights.reduce((sum: number, weight: number) => sum + weight, 0);
+    let allocatedExtraWidth = weights.map((weight: number) => Math.floor((weight / totalWeight) * extraWidth));
+    let remainder = extraWidth - allocatedExtraWidth.reduce((sum: number, width: number) => sum + width, 0);
     let order = weights
-        .map((weight: any, index: any) => ({
+        .map((weight: number, index: number) => ({
             index,
             remainder: ((weight / totalWeight) * extraWidth) - allocatedExtraWidth[index]
         }))
-        .sort((left: any, right: any) => right.remainder - left.remainder || left.index - right.index);
+        .sort((left: RemainderOrder, right: RemainderOrder) => right.remainder - left.remainder || left.index - right.index);
 
     for (let remainderIndex = 0; remainderIndex < remainder; remainderIndex++) {
         allocatedExtraWidth[order[remainderIndex].index] += 1;
     }
 
-    return allocatedExtraWidth.map((width: any) => MIN_COLUMN_WIDTH + width);
+    return allocatedExtraWidth.map((width: number) => MIN_COLUMN_WIDTH + width);
 }
 
-function renderWithCliTable(columns: any, options: any) {
+function renderWithCliTable(columns: RenderColumn[], options: RenderOptions) {
     let colWidths = getColumnWidths(columns, getTerminalColumns(options));
     let table = new CliTable({
         head: columns.map(getHeader),
@@ -126,12 +149,12 @@ function renderWithCliTable(columns: any, options: any) {
             head: []
         }
     });
-    let maxRows = columns.reduce((size: any, column: any) => Math.max(size, column.cards.length), 0);
+    let maxRows = columns.reduce((size: number, column: RenderColumn) => Math.max(size, column.cards.length), 0);
 
     for (let rowIndex = 0; rowIndex < maxRows; rowIndex++) {
-        table.push(columns.map((column: any, columnIndex: any) => {
+        table.push(columns.map((column: RenderColumn, columnIndex: number) => {
             let card = column.cards[rowIndex];
-            let contentWidth = Math.max(colWidths[columnIndex] - CLI_TABLE_CELL_HORIZONTAL_PADDING, 1);
+            let contentWidth = Math.max((colWidths[columnIndex] ?? MIN_COLUMN_WIDTH) - CLI_TABLE_CELL_HORIZONTAL_PADDING, 1);
             return card ? wrapText(getCardText(card), contentWidth) : '';
         }));
     }
@@ -139,7 +162,7 @@ function renderWithCliTable(columns: any, options: any) {
     return table.toString();
 }
 
-export default function renderBoard(board: any, options: any = {}) {
+export default function renderBoard(board: {columns?: RenderColumn[]}, options: RenderOptions = {}) {
     let columns = board.columns || [];
 
     return renderWithCliTable(columns, options);

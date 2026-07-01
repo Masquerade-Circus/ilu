@@ -1,6 +1,14 @@
 import * as __cjsImport27 from '../sync-core/backends/git-cli.ts';
 const { createGitCliBackend: createCoreGitCliBackend, classifyGitError } = __cjsImport27;
-function normalizeIgnorePattern(pattern: any) {
+type GitCliBackendOptions = {
+    repoPath?: string | null;
+    branch?: string;
+    remote?: string;
+    remoteUrl?: string | null;
+    ignorePatterns?: unknown;
+};
+
+function normalizeIgnorePattern(pattern: unknown) {
     if (typeof pattern !== 'string') {
         return null;
     }
@@ -18,11 +26,11 @@ function normalizeIgnorePattern(pattern: any) {
     return normalized;
 }
 
-function createGitCliBackend(options: any = {}) {
+function createGitCliBackend(options: GitCliBackendOptions = {}) {
     let ignorePatterns = [
         '.config/',
-        ...(options.ignorePatterns || [])
-    ].map(normalizeIgnorePattern).filter(Boolean);
+        ...(Array.isArray(options.ignorePatterns) ? options.ignorePatterns : [])
+    ].map(normalizeIgnorePattern).filter((pattern): pattern is string => typeof pattern === 'string');
 
     return createCoreGitCliBackend({
         ...options

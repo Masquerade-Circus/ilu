@@ -4,11 +4,38 @@ import * as __cjsImport33 from 'node:events';
 const { EventEmitter } = __cjsImport33;
 import * as __cjsImport34 from 'node:child_process';
 const { fork: defaultFork } = __cjsImport34;
-function createTuiSyncClient(options: any = {}) {
+type SyncStatus = Record<string, unknown>;
+type SyncPayload = Record<string, unknown> & {id?: string; status?: SyncStatus; message?: string};
+type PendingEntry = {
+  resolve: (value: SyncStatus) => void;
+  reject: (error: Error) => void;
+};
+type Fork = typeof defaultFork;
+type TuiSyncClientOptions = {
+  fork?: Fork;
+  runnerPath?: string;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+};
+type IpcMessage = {
+  type?: unknown;
+  payload?: unknown;
+};
+type EventListener = (payload: SyncPayload) => void;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asPayload(value: unknown): SyncPayload {
+  return isObject(value) ? value : {};
+}
+
+function createTuiSyncClient(options: TuiSyncClientOptions = {}) {
   const fork = options.fork || defaultFork;
   const runnerPath = options.runnerPath || path.join(path.dirname(fileURLToPath(import.meta.url)), 'tui-sync-runner.ts');
   const events = new EventEmitter();
-  const pending = new Map();
+  const pending = new Map<string, PendingEntry>();
   let nextId = 1;
   let disposed = false;
   let pendingMutations = 0;
@@ -19,7 +46,7 @@ function createTuiSyncClient(options: any = {}) {
     stdio: ['ignore', 'ignore', 'ignore', 'ipc']
   });
 
-  function settle(id: any, settleFn: any, value: any) {
+  function settle(id: string, settleFn: (entry: PendingEntry, value: SyncPayload) => void, value: SyncPayload) {
     const entry = pending.get(id);
 
     if (!entry) {
@@ -27,24 +54,24 @@ function createTuiSyncClient(options: any = {}) {
     }
 
     pending.delete(id);
-    settleFn.call(entry, value);
+    settleFn(entry, value);
   }
 
-  function rejectAll(error: any) {
+  function rejectAll(error: Error) {
     for (const [id, entry] of pending.entries()) {
       pending.delete(id);
       entry.reject(error);
     }
   }
 
-  function send(type: any, payload: any = {}) {
+  function send(type: string, payload: SyncPayload = {}) {
     if (disposed) {
       return Promise.resolve({status: 'disabled', hasPendingRemote: false});
     }
 
     const id = payload.id || `tui-sync-${nextId++}`;
 
-    return new Promise((resolve: any, reject: any) => {
+    return new Promise<SyncStatus>((resolve, reject) => {
       pending.set(id, {resolve, reject});
       const message = {type, payload: {...payload, id}};
 
@@ -53,20 +80,20 @@ function createTuiSyncClient(options: any = {}) {
           pending.delete(id);
           reject(new Error('Sync runner is not available'));
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         pending.delete(id);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
   if (typeof child.on === 'function') {
-    child.on('message', (message: any) => {
-      if (!message || typeof message !== 'object') {
+    child.on('message', (message: IpcMessage) => {
+      if (!isObject(message)) {
         return;
       }
 
-      const payload = message.payload || {};
+      const payload = asPayload(message.payload);
 
       if (message.type === 'sync:event') {
         events.emit('event', payload);
@@ -74,12 +101,12 @@ function createTuiSyncClient(options: any = {}) {
       }
 
       if (message.type === 'sync:result' && typeof payload.id === 'string') {
-        settle(payload.id, function settleResolve(this: any, value: any) { this.resolve(value.status || value); }, payload);
+        settle(payload.id, (entry, value) => entry.resolve(value.status || value), payload);
         return;
       }
 
       if (message.type === 'sync:error' && typeof payload.id === 'string') {
-        settle(payload.id, function settleReject(this: any, value: any) { this.reject(new Error(value.message || 'Sync failed')); }, payload);
+        settle(payload.id, (entry, value) => entry.reject(new Error(value.message || 'Sync failed')), payload);
       }
     });
 
@@ -88,15 +115,16 @@ function createTuiSyncClient(options: any = {}) {
       rejectAll(new Error('Sync runner exited'));
     });
 
-    child.on('error', (error: any) => {
+    child.on('error', (error: Error) => {
       rejectAll(error);
     });
   }
 
   return {
-    notifyLocalMutation(context: any) {
+    notifyLocalMutation(context: unknown = {}) {
+      const safeContext = isObject(context) ? context : {};
       pendingMutations += 1;
-      return send('sync:mutation', {context})
+      return send('sync:mutation', {context: safeContext})
         .finally(() => {
           pendingMutations = Math.max(0, pendingMutations - 1);
         });
@@ -115,7 +143,7 @@ function createTuiSyncClient(options: any = {}) {
         disposed = true;
       });
     },
-    onEvent(listener: any) {
+    onEvent(listener: EventListener) {
       if (typeof listener !== 'function') {
         return () => {};
       }

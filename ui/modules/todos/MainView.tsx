@@ -12,6 +12,8 @@ import type {
   TerminalCommandContext,
   TerminalEditorChangeEventPayload,
   TerminalInputChangeEventPayload,
+  TerminalListActiveEventPayload,
+  TerminalListPressEventPayload,
   TerminalKeyBinding
 } from "@valyrianjs/terminal";
 import type {
@@ -63,7 +65,7 @@ function isTodoOverlayState(value: unknown): value is TodoOverlayState {
   return typeof value === "string" && (TODO_OVERLAY_STATES as readonly string[]).includes(value);
 }
 
-function safeText(value: unknown, fallback: any = ""): string {
+function safeText(value: unknown, fallback = ""): string {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -172,7 +174,7 @@ function selectedItem(panel: ListPanel, state: TodoRuntimeState): ListItem | nul
     return null;
   }
 
-  return items.find((item: any, index: any) => itemPosition(item, index) === selectedPosition) ?? null;
+  return items.find((item, index) => itemPosition(item, index) === selectedPosition) ?? null;
 }
 
 function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | null {
@@ -183,7 +185,7 @@ function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | 
     return null;
   }
 
-  return lists.find((list: any) => list.id === selectedId) ?? null;
+  return lists.find((list) => list.id === selectedId) ?? null;
 }
 
 export function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRuntimeState): void {
@@ -196,7 +198,7 @@ export function normalizeSelectedTaskPosition(panel: ListPanel, state: TodoRunti
     return;
   }
 
-  const selectedExists = items.some((item: any, index: any) => itemPosition(item, index) === selectedPosition);
+  const selectedExists = items.some((item, index) => itemPosition(item, index) === selectedPosition);
 
   if (!selectedExists) {
     state.selectedTaskPosition = firstPosition;
@@ -300,7 +302,7 @@ export function handleTodoCommand(
       return true;
     }
 
-    const currentPosition = itemPosition(item, items.findIndex((candidate: any) => candidate === item));
+    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
     const direction = command.id === "todo.move-task-up" ? "up" : "down";
     const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
 
@@ -336,7 +338,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
 
-  function resetForm(form: TextFormState, title: any = "", description: any = ""): void {
+  function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
     form.description = description;
     form.error = "";
@@ -364,16 +366,6 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   function openAddTask(): void {
     resetForm(state.addTask);
     state.overlay = "add-task";
-  }
-
-  function openDetails(): void {
-    if (!activeItem) {
-      state.actionError = "Choose a task first.";
-      return;
-    }
-
-    state.actionError = "";
-    state.overlay = "task-details";
   }
 
   function openEditTask(): void {
@@ -480,24 +472,24 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
       <List
         id="todo-items"
         items={items}
-        itemKey={(item: any, index: any) => String(item.id ?? itemPosition(item, index))}
+        itemKey={(item: ListItem, index: number) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
         height={4}
-        onactive={(event: any) => {
+        onactive={(event: TerminalListActiveEventPayload<ListItem>) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
-        onpress={(event: any) => {
+        onpress={(event: TerminalListPressEventPayload<ListItem>) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
-        ondoublepress={(event: any) => {
+        ondoublepress={(event: TerminalListPressEventPayload<ListItem>) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
           state.actionError = "";
           state.overlay = "task-details";
         }}
         wrap={true}
       >
-        {(item: any, ctx: any) => renderTaskLabel(item, ctx.index)}
+        {(item: ListItem, ctx: { index: number }) => renderTaskLabel(item, ctx.index)}
       </List>
     ];
   }
@@ -510,7 +502,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
     return [
       <View direction="row" gap={1}>
         <Text>Lists</Text>
-        {lists.map((list: any, index: any) => {
+        {lists.map((list, index) => {
           const listId = normalizeEntityId(list.id);
           const isSelected = list.current === true || list.id === selectedListId;
           const label = safeText(list.title, "Untitled list");
@@ -546,19 +538,19 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
               <List
                 id="todo-lists"
                 items={lists}
-                itemKey={(list: any) => String(list.id)}
+                itemKey={(list: ListSummary) => String(list.id)}
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onactive={(event: any) => {
+                onactive={(event: TerminalListActiveEventPayload<ListSummary>) => {
                   state.selectedListId = event.value.id;
                 }}
-                onpress={(event: any) => {
+                onpress={(event: TerminalListPressEventPayload<ListSummary>) => {
                   state.selectedListId = event.value.id;
                 }}
                 wrap={true}
               >
-                {(list: any) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
+                {(list: ListSummary) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
               </List>
             ) : <Text>No lists yet.</Text>}
           </FocusScope>
@@ -590,11 +582,11 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
         editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
-        onTitleInput={(value: any) => {
+        onTitleInput={(value: string) => {
           form.title = value;
           form.error = "";
         }}
-        onEditorInput={(value: any) => {
+        onEditorInput={(value: string) => {
           form.description = value;
           form.error = "";
         }}

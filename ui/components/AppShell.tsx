@@ -1,5 +1,5 @@
 import { Fixed, Pane, Row, Screen, Text } from "@valyrianjs/terminal";
-import type { AppShellOptions } from "../types";
+import type { AppShellOptions, FooterSegment } from "../types";
 
 const TOP_NAV_BOTTOM_MARGIN_ROWS = 1;
 
@@ -32,7 +32,7 @@ export function createAppShell(options: AppShellOptions): JSX.Element {
         {bottomActionBar}
         {Array.isArray(footerSegments) && footerSegments.length > 0 ? (
           <Row separator="  ">
-            {footerSegments.map((segment: any, index: any) => (
+            {footerSegments.map((segment: FooterSegment, index: number) => (
               <Text key={`footer-${index}`} style={segment.style ?? footerStyle}>{segment.text}</Text>
             ))}
           </Row>

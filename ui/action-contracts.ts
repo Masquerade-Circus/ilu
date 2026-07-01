@@ -19,8 +19,8 @@ export type SyncActionFactoryOptions = {
 export type TranslateProviderIo = (values: { text: string; source: string; target: string }) => unknown | Promise<unknown>;
 export type BabelActionFactoryOptions = {
   provider?: TranslateProviderIo | null;
-  fetchImpl?: unknown;
-  log?: unknown;
+  fetchImpl?: typeof fetch;
+  log?: { cross: (message: string, color?: string) => void };
 };
 export type TtsServiceIo = {
   action: (args: { inputFile: string; outputFile: string; voice: string }) => { outputFile?: string } | Promise<{ outputFile?: string }>;

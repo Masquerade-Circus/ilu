@@ -1,15 +1,59 @@
 import type { ActionFactoryOptions, BoardActions } from "../../action-contracts";
 import BoardModel from '../../../scrumban/model';
+import type { BoardId, BoardItem } from '../../../scrumban/model';
 
-function loadBoardModel(): any {
+type ActionResult = {ok: true; [key: string]: unknown} | {ok: false; error: string};
+
+type BoardValues = Record<string, unknown>;
+type BoardTitleValues = BoardValues & {title?: unknown; description?: unknown};
+type BoardIdValues = BoardValues & {id?: unknown; boardId?: unknown};
+type ColumnIndexValues = BoardValues & {columnIndex?: unknown};
+type ColumnTitleValues = ColumnIndexValues & {title?: unknown};
+type WipLimitValues = ColumnIndexValues & {wipLimit?: unknown};
+type CardValues = BoardValues & {columnIndex?: unknown; position?: unknown; title?: unknown; description?: unknown};
+type MoveCardValues = BoardValues & {fromColumn?: unknown; fromPosition?: unknown; toColumn?: unknown};
+type PriorityValues = CardValues & {toPosition?: unknown};
+
+type WipLimitResult = {ok: true; value: number | null} | {ok: false; error: string};
+
+type BoardColumnActionsIo = {
+  add: (values: {title: string}) => unknown;
+  edit: (columnIndex: number, values: {title?: string; wipLimit?: number | null}) => unknown;
+  setDefault: (columnIndex: number) => unknown;
+  reorder: (values: {fromIndex: number; toIndex: number}) => unknown;
+  remove: (columnIndex: number) => unknown;
+  resetSimpleDefault: () => unknown;
+};
+
+type BoardCardActionsIo = {
+  add: (values: {title: string; description: string}) => unknown;
+  edit: (values: {columnIndex: number; position: number; values: {title: string; description: string}}) => unknown;
+  move: (values: {fromColumn: number; fromPosition: number; toColumn: number; toPosition?: number}) => unknown;
+  remove: (values: {columnIndex: number; positions: number[]}) => unknown;
+};
+
+type BoardModelIo = {
+  get?: (id: BoardId) => BoardItem | null;
+  find?: () => BoardItem[];
+  getCurrent?: () => BoardItem | null;
+  getFirst?: () => BoardItem | null;
+  use?: (id: BoardId) => unknown;
+  add?: (values: {title: string; description: string}) => unknown;
+  save?: (board: BoardItem) => unknown;
+  remove?: (board: BoardItem) => unknown;
+  columns?: Partial<BoardColumnActionsIo>;
+  cards?: Partial<BoardCardActionsIo>;
+};
+
+function loadBoardModel(): BoardModelIo {
   return BoardModel;
 }
 
-function safeString(value: any): any {
+function safeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function safeBoardId(value: any): any {
+function safeBoardId(value: unknown): BoardId | null {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
     return value;
   }
@@ -22,11 +66,15 @@ function safeBoardId(value: any): any {
   return null;
 }
 
-function positiveInteger(value: any): any {
-  return Number.isInteger(value) && value > 0;
+function positiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
-function normalizeWipLimitInput(value: any): any {
+function isActionResult(value: unknown): value is ActionResult {
+  return typeof value === 'object' && value !== null && 'ok' in value;
+}
+
+function normalizeWipLimitInput(value: unknown): WipLimitResult {
   if (typeof value === 'number') {
     if (value === 0) {
       return {ok: true, value: null};
@@ -60,25 +108,25 @@ function normalizeWipLimitInput(value: any): any {
   return {ok: false, error: 'Choose a WIP limit of 0 or higher.'};
 }
 
-function boardHasCards(board: any): any {
+function boardHasCards(board: BoardItem | null): boolean {
   const columns = board && Array.isArray(board.columns) ? board.columns : [];
 
-  return columns.some((column: any) => Array.isArray(column && column.cards) && column.cards.length > 0);
+  return columns.some((column) => Array.isArray(column && column.cards) && column.cards.length > 0);
 }
 
-function findBoardById(model: any, id: any): any {
+function findBoardById(model: BoardModelIo, id: BoardId): BoardItem | null {
   if (typeof model.get === 'function') {
     return model.get(id);
   }
 
   if (typeof model.find === 'function') {
-    return model.find().find((board: any) => board && (board.$id === id || board.id === id || board.index === id));
+    return model.find().find((board: BoardItem) => board.$id === id || board.id === id || board.index === id) ?? null;
   }
 
   return null;
 }
 
-function ensureCurrentBoardAfterRemove(model: any): any {
+function ensureCurrentBoardAfterRemove(model: BoardModelIo): void {
   const current = typeof model.getCurrent === 'function' ? model.getCurrent() : null;
 
   if (current) {
@@ -96,15 +144,35 @@ function ensureCurrentBoardAfterRemove(model: any): any {
   }
 }
 
-function safeModelError(fallback: any): any {
+function safeModelError(fallback: string): ActionResult {
   return {ok: false, error: fallback};
 }
 
+function requireColumnAction<Name extends keyof BoardColumnActionsIo>(model: BoardModelIo, name: Name): BoardColumnActionsIo[Name] {
+  const action = model.columns?.[name];
+
+  if (typeof action !== 'function') {
+    throw new Error(`Missing board column action: ${name}`);
+  }
+
+  return action as BoardColumnActionsIo[Name];
+}
+
+function requireCardAction<Name extends keyof BoardCardActionsIo>(model: BoardModelIo, name: Name): BoardCardActionsIo[Name] {
+  const action = model.cards?.[name];
+
+  if (typeof action !== 'function') {
+    throw new Error(`Missing board card action: ${name}`);
+  }
+
+  return action as BoardCardActionsIo[Name];
+}
+
 function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
-  const injectedModel = options.model;
+  const injectedModel = options.model as BoardModelIo | undefined;
   const modelFor = () => injectedModel || loadBoardModel();
 
-  function withCurrentBoard(callback: any, missingMessage: any, failureMessage: any): any {
+  function withCurrentBoard(callback: (model: BoardModelIo, current: BoardItem) => unknown, missingMessage: string, failureMessage: string): ActionResult {
     try {
       const model = modelFor();
       const current = typeof model.getCurrent === 'function' ? model.getCurrent() : null;
@@ -114,13 +182,13 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       return {ok: true, value: callback(model, current)};
-    } catch (error: any) {
+    } catch {
       return safeModelError(failureMessage);
     }
   }
 
   return {
-    useBoard(values: any = {}) {
+    useBoard(values: BoardIdValues = {}) {
       const id = safeBoardId(values.id);
 
       if (id === null) {
@@ -135,12 +203,12 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
         }
 
         return {ok: true, board: model.use(id)};
-      } catch (error: any) {
+      } catch {
         return safeModelError('We couldn’t open this board. Try again.');
       }
     },
 
-    addBoard(values: any = {}) {
+    addBoard(values: BoardTitleValues = {}) {
       const title = safeString(values.title);
       const description = safeString(values.description);
 
@@ -156,12 +224,12 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
         }
 
         return {ok: true, board: model.add({title, description})};
-      } catch (error: any) {
+      } catch {
         return safeModelError('Board could not be saved. Try again.');
       }
     },
 
-    renameBoard(values: any = {}) {
+    renameBoard(values: BoardIdValues & BoardTitleValues = {}) {
       const boardId = safeBoardId(values.boardId);
       const title = safeString(values.title);
       const description = safeString(values.description);
@@ -185,12 +253,12 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
         board.title = title;
         board.description = description;
         return {ok: true, board: model.save(board)};
-      } catch (error: any) {
+      } catch {
         return safeModelError('Board could not be renamed. Try again.');
       }
     },
 
-    removeBoard(values: any = {}) {
+    removeBoard(values: BoardIdValues = {}) {
       const boardId = safeBoardId(values.boardId);
 
       if (boardId === null) {
@@ -208,14 +276,14 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
         const removed = model.remove(board);
         ensureCurrentBoardAfterRemove(model);
         return {ok: true, board: removed};
-      } catch (error: any) {
+      } catch {
         return safeModelError('Board could not be deleted. Try again.');
       }
     },
 
     resetDefaultColumns() {
       const result = withCurrentBoard(
-        (model: any) => {
+        (model: BoardModelIo) => {
           const current = typeof model.getCurrent === 'function' ? model.getCurrent() : null;
 
           if (!current) {
@@ -236,16 +304,18 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
         'Columns could not be reset. Try again.'
       );
 
-      return result.ok && result.value && typeof result.value === 'object' && result.value.ok === true
-        ? {ok: true, board: result.value.board}
-        : result.ok && result.value && typeof result.value === 'object' && result.value.ok === false
-          ? result.value
-          : result.ok
-            ? {ok: true, board: result.value}
-            : result;
+      if (!result.ok) {
+        return result;
+      }
+
+      if (isActionResult(result.value)) {
+        return result.value.ok ? {ok: true, board: result.value.board} : result.value;
+      }
+
+      return {ok: true, board: result.value};
     },
 
-    setWipLimit(values: any = {}) {
+    setWipLimit(values: WipLimitValues = {}) {
       const columnIndex = values.columnIndex;
       const wipLimit = normalizeWipLimitInput(values.wipLimit);
 
@@ -258,7 +328,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.edit(columnIndex, {wipLimit: wipLimit.value}),
+        (model: BoardModelIo) => requireColumnAction(model, 'edit')(columnIndex, {wipLimit: wipLimit.value}),
         'Choose a board before setting WIP limit.',
         'Column WIP limit could not be changed. Try again.'
       );
@@ -266,7 +336,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    setDefaultColumn(values: any = {}) {
+    setDefaultColumn(values: ColumnIndexValues = {}) {
       const columnIndex = values.columnIndex;
 
       if (!positiveInteger(columnIndex)) {
@@ -274,7 +344,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.setDefault(columnIndex),
+        (model: BoardModelIo) => requireColumnAction(model, 'setDefault')(columnIndex),
         'Choose a board before changing the default column.',
         'Default column could not be changed. Try again.'
       );
@@ -282,7 +352,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    addCard(values: any = {}) {
+    addCard(values: BoardTitleValues = {}) {
       const title = safeString(values.title);
       const description = safeString(values.description);
 
@@ -291,7 +361,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.cards.add({title, description}),
+        (model: BoardModelIo) => requireCardAction(model, 'add')({title, description}),
         'Choose a board before adding a card.',
         'Card could not be saved. Try again.'
       );
@@ -299,7 +369,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, card: result.value} : result;
     },
 
-    editCard(values: any = {}) {
+    editCard(values: CardValues = {}) {
       const columnIndex = values.columnIndex;
       const position = values.position;
       const title = safeString(values.title);
@@ -314,7 +384,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.cards.edit({columnIndex, position, values: {title, description}}),
+        (model: BoardModelIo) => requireCardAction(model, 'edit')({columnIndex, position, values: {title, description}}),
         'Choose a board before editing a card.',
         'Card could not be updated. Try again.'
       );
@@ -322,7 +392,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    moveCard(values: any = {}) {
+    moveCard(values: MoveCardValues = {}) {
       const fromColumn = values.fromColumn;
       const fromPosition = values.fromPosition;
       const toColumn = values.toColumn;
@@ -332,7 +402,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.cards.move({fromColumn, fromPosition, toColumn}),
+        (model: BoardModelIo) => requireCardAction(model, 'move')({fromColumn, fromPosition, toColumn}),
         'Choose a board before moving a card.',
         'Card could not be moved. Try again.'
       );
@@ -340,7 +410,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    prioritizeCard(values: any = {}) {
+    prioritizeCard(values: PriorityValues = {}) {
       const columnIndex = values.columnIndex;
       const position = values.position;
       const toPosition = values.toPosition;
@@ -350,7 +420,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.cards.move({fromColumn: columnIndex, fromPosition: position, toColumn: columnIndex, toPosition}),
+        (model: BoardModelIo) => requireCardAction(model, 'move')({fromColumn: columnIndex, fromPosition: position, toColumn: columnIndex, toPosition}),
         'Choose a board before changing priority.',
         'Priority could not be changed. Try again.'
       );
@@ -358,7 +428,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    removeCard(values: any = {}) {
+    removeCard(values: CardValues = {}) {
       const columnIndex = values.columnIndex;
       const position = values.position;
 
@@ -367,7 +437,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.cards.remove({columnIndex, positions: [position]}),
+        (model: BoardModelIo) => requireCardAction(model, 'remove')({columnIndex, positions: [position]}),
         'Choose a board before removing a card.',
         'Card could not be removed. Try again.'
       );
@@ -375,7 +445,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    addColumn(values: any = {}) {
+    addColumn(values: BoardTitleValues = {}) {
       const title = safeString(values.title);
 
       if (!title) {
@@ -383,7 +453,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.add({title}),
+        (model: BoardModelIo) => requireColumnAction(model, 'add')({title}),
         'Choose a board before adding a column.',
         'Column could not be saved. Try again.'
       );
@@ -391,7 +461,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    renameColumn(values: any = {}) {
+    renameColumn(values: ColumnTitleValues = {}) {
       const columnIndex = values.columnIndex;
       const title = safeString(values.title);
 
@@ -404,7 +474,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.edit(columnIndex, {title}),
+        (model: BoardModelIo) => requireColumnAction(model, 'edit')(columnIndex, {title}),
         'Choose a board before renaming a column.',
         'Column could not be renamed. Try again.'
       );
@@ -412,7 +482,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    moveColumnLeft(values: any = {}) {
+    moveColumnLeft(values: ColumnIndexValues = {}) {
       const columnIndex = values.columnIndex;
 
       if (!positiveInteger(columnIndex) || columnIndex <= 1) {
@@ -420,7 +490,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.reorder({fromIndex: columnIndex, toIndex: columnIndex - 1}),
+        (model: BoardModelIo) => requireColumnAction(model, 'reorder')({fromIndex: columnIndex, toIndex: columnIndex - 1}),
         'Choose a board before moving a column.',
         'Column could not be moved. Try again.'
       );
@@ -428,7 +498,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    moveColumnRight(values: any = {}) {
+    moveColumnRight(values: ColumnIndexValues = {}) {
       const columnIndex = values.columnIndex;
 
       if (!positiveInteger(columnIndex)) {
@@ -436,7 +506,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.reorder({fromIndex: columnIndex, toIndex: columnIndex + 1}),
+        (model: BoardModelIo) => requireColumnAction(model, 'reorder')({fromIndex: columnIndex, toIndex: columnIndex + 1}),
         'Choose a board before moving a column.',
         'Column could not be moved. Try again.'
       );
@@ -444,7 +514,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       return result.ok ? {ok: true, board: result.value} : result;
     },
 
-    removeColumn(values: any = {}) {
+    removeColumn(values: ColumnIndexValues = {}) {
       const columnIndex = values.columnIndex;
 
       if (!positiveInteger(columnIndex)) {
@@ -452,7 +522,7 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       const result = withCurrentBoard(
-        (model: any) => model.columns.remove(columnIndex),
+        (model: BoardModelIo) => requireColumnAction(model, 'remove')(columnIndex),
         'Choose a board before removing a column.',
         'Column could not be removed. Try again.'
       );

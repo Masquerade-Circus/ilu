@@ -26,53 +26,90 @@ declare module 'lodash/isUndefined.js' {
 }
 
 declare module 'lodash/find.js' {
-  const find: (...args: any[]) => any;
+  const find: <T>(collection: T[], predicate?: ((value: T) => boolean) | Partial<T>) => T;
   export default find;
 }
 
 declare module 'lodash/includes.js' {
-  const includes: (...args: any[]) => boolean;
+  const includes: (collection: unknown[] | string | Record<string, unknown>, value: unknown) => boolean;
   export default includes;
 }
 
 declare module 'lodash/isEmpty.js' {
-  const isEmpty: (...args: any[]) => boolean;
+  const isEmpty: (value: unknown) => boolean;
   export default isEmpty;
 }
 
 declare module 'cli-table' {
-  const Table: any;
+  class Table {
+    constructor(options?: unknown);
+    push(...rows: unknown[]): number;
+    toString(): string;
+  }
   export default Table;
 }
 
 declare module 'iludb' {
-  const iluDb: any;
+  type IluCollection = {
+    get: (...args: unknown[]) => unknown;
+    find: (...args: unknown[]) => unknown[];
+    findOne: (...args: unknown[]) => unknown;
+    add: (...args: unknown[]) => unknown;
+    update: (...args: unknown[]) => unknown;
+    remove: (...args: unknown[]) => void;
+    count: () => number;
+  };
+  type IluDatabase = { getCollection: (name: string) => IluCollection };
+  type IluDbFactory = {
+    (filePath: string): IluDatabase;
+    use: (plugin: unknown) => void;
+  };
+  const iluDb: IluDbFactory;
   export default iluDb;
 }
 
 declare module 'iludb/plugins/iludb-node-json-plugin.js' {
-  const plugin: any;
+  const plugin: unknown;
   export default plugin;
 }
 
 declare module 'x-robot' {
-  export const machine: any;
-  export const init: any;
-  export const initial: any;
-  export const context: any;
-  export const state: any;
-  export const transition: any;
-  export const entry: any;
-  export const exit: any;
-  export const immediate: any;
-  export const guard: any;
-  export const invoke: any;
+  type XRobotStatus = 'disabled' | 'misconfigured' | 'healthy' | 'pending_remote' | 'syncing' | 'route_after_sync' | 'degraded_network' | 'degraded_auth' | 'conflict' | 'failed';
+  type XRobotContext = {
+    enabled: boolean;
+    status: XRobotStatus;
+    hasPendingRemote: boolean;
+    retryCount: number;
+    backoffUntil: number | null;
+    lastErrorKind: string | null;
+    lastErrorMessage: string | null;
+    lastSyncReason: string | null;
+    lastPhase: string | null;
+    lastSnapshotId: string | null;
+    lastSyncedSnapshotId: string | null;
+    [key: string]: unknown;
+  };
+  type XRobotMachine = {
+    current: XRobotStatus;
+    context: XRobotContext;
+  };
+  export const machine: (...args: unknown[]) => XRobotMachine;
+  export const init: (...args: unknown[]) => unknown;
+  export const initial: (...args: unknown[]) => unknown;
+  export const context: (...args: unknown[]) => unknown;
+  export const state: (...args: unknown[]) => unknown;
+  export const transition: (...args: unknown[]) => unknown;
+  export const entry: (...args: unknown[]) => unknown;
+  export const exit: (...args: unknown[]) => unknown;
+  export const immediate: (...args: unknown[]) => unknown;
+  export const guard: (...args: unknown[]) => unknown;
+  export const invoke: (...args: unknown[]) => unknown;
 }
 
 declare module 'x-robot/validate' {
-  export const validate: any;
+  export const validate: (...args: unknown[]) => unknown;
 }
 
 declare module 'x-robot/documentate' {
-  export const documentate: any;
+  export const documentate: (...args: unknown[]) => Promise<{ svg?: string; mermaid?: string }>;
 }

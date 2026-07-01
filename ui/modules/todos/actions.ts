@@ -6,19 +6,43 @@ import * as __cjsImport136 from '../../action-results';
 const { createUiErrorResult, createUiSuccessResult } = __cjsImport136;
 import * as __cjsImport137 from '../../list-action-model';
 const { asArray, currentList, entityId, findList, positiveInteger, safeString, useFallbackListIfNeeded } = __cjsImport137;
-function loadTodoModel(): any {
-  return TodosModel;
+type TodoTask = { done?: unknown; [key: string]: unknown };
+type TodoList = { tasks?: unknown; title?: string; description?: string; [key: string]: unknown };
+type TodoModel = {
+  getCurrent?: () => TodoList | null | undefined;
+  getFirst?: () => TodoList | null | undefined;
+  find?: () => unknown;
+  get?: (id: number | string) => TodoList | null | undefined;
+  use: (id: number | string | null) => unknown;
+  add: (values: { title: string; description: string }) => unknown;
+  save: (list: TodoList) => unknown;
+  remove: (list: TodoList) => void;
+  tasks: {
+    add: (values: { title: string; description: string }) => unknown;
+    edit: (position: number, values: { title: string; description: string }) => unknown;
+    check: (checked: number[]) => unknown;
+    remove: (position: number) => unknown;
+    reorder: (values: { fromIndex: number; toIndex: number }) => unknown;
+  };
+};
+type TodoActionValues = Record<string, unknown>;
+type TodoListResult = { ok: true; tasks: TodoTask[] } | { ok: false; error: string };
+type CheckedIndexesResult = { ok: true; checked: number[] } | { ok: false; error: string };
+type MoveTargetResult = { ok: true; noop: true } | { ok: true; noop?: false; fromIndex: number; toIndex: number } | { ok: false; error: string };
+
+function loadTodoModel(): TodoModel {
+  return TodosModel as unknown as TodoModel;
 }
 
-function safeDescription(value: any): any {
+function safeDescription(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
-  const injectedModel = options.model;
-  const modelFor = () => injectedModel || loadTodoModel();
+  const injectedModel = options.model as TodoModel | null | undefined;
+  const modelFor = (): TodoModel => injectedModel || loadTodoModel();
 
-  function currentTasks(model: any, missingMessage: any): any {
+  function currentTasks(model: TodoModel, missingMessage: string): TodoListResult {
     const result = currentList(model, missingMessage);
 
     if (!result.ok) {
@@ -28,7 +52,7 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
     return {ok: true, tasks: asArray(result.list.tasks)};
   }
 
-  function checkedIndexesWith(model: any, position: any, done: any): any {
+  function checkedIndexesWith(model: TodoModel, position: number, done: boolean): CheckedIndexesResult {
     const result = currentTasks(model, 'Choose a todo list before changing a task.');
 
     if (!result.ok) {
@@ -37,16 +61,16 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
 
     const targetIndex = position - 1;
     const checked = result.tasks
-      .map((task: any, index: any) => (task && task.done === true ? index : null))
-      .filter((index: any) => Number.isInteger(index));
+      .map((task: TodoTask, index: number) => (task.done === true ? index : null))
+      .filter((index): index is number => Number.isInteger(index));
     const next = done === true
-      ? Array.from(new Set([...checked, targetIndex])).sort((left: any, right: any) => left - right)
-      : checked.filter((index: any) => index !== targetIndex);
+      ? Array.from(new Set([...checked, targetIndex])).sort((left: number, right: number) => left - right)
+      : checked.filter((index: number) => index !== targetIndex);
 
     return {ok: true, checked: next};
   }
 
-  function taskMoveTarget(model: any, values: any): any {
+  function taskMoveTarget(model: TodoModel, values: TodoActionValues): MoveTargetResult {
     const position = values.position;
 
     if (!positiveInteger(position)) {
@@ -80,7 +104,7 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
   }
 
   return {
-    addTask(values: any = {}) {
+    addTask(values: TodoActionValues = {}) {
       const title = safeString(values.title);
       const description = safeDescription(values.description);
 
@@ -97,12 +121,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({task: model.tasks.add({title, description})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be saved. Try again.');
       }
     },
 
-    editTask(values: any = {}) {
+    editTask(values: TodoActionValues = {}) {
       const position = values.position;
       const title = safeString(values.title);
       const description = safeDescription(values.description);
@@ -124,12 +148,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({task: model.tasks.edit(position, {title, description})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be updated. Try again.');
       }
     },
 
-    markTaskDone(values: any = {}) {
+    markTaskDone(values: TodoActionValues = {}) {
       const position = values.position;
 
       if (!positiveInteger(position)) {
@@ -145,12 +169,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({list: model.tasks.check(result.checked)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be updated. Try again.');
       }
     },
 
-    markTaskOpen(values: any = {}) {
+    markTaskOpen(values: TodoActionValues = {}) {
       const position = values.position;
 
       if (!positiveInteger(position)) {
@@ -166,12 +190,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({list: model.tasks.check(result.checked)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be updated. Try again.');
       }
     },
 
-    removeTask(values: any = {}) {
+    removeTask(values: TodoActionValues = {}) {
       const position = values.position;
 
       if (!positiveInteger(position)) {
@@ -187,12 +211,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({list: model.tasks.remove(position)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be removed. Try again.');
       }
     },
 
-    moveTask(values: any = {}) {
+    moveTask(values: TodoActionValues = {}) {
       try {
         const model = modelFor();
         const target = taskMoveTarget(model, values);
@@ -206,12 +230,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({list: model.tasks.reorder({fromIndex: target.fromIndex, toIndex: target.toIndex})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'Task could not be moved. Try again.');
       }
     },
 
-    useList(values: any = {}) {
+    useList(values: TodoActionValues = {}) {
       try {
         const model = modelFor();
         const list = findList(model, values.listId);
@@ -221,12 +245,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         }
 
         return createUiSuccessResult({list: model.use(entityId(list))});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be opened. Try again.');
       }
     },
 
-    addList(values: any = {}) {
+    addList(values: TodoActionValues = {}) {
       const title = safeString(values.title);
       const description = safeDescription(values.description);
 
@@ -236,12 +260,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
 
       try {
         return createUiSuccessResult({list: modelFor().add({title, description})});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be saved. Try again.');
       }
     },
 
-    renameList(values: any = {}) {
+    renameList(values: TodoActionValues = {}) {
       const title = safeString(values.title);
       const description = safeDescription(values.description);
 
@@ -260,12 +284,12 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         list.title = title;
         list.description = description;
         return createUiSuccessResult({list: model.save(list)});
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be renamed. Try again.');
       }
     },
 
-    removeList(values: any = {}) {
+    removeList(values: TodoActionValues = {}) {
       try {
         const model = modelFor();
         const list = findList(model, values.listId);
@@ -277,7 +301,7 @@ function createTodoActions(options: ActionFactoryOptions = {}): TodoActions {
         model.remove(list);
         useFallbackListIfNeeded(model);
         return createUiSuccessResult();
-      } catch (error: any) {
+      } catch (error: unknown) {
         return createUiErrorResult(error, 'List could not be removed. Try again.');
       }
     }

@@ -4,11 +4,31 @@ import * as __cjsImport119 from './google-translate-provider.ts';
 
 const { log } = __cjsImport118;
 const { createGoogleTranslateProvider } = __cjsImport119;
+type ClipboardWriter = {write: (value: string) => Promise<void>};
+type Logger = ((message: string) => void) & {warning: (message: string, color?: string) => void};
+type TranslationSentence = {trans: string};
+type DictionaryEntry = {word: string; reverse_translation: string[]};
+type DictionaryBlock = {entry: DictionaryEntry[]};
+type TranslateResponse = {
+    sentences?: TranslationSentence[];
+    dict?: DictionaryBlock[];
+    src: string;
+};
+type TranslateProvider = (input: {text: string; source: string; target: string}) => Promise<TranslateResponse>;
+type TranslatorOptions = {
+    provider?: TranslateProvider;
+    clipboard?: ClipboardWriter;
+    log?: Logger;
+    osLang?: string;
+};
+type TranslateArgs = {text: string | string[]};
+type TranslateOpts = {source: string; target: string};
+
 async function writeToClipboard(value: string) {
     // Runtime import is intentional: clipboardy pulls ESM-only transitive exports
     // that fail under the current tsx/CommonJS test loader when loaded eagerly.
     const clipboardy = await import('clipboardy');
-    const clipboard = clipboardy.default || clipboardy;
+    const clipboard = (clipboardy.default || clipboardy) as ClipboardWriter;
 
     await clipboard.write(value);
 }
@@ -88,7 +108,7 @@ function getOsLang() {
         'en').slice(0, 2).toLowerCase();
 }
 
-function validate(text: any) {
+function validate(text: unknown) {
     let finalText = Array.isArray(text)
         ? text.join(' ').trim()
         : typeof text === 'string'
@@ -108,13 +128,13 @@ function validate(text: any) {
 function createTranslator({
     provider = createGoogleTranslateProvider(),
     clipboard = {write: writeToClipboard},
-    log: logger = log,
+    log: logger = log as unknown as Logger,
     osLang = getOsLang()
-}: any = {}) {
+}: TranslatorOptions = {}) {
     return {
         validate,
         osLang,
-        async action(args: any, opts: any) {
+        async action(args: TranslateArgs, opts: TranslateOpts) {
             let text = validate(args.text);
             let response = await provider({
                 text,
@@ -139,7 +159,7 @@ function createTranslator({
 
             if (interjection) {
                 let entries = interjection.entry;
-                entries.forEach((entry: any) => {
+                entries.forEach((entry) => {
                     logger(entry.word.cyan.italic + ` ${entry.reverse_translation.join(', ')}`.gray);
                 });
             }

@@ -1,8 +1,8 @@
-function cleanText(value: any) {
+function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function hasEmbeddedUrlUserinfo(value: any) {
+function hasEmbeddedUrlUserinfo(value: string) {
   try {
     const parsedUrl = new URL(value);
 
@@ -15,12 +15,12 @@ function hasEmbeddedUrlUserinfo(value: any) {
     }
 
     return false;
-  } catch (_error: any) {
+  } catch {
     return false;
   }
 }
 
-function isSupportedRemoteUrl(value: any) {
+function isSupportedRemoteUrl(value: string) {
   if (/^[\x21-\x7e]+@[A-Za-z0-9.-]+:.+/.test(value)) {
     return !value.endsWith(':') && !/\s/.test(value);
   }
@@ -46,12 +46,12 @@ function isSupportedRemoteUrl(value: any) {
     }
 
     return true;
-  } catch (_error: any) {
+  } catch {
     return false;
   }
 }
 
-function validateSyncRemoteUrl(value: any) {
+function validateSyncRemoteUrl(value: unknown) {
   const remoteUrl = cleanText(value);
 
   if (remoteUrl.length === 0) {
@@ -69,7 +69,7 @@ function validateSyncRemoteUrl(value: any) {
   return remoteUrl;
 }
 
-function validateSyncBranch(value: any) {
+function validateSyncBranch(value: unknown) {
   const branch = cleanText(value);
 
   if (branch.length === 0) {
@@ -86,7 +86,7 @@ function validateSyncBranch(value: any) {
     || branch.includes('..')
     || branch.includes('@{')
     || /[\s\x00-\x1f~^:?*[\\\]]/.test(branch)
-    || branch.split('/').some((part: any) => part.startsWith('.') || part.endsWith('.'))
+    || branch.split('/').some((part: string) => part.startsWith('.') || part.endsWith('.'))
   ) {
     throw new Error('Invalid sync branch name');
   }

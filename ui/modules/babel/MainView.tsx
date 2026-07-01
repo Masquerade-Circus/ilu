@@ -207,7 +207,7 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
         <Text>{state.babel.translation || ""}</Text>
         <Text>Dictionary</Text>
         {state.babel.dictionaryEntries.length > 0
-          ? state.babel.dictionaryEntries.map((entry: any) => <Text>{entry}</Text>)
+          ? state.babel.dictionaryEntries.map((entry: string) => <Text>{entry}</Text>)
           : <Text>No dictionary entries found.</Text>}
       </ScrollView>
     </FocusScope>

@@ -3,12 +3,28 @@ import * as __cjsImport6 from './commands/board.ts';
 import * as __cjsImport7 from './commands/todo-note.ts';
 import * as __cjsImport8 from './commands/sync.ts';
 import * as __cjsImport9 from './commands/utilities.ts';
+import type { Command } from 'commander';
+import type { ActionHandler } from './commands/adapters.ts';
 
 const { registerBoardCommands, wrapBoardParseAliases } = __cjsImport6;
 const { registerNoteCommands, registerTodoCommands } = __cjsImport7;
 const { registerSyncCommands } = __cjsImport8;
 const { registerUiCommand, registerUtilityCommands } = __cjsImport9;
-function configureProgram(program: any, deps: any) {
+
+type ConfigureDeps = {
+  pkg: Record<string, unknown>;
+  updateNotifier?: (input: { pkg: Record<string, unknown> }) => { notify: () => unknown };
+  Todos: { Lists: { actions: ActionHandler }; Tasks: { actions: ActionHandler } };
+  Notes: { Lists: { actions: ActionHandler }; Notes: { actions: ActionHandler } };
+  Scrumban?: { Board: { actions: ActionHandler }; BoardLists: { actions: ActionHandler } };
+  Sync?: Record<'init' | 'status' | 'retry' | 'enable' | 'disable', ActionHandler>;
+  Translate: { osLang: string; validate: (text: unknown) => unknown; action: ActionHandler };
+  Clocks: { actions: ActionHandler };
+  Tts?: { action: ActionHandler; voiceAction: ActionHandler };
+  Ui?: { action: ActionHandler };
+};
+
+function configureProgram(program: Command, deps: ConfigureDeps) {
   const {
     pkg,
     updateNotifier,
@@ -42,9 +58,11 @@ function configureProgram(program: any, deps: any) {
 
   wrapBoardParseAliases(program);
 
+  const version = typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+
   program
     .name('ilu')
-    .version(pkg.version)
+    .version(version)
     .description('Cli tools for productivity');
 
   registerUiCommand(program, {Ui});

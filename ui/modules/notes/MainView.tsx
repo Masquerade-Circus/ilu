@@ -12,6 +12,8 @@ import type {
   TerminalCommandContext,
   TerminalEditorChangeEventPayload,
   TerminalInputChangeEventPayload,
+  TerminalListActiveEventPayload,
+  TerminalListPressEventPayload,
   TerminalKeyBinding
 } from "@valyrianjs/terminal";
 import type {
@@ -63,7 +65,7 @@ function isNoteOverlayState(value: unknown): value is NoteOverlayState {
   return typeof value === "string" && (NOTE_OVERLAY_STATES as readonly string[]).includes(value);
 }
 
-function safeText(value: unknown, fallback: any = ""): string {
+function safeText(value: unknown, fallback = ""): string {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -164,7 +166,7 @@ function selectedItem(panel: ListPanel, state: NotesRuntimeState): ListItem | nu
     return null;
   }
 
-  return items.find((item: any, index: any) => itemPosition(item, index) === selectedPosition) ?? null;
+  return items.find((item, index) => itemPosition(item, index) === selectedPosition) ?? null;
 }
 
 function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary | null {
@@ -175,7 +177,7 @@ function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary |
     return null;
   }
 
-  return lists.find((list: any) => list.id === selectedId) ?? null;
+  return lists.find((list) => list.id === selectedId) ?? null;
 }
 
 export function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRuntimeState): void {
@@ -188,7 +190,7 @@ export function normalizeSelectedNotePosition(panel: ListPanel, state: NotesRunt
     return;
   }
 
-  const selectedExists = items.some((item: any, index: any) => itemPosition(item, index) === selectedPosition);
+  const selectedExists = items.some((item, index) => itemPosition(item, index) === selectedPosition);
 
   if (!selectedExists) {
     state.selectedNotePosition = firstPosition;
@@ -278,7 +280,7 @@ export function handleNotesCommand(
       return true;
     }
 
-    const currentPosition = itemPosition(item, items.findIndex((candidate: any) => candidate === item));
+    const currentPosition = itemPosition(item, items.findIndex((candidate) => candidate === item));
     const direction = command.id === "notes.move-note-up" ? "up" : "down";
     const toPosition = direction === "up" ? currentPosition - 1 : currentPosition + 1;
 
@@ -314,7 +316,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   const activeList = selectedList(panel, state);
   const selectedListId = activeList ? activeList.id : null;
 
-  function resetForm(form: TextFormState, title: any = "", description: any = ""): void {
+  function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
     form.description = description;
     form.error = "";
@@ -342,16 +344,6 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   function openAddNote(): void {
     resetForm(state.addNote);
     state.overlay = "add-note";
-  }
-
-  function openDetails(): void {
-    if (!activeItem) {
-      state.actionError = "Choose a note first.";
-      return;
-    }
-
-    state.actionError = "";
-    state.overlay = "note-details";
   }
 
   function openEditNote(): void {
@@ -441,24 +433,24 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
       <List
         id="note-items"
         items={items}
-        itemKey={(item: any, index: any) => String(item.id ?? itemPosition(item, index))}
+        itemKey={(item: ListItem, index: number) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
         height={4}
-        onactive={(event: any) => {
+        onactive={(event: TerminalListActiveEventPayload<ListItem>) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
-        onpress={(event: any) => {
+        onpress={(event: TerminalListPressEventPayload<ListItem>) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
-        ondoublepress={(event: any) => {
+        ondoublepress={(event: TerminalListPressEventPayload<ListItem>) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
           state.actionError = "";
           state.overlay = "note-details";
         }}
         wrap={true}
       >
-        {(item: any, ctx: any) => renderNoteLabel(item, ctx.index)}
+        {(item: ListItem, ctx: { index: number }) => renderNoteLabel(item, ctx.index)}
       </List>
     ];
   }
@@ -471,7 +463,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
     return [
       <View direction="row" gap={1}>
         <Text>Lists</Text>
-        {lists.map((list: any, index: any) => {
+        {lists.map((list, index) => {
           const listId = normalizeEntityId(list.id);
           const isSelected = list.current === true || list.id === selectedListId;
           const label = safeText(list.title, "Untitled list");
@@ -507,19 +499,19 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
               <List
                 id="note-lists"
                 items={lists}
-                itemKey={(list: any) => String(list.id)}
+                itemKey={(list: ListSummary) => String(list.id)}
                 showActive={true}
                 virtualized={true}
                 height={8}
-                onactive={(event: any) => {
+                onactive={(event: TerminalListActiveEventPayload<ListSummary>) => {
                   state.selectedListId = event.value.id;
                 }}
-                onpress={(event: any) => {
+                onpress={(event: TerminalListPressEventPayload<ListSummary>) => {
                   state.selectedListId = event.value.id;
                 }}
                 wrap={true}
               >
-                {(list: any) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
+                {(list: ListSummary) => `${list.current === true ? "✓" : "•"} ${safeText(list.title, "Untitled list")}`}
               </List>
             ) : <Text>No lists yet.</Text>}
           </FocusScope>
@@ -552,11 +544,11 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
         editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
-        onTitleInput={(value: any) => {
+        onTitleInput={(value: string) => {
           form.title = value;
           form.error = "";
         }}
-        onEditorInput={(value: any) => {
+        onEditorInput={(value: string) => {
           form.description = value;
           form.error = "";
         }}
@@ -619,7 +611,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
               <Text>Note details</Text>
               <Text>{`Note title: ${activeItem.text}`}</Text>
               <Text>Note content</Text>
-              {contentLines.map((line: any) => <Text>{line}</Text>)}
+              {contentLines.map((line) => <Text>{line}</Text>)}
               {Array.isArray(activeItem.labels) && activeItem.labels.length > 0 ? <Text>{`Labels: ${activeItem.labels.join(", ")}`}</Text> : <Text></Text>}
             </ScrollView>
           </FocusScope>

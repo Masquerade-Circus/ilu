@@ -1,34 +1,37 @@
 import * as __cjsImport1 from './adapters.ts';
 const { createActionAdapter } = __cjsImport1;
+import type { Command } from 'commander';
+import type { ActionHandler } from './adapters.ts';
+
 const boardManagementAliases = new Map([
   ['-ab', '--add-board'],
   ['-eb', '--edit-board'],
   ['-rb', '--remove-board']
 ]);
 
-function normalizeBoardManagementArgv(argv: any) {
+function normalizeBoardManagementArgv(argv: readonly string[] | undefined) {
   if (!Array.isArray(argv)) {
     return argv;
   }
 
-  return argv.map((value: any) => boardManagementAliases.get(value) || value);
+  return argv.map((value) => boardManagementAliases.get(value) || value);
 }
 
-function wrapBoardParseAliases(program: any) {
-  for (const methodName of ['parse', 'parseAsync']) {
-    if (typeof program[methodName] !== 'function') {
-      continue;
-    }
+function wrapBoardParseAliases(program: Command) {
+  const originalParse = program.parse.bind(program);
+  program.parse = function patchedParse(argv, parseOptions) {
+    return originalParse(normalizeBoardManagementArgv(argv), parseOptions);
+  };
 
-    const original = program[methodName].bind(program);
-
-    program[methodName] = function patchedParse(argv: any, ...rest: any[]) {
-      return original(normalizeBoardManagementArgv(argv), ...rest);
+  if (typeof program.parseAsync === 'function') {
+    const originalParseAsync = program.parseAsync.bind(program);
+    program.parseAsync = function patchedParseAsync(argv, parseOptions) {
+      return originalParseAsync(normalizeBoardManagementArgv(argv), parseOptions);
     };
   }
 }
 
-function registerBoardManagementOption(command: any, shortFlag: any, longFlag: any, description: any) {
+function registerBoardManagementOption(command: Command, shortFlag: string, longFlag: string, description: string) {
   command.option(longFlag, description);
 
   if (Array.isArray(command.options) && command.options.length > 0) {
@@ -38,7 +41,7 @@ function registerBoardManagementOption(command: any, shortFlag: any, longFlag: a
   return command;
 }
 
-function registerBoardCommands(program: any, deps: any) {
+function registerBoardCommands(program: Command, deps: { Scrumban: { Board: { actions: ActionHandler } } }) {
   const boardCommand = program
     .command('board')
     .alias('bd')

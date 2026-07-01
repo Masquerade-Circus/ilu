@@ -1,8 +1,11 @@
 import colors from './colors.ts';
-let label = (color: any, content: any) => {
-    color = color.replace(/^bg/, '');
-    let bgColor = `bg${color}`;
-    return (` ${content} ` as any)[bgColor][(colors as any)[color]];
+type ColorizedString = Record<string, Record<string, string>>;
+
+let label = (color: unknown, content: unknown) => {
+    const colorName = String(color).replace(/^bg/, '');
+    let bgColor = `bg${colorName}`;
+    const foreground = (colors as Record<string, string>)[colorName];
+    return ((` ${String(content)} ` as unknown) as ColorizedString)[bgColor][foreground];
 };
 
 export default label;

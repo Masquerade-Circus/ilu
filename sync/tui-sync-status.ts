@@ -2,8 +2,17 @@ function syncSetupStatus() {
   return {state: 'setup', message: 'Sync setup needed'};
 }
 
-function syncStatusFromResult(result: any) {
-  if (!result || typeof result.status !== 'string') {
+type SyncStatusResult = {
+  status?: string;
+  hasPendingRemote?: boolean;
+};
+
+function isSyncStatusResult(result: unknown): result is SyncStatusResult {
+  return result !== null && typeof result === 'object';
+}
+
+function syncStatusFromResult(result: unknown) {
+  if (!isSyncStatusResult(result) || typeof result.status !== 'string') {
     return {state: 'failed', message: 'Sync failed'};
   }
 
@@ -26,10 +35,9 @@ function syncStatusFromResult(result: any) {
   return {state: 'failed', message: 'Sync failed'};
 }
 
-function isSyncSetupError(error: any) {
+function isSyncSetupError(error: unknown) {
   return Boolean(
-    error
-      && typeof error.message === 'string'
+    error instanceof Error
       && /remoteUrl when sync is enabled|Sync setup needed/.test(error.message)
   );
 }

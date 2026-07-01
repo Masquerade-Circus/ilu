@@ -44,7 +44,7 @@ function formatClockLines(clocks: ClockSnapshot, options: { compact?: boolean } 
     return ["No clocks configured"];
   }
 
-  const lines = clocks.items.map((clock: any) => {
+  const lines = clocks.items.map((clock: ClockItem) => {
     const time = formatClockTimeWithSeconds(clock.time);
     return options.compact === true ? `${clockDisplayName(clock)} ${time}` : `${clockDisplayName(clock)}: ${time}`;
   });
@@ -73,7 +73,7 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
     return [];
   }
 
-  const entries: ClockEntry[] = clocks.items.map((clock: any, index: any) => {
+  const entries: ClockEntry[] = clocks.items.map((clock: ClockItem, index: number) => {
     const text = `${clockDisplayName(clock)} ${formatClockTimeWithSeconds(clock.time)}`;
     return {
       text,
@@ -88,7 +88,7 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
 
   for (let count = entries.length; count > 0; count -= 1) {
     const selected = entries.slice(0, count);
-    const length = selected.reduce((total: any, entry: any) => total + entry.length, 0) + Math.max(0, selected.length - 1) * 2;
+    const length = selected.reduce((total: number, entry: ClockEntry) => total + entry.length, 0) + Math.max(0, selected.length - 1) * 2;
 
     if (length <= width) {
       return selected;
@@ -110,7 +110,7 @@ function footerLeft(activeTab: string, syncStatus: SyncStatusState, controlMode:
   return footerHints(activeTab, syncStatus, controlMode).join("  ");
 }
 
-export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): FooterSegment[] {
+export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: string = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): FooterSegment[] {
   const safeWidth = positiveWidth(width) ? width : 80;
   const left = footerLeft(activeTab, syncStatus, controlMode);
 
@@ -126,14 +126,14 @@ export function footerSegments(width: number, snapshot: UiSnapshot, activeTab: a
   }
 
   const separatorWidth = 2;
-  const clocksLength = clocks.reduce((total: any, entry: any) => total + entry.length, 0) + clocks.length * separatorWidth;
+  const clocksLength = clocks.reduce((total: number, entry: ClockEntry) => total + entry.length, 0) + clocks.length * separatorWidth;
   const padding = " ".repeat(Math.max(0, safeWidth - left.length - clocksLength));
 
-  return [{ text: `${left}${padding}` }, ...clocks.map((clock: any) => ({ text: clock.text, style: clock.style }))];
+  return [{ text: `${left}${padding}` }, ...clocks.map((clock: ClockEntry) => ({ text: clock.text, style: clock.style }))];
 }
 
-export function footerLine(width: number, snapshot: UiSnapshot, activeTab: any = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): string {
-  return footerSegments(width, snapshot, activeTab, syncStatus, controlMode).map((segment: any) => segment.text).join("");
+export function footerLine(width: number, snapshot: UiSnapshot, activeTab: string = "Todo", syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): string {
+  return footerSegments(width, snapshot, activeTab, syncStatus, controlMode).map((segment: FooterSegment) => segment.text).join("");
 }
 
 export const __private = { formatClockLines };

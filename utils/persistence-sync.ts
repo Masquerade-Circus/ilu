@@ -1,11 +1,11 @@
 import notifySync from '../sync/ilu-hooks.ts';
-function createPersistenceNotifier(domain: any) {
-    return function afterPersist(action: any) {
+function createPersistenceNotifier(domain: string) {
+    return function afterPersist(action: string) {
         notifySync({domain, action});
     };
 }
 
-function createCollectionPersistenceNotifier(dbName: any, collectionName: any) {
+function createCollectionPersistenceNotifier(dbName: string | null | undefined, collectionName: string | null | undefined) {
     return createPersistenceNotifier(dbName || collectionName || 'data');
 }
 

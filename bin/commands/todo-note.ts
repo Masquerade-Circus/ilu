@@ -1,64 +1,81 @@
-import * as __cjsImport3 from './adapters.ts';
-const { createActionAdapter } = __cjsImport3;
-function createTodoActionAdapter(Todos: any) {
-  return async (...actionArgs: any[]) => {
-    const command = actionArgs[actionArgs.length - 1];
+import type { Command } from 'commander';
+import type { ActionHandler } from './adapters.ts';
+
+type CommandOptions = Record<string, unknown>;
+type CommandLike = { opts: () => CommandOptions };
+type ActionGroup = { actions: ActionHandler };
+type TodoDeps = { Todos: { Lists: ActionGroup; Tasks: ActionGroup } };
+type NoteDeps = { Notes: { Lists: ActionGroup; Notes: ActionGroup } };
+
+function createTodoActionAdapter(Todos: TodoDeps['Todos']) {
+  return async (...actionArgs: unknown[]): Promise<void> => {
+    const command = actionArgs[actionArgs.length - 1] as CommandLike;
     const opts = command.opts();
 
     if (opts.lists) {
-      return Todos.Lists.actions([], {show: true});
+      await Todos.Lists.actions([], {show: true});
+      return;
     }
 
     if (opts.useList) {
-      return Todos.Lists.actions([], {use: true});
+      await Todos.Lists.actions([], {use: true});
+      return;
     }
 
     if (opts.addList) {
-      return Todos.Lists.actions([], {add: true});
+      await Todos.Lists.actions([], {add: true});
+      return;
     }
 
     if (opts.editList) {
-      return Todos.Lists.actions([], {edit: true});
+      await Todos.Lists.actions([], {edit: true});
+      return;
     }
 
     if (opts.removeList) {
-      return Todos.Lists.actions([], {remove: true});
+      await Todos.Lists.actions([], {remove: true});
+      return;
     }
 
-    return Todos.Tasks.actions([], opts);
+    await Todos.Tasks.actions([], opts);
   };
 }
 
-function createNoteActionAdapter(Notes: any) {
-  return async (...actionArgs: any[]) => {
-    const command = actionArgs[actionArgs.length - 1];
+function createNoteActionAdapter(Notes: NoteDeps['Notes']) {
+  return async (...actionArgs: unknown[]): Promise<void> => {
+    const command = actionArgs[actionArgs.length - 1] as CommandLike;
     const opts = command.opts();
 
     if (opts.lists) {
-      return Notes.Lists.actions([], {show: true});
+      await Notes.Lists.actions([], {show: true});
+      return;
     }
 
     if (opts.useList) {
-      return Notes.Lists.actions([], {use: true});
+      await Notes.Lists.actions([], {use: true});
+      return;
     }
 
     if (opts.addList) {
-      return Notes.Lists.actions([], {add: true});
+      await Notes.Lists.actions([], {add: true});
+      return;
     }
 
     if (opts.editList) {
-      return Notes.Lists.actions([], {edit: true});
+      await Notes.Lists.actions([], {edit: true});
+      return;
     }
 
     if (opts.removeList) {
-      return Notes.Lists.actions([], {remove: true});
+      await Notes.Lists.actions([], {remove: true});
+      return;
     }
 
-    return Notes.Notes.actions([], opts);
+    await Notes.Notes.actions([], opts);
   };
 }
 
-function registerTodoCommands(program: any, deps: any) {
+function registerTodoCommands(program: Command, deps: TodoDeps) {
   program
     .command('todo')
     .alias('t')
@@ -77,7 +94,7 @@ function registerTodoCommands(program: any, deps: any) {
     .action(createTodoActionAdapter(deps.Todos));
 }
 
-function registerNoteCommands(program: any, deps: any) {
+function registerNoteCommands(program: Command, deps: NoteDeps) {
   program
     .command('note')
     .alias('n')

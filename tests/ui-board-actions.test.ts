@@ -83,6 +83,24 @@ test('addCard converts model failures into safe user-facing errors', () => {
   assert.equal(result.error, 'Card could not be saved. Try again.');
 });
 
+test('card and column actions fail closed when model operations are missing', () => {
+  const {model} = createInjectedModel({cards: {}, columns: {}});
+  const actions = createBoardActions({model});
+
+  assert.deepEqual(actions.addCard({title: 'Card'}), {ok: false, error: 'Card could not be saved. Try again.'});
+  assert.deepEqual(actions.editCard({columnIndex: 1, position: 1, title: 'Card'}), {ok: false, error: 'Card could not be updated. Try again.'});
+  assert.deepEqual(actions.moveCard({fromColumn: 1, fromPosition: 1, toColumn: 2}), {ok: false, error: 'Card could not be moved. Try again.'});
+  assert.deepEqual(actions.prioritizeCard({columnIndex: 1, position: 1, toPosition: 2}), {ok: false, error: 'Priority could not be changed. Try again.'});
+  assert.deepEqual(actions.removeCard({columnIndex: 1, position: 1}), {ok: false, error: 'Card could not be removed. Try again.'});
+  assert.deepEqual(actions.addColumn({title: 'Column'}), {ok: false, error: 'Column could not be saved. Try again.'});
+  assert.deepEqual(actions.renameColumn({columnIndex: 1, title: 'Column'}), {ok: false, error: 'Column could not be renamed. Try again.'});
+  assert.deepEqual(actions.moveColumnLeft({columnIndex: 2}), {ok: false, error: 'Column could not be moved. Try again.'});
+  assert.deepEqual(actions.moveColumnRight({columnIndex: 1}), {ok: false, error: 'Column could not be moved. Try again.'});
+  assert.deepEqual(actions.removeColumn({columnIndex: 1}), {ok: false, error: 'Column could not be removed. Try again.'});
+  assert.deepEqual(actions.setWipLimit({columnIndex: 1, wipLimit: 2}), {ok: false, error: 'Column WIP limit could not be changed. Try again.'});
+  assert.deepEqual(actions.setDefaultColumn({columnIndex: 1}), {ok: false, error: 'Default column could not be changed. Try again.'});
+});
+
 
 test('card and column actions call existing model APIs with safe payloads', () => {
   const calls = [];

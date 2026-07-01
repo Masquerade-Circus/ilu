@@ -2,11 +2,11 @@
 import * as __cjsImport26 from '../sync-core/diagram.ts';
 const { generateSyncDiagrams } = __cjsImport26;
 generateSyncDiagrams()
-    .then((result: any) => {
+    .then((result: Awaited<ReturnType<typeof generateSyncDiagrams>>) => {
         console.log(`Sync SVG diagram: ${result.svgPath}`);
         console.log(`Sync Mermaid diagram: ${result.mermaidPath}`);
     })
-    .catch((error: any) => {
+    .catch((error: unknown) => {
         console.error(error);
         process.exit(1);
     });

@@ -63,7 +63,7 @@ function isCurrentSyncOperation(state: SyncUtilityState, token: number): boolean
 }
 
 function logEntries(prefix: string, values: readonly string[]) {
-  return values.map((content: any, index: any) => ({ id: `${prefix}-${index}`, content }));
+  return values.map((content: string, index: number) => ({ id: `${prefix}-${index}`, content }));
 }
 
 function applySyncResult(state: SyncUtilityState, result: SyncActionResult | undefined): void {
@@ -201,7 +201,7 @@ export function createSyncMainView(state: UtilityAppState, _syncActions: SyncAct
         entries={logEntries("sync", busy ? [...state.sync.details, "Pending sync"] : state.sync.details)}
         followTail={true}
         emptyText="No sync details yet."
-        renderEntry={(entry: any) => entry.content}
+        renderEntry={(entry) => entry.content}
       />
     </FocusScope>
   ];

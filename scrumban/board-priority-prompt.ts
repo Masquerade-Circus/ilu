@@ -1,24 +1,56 @@
 import defaultPrompts from '../utils/prompts.ts';
 import * as __cjsImport21 from '../utils/prompt-integer-validation.ts';
 const { integerPromptValidator } = __cjsImport21;
-function normalizeCards(cards: any = []) {
-  return Array.isArray(cards) ? cards : [];
+
+type BoardCard = {
+  title: string;
+};
+
+type BoardPromptChoice = {
+  name: string;
+  value: number;
+};
+
+type BoardPromptQuestion = {
+  type: string;
+  name: string;
+  message: string;
+  choices?: BoardPromptChoice[];
+  defaultValue?: number;
+  min?: number;
+  max?: number;
+  validate?: (value: unknown) => boolean | string | void | Promise<boolean | string | void>;
+};
+
+type BoardPromptsModule = {
+  prompt: (questions: BoardPromptQuestion[]) => Promise<Record<string, unknown>>;
+};
+
+type PromptBoardPriorityOptions = {
+  columnTitle?: string;
+  cards?: unknown;
+  selectedPosition?: unknown;
+  promptsModule?: BoardPromptsModule;
+};
+
+function normalizeCards(cards: unknown = []): BoardCard[] {
+  return Array.isArray(cards) ? (cards as BoardCard[]) : [];
 }
 
-function createCardChoices(cards: any = []) {
-  return normalizeCards(cards).map((card: any, index: any) => ({
+function createCardChoices(cards: unknown = []): BoardPromptChoice[] {
+  return normalizeCards(cards).map((card, index) => ({
     name: `${index + 1}. ${card.title}`,
     value: index + 1
   }));
 }
 
-function assertPosition(value: any, count: any, label: any) {
+function assertPosition(value: unknown, count: number, label: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > count) {
     throw new Error(`Choose a valid ${label} position.`);
   }
 }
 
-async function promptBoardPriority({columnTitle, cards, selectedPosition = 1, promptsModule = defaultPrompts}: any = {}) {
+async function promptBoardPriority({columnTitle, cards, selectedPosition = 1, promptsModule = defaultPrompts}: PromptBoardPriorityOptions = {}) {
   let normalizedCards = normalizeCards(cards);
 
   if (normalizedCards.length < 2) {

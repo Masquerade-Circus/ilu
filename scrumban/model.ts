@@ -1,18 +1,127 @@
 import loadDb from '../utils/load-db.ts';
 import * as __cjsImport24 from '../utils/persistence-sync.ts';
 const { createPersistenceNotifier } = __cjsImport24;
-let DEFAULT_COLUMNS = [
+
+export type BoardId = number | string;
+
+export type BoardCard = {
+    title: string;
+    description: string;
+    position: number;
+};
+
+export type BoardColumn = {
+    id: string;
+    title: string;
+    wipLimit: number | null;
+    cards: BoardCard[];
+    index?: number;
+};
+
+export type BoardItem = {
+    $id?: BoardId;
+    id?: BoardId;
+    title: string;
+    description: string;
+    current: boolean;
+    index: number;
+    defaultColumnId: string;
+    columns: BoardColumn[];
+};
+
+type BoardDraft = {
+    title: string;
+    description: string;
+    current?: boolean;
+    index?: number;
+    defaultColumnId?: string;
+    columns?: BoardColumnInput[];
+};
+
+type BoardColumnInput = {
+    id?: string;
+    title: string;
+    wipLimit?: number | null;
+};
+
+type BoardCardInput = {
+    title: string;
+    description?: string;
+};
+
+type BoardQuery = Record<string, unknown>;
+type BoardFindOptions = {sort?: Record<string, 1 | -1>};
+
+type BoardCollection = {
+    get(id: BoardId): BoardItem;
+    find(query?: BoardQuery, options?: BoardFindOptions): BoardItem[];
+    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem;
+    update(board: BoardItem): BoardItem;
+    add(board: BoardItem): BoardItem;
+    remove(board: BoardItem): void;
+    count(): number;
+};
+
+type BoardColumnActions = {
+    add(values: BoardColumnInput): BoardItem;
+    edit(index: number, values: Partial<BoardColumnInput>): BoardItem;
+    setDefault(index: number): BoardItem;
+    reorder(values: {fromIndex: number; toIndex: number}): BoardItem;
+    remove(index: number): BoardItem;
+    resetSimpleDefault(): BoardItem;
+};
+
+type BoardCardActions = {
+    add(values: BoardCardInput, options?: {columnIndex?: number}): BoardItem;
+    edit(values: {columnIndex: number; position: number; values: Partial<BoardCardInput>}): BoardItem;
+    remove(values: {columnIndex: number; positions: Iterable<number>}): BoardItem;
+    moveMany(values: {cards: Array<{fromColumn: number; fromPosition: number}>; toColumn: number}): BoardItem;
+    move(values: {fromColumn: number; fromPosition: number; toColumn: number; toPosition?: number}): BoardItem;
+};
+
+type BoardModel = {
+    collection: BoardCollection;
+    columns: BoardColumnActions;
+    cards: BoardCardActions;
+    get(id: BoardId): BoardItem;
+    find(query?: BoardQuery, options?: BoardFindOptions): BoardItem[];
+    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem;
+    save(board: BoardItem): BoardItem;
+    add(item: BoardDraft): BoardItem;
+    remove(item?: BoardItem | null): void;
+    updateIndexes(): void;
+    getCurrent(): BoardItem;
+    getFirst(): BoardItem;
+    use(id: BoardId): BoardItem;
+    getLast?: unknown;
+    addColumn?: unknown;
+    editColumn?: unknown;
+    removeColumn?: unknown;
+    reorderColumns?: unknown;
+    setDefaultColumn?: unknown;
+    move?: unknown;
+};
+
+type BoardCardSelection = {
+    fromColumn: number;
+    fromPosition: number;
+    column: BoardColumn;
+};
+
+type GroupedPositions = Record<number, number[]>;
+
+let DEFAULT_COLUMNS: BoardColumnInput[] = [
     {id: 'backlog', title: 'Backlog', wipLimit: null},
     {id: 'ready', title: 'Ready', wipLimit: null},
     {id: 'in-progress', title: 'In Progress', wipLimit: null},
     {id: 'done', title: 'Done', wipLimit: null}
 ];
 
-let DEFAULT_COLUMN_ID = DEFAULT_COLUMNS[0].id;
+let DEFAULT_COLUMN_ID = 'backlog';
 
 let afterPersist = createPersistenceNotifier('boards');
 
-function sanitizeColumnId(value: any) {
+function sanitizeColumnId(value: unknown) {
     return String(value || '')
         .trim()
         .toLowerCase()
@@ -20,7 +129,7 @@ function sanitizeColumnId(value: any) {
         .replace(/^-+|-+$/g, '');
 }
 
-function ensureUniqueColumnId(baseId: any, usedIds: any) {
+function ensureUniqueColumnId(baseId: string, usedIds: Set<string>) {
     let nextId = baseId || 'column';
     let suffix = 2;
 
@@ -33,7 +142,7 @@ function ensureUniqueColumnId(baseId: any, usedIds: any) {
     return nextId;
 }
 
-function cloneColumn(column: any, usedIds: any) {
+function cloneColumn(column: BoardColumnInput, usedIds: Set<string>): BoardColumn {
     return {
         id: ensureUniqueColumnId(sanitizeColumnId(column.id || column.title), usedIds),
         title: (column.title || '').trim(),
@@ -43,29 +152,29 @@ function cloneColumn(column: any, usedIds: any) {
 }
 
 function cloneDefaultColumns() {
-    let usedIds = new Set();
-    return DEFAULT_COLUMNS.map((column: any, index: any) => ({
+    let usedIds = new Set<string>();
+    return DEFAULT_COLUMNS.map((column: BoardColumnInput, index: number) => ({
         ...cloneColumn(column, usedIds),
         index: index + 1
     }));
 }
 
-function cloneColumns(columns: any = []) {
-    let usedIds = new Set();
-    return columns.map((column: any, index: any) => ({
+function cloneColumns(columns: BoardColumnInput[] = []) {
+    let usedIds = new Set<string>();
+    return columns.map((column: BoardColumnInput, index: number) => ({
         ...cloneColumn(column, usedIds),
         index: index + 1
     }));
 }
 
-function normalizeCards(column: any) {
-    column.cards.forEach((card: any, index: any) => {
+function normalizeCards(column: BoardColumn) {
+    column.cards.forEach((card: BoardCard, index: number) => {
         card.position = index + 1;
     });
 }
 
-function normalizeColumns(board: any) {
-    board.columns.forEach((column: any, index: any) => {
+function normalizeColumns(board: BoardItem) {
+    board.columns.forEach((column: BoardColumn, index: number) => {
         if (!column.id) {
             column.id = sanitizeColumnId(column.title);
         }
@@ -78,11 +187,11 @@ function normalizeColumns(board: any) {
     });
 }
 
-function getColumn(board: any, index: any) {
+function getColumn(board: BoardItem, index: number) {
     return board.columns[index - 1];
 }
 
-function assertColumn(board: any, index: any) {
+function assertColumn(board: BoardItem, index: number) {
     if (!Number.isInteger(index) || index < 1 || index > board.columns.length) {
         throw new Error('Invalid column position');
     }
@@ -90,7 +199,7 @@ function assertColumn(board: any, index: any) {
     return getColumn(board, index);
 }
 
-function assertCard(column: any, position: any) {
+function assertCard(column: BoardColumn, position: number) {
     if (!Number.isInteger(position) || position < 1 || position > column.cards.length) {
         throw new Error('Invalid card position');
     }
@@ -98,38 +207,42 @@ function assertCard(column: any, position: any) {
     return column.cards[position - 1];
 }
 
-function getColumnIndexById(board: any, columnId: any) {
-    return board.columns.findIndex((column: any) => column.id === columnId);
+function getColumnIndexById(board: BoardItem, columnId: string) {
+    return board.columns.findIndex((column: BoardColumn) => column.id === columnId);
 }
 
-function getDefaultColumn(board: any) {
+function getDefaultColumn(board: BoardItem): BoardColumn {
     let columnIndex = getColumnIndexById(board, board.defaultColumnId);
-    return columnIndex >= 0 ? board.columns[columnIndex] : null;
+    if (columnIndex < 0) {
+        throw new Error('Board default column must match an existing column');
+    }
+
+    return board.columns[columnIndex];
 }
 
-function validateDefaultColumn(board: any) {
+function validateDefaultColumn(board: BoardItem) {
     if (!board.defaultColumnId || getColumnIndexById(board, board.defaultColumnId) < 0) {
         throw new Error('Board default column must match an existing column');
     }
 }
 
-function hasCapacity(column: any) {
+function hasCapacity(column: BoardColumn) {
     return column.wipLimit === null || column.cards.length < column.wipLimit;
 }
 
-function normalizeWipLimit(value: any) {
+function normalizeWipLimit(value: unknown): number | null {
     if (value === null) {
         return null;
     }
 
-    if (Number.isInteger(value) && value >= 1) {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1) {
         return value;
     }
 
     throw new Error('WIP limit must be null or an integer greater than or equal to 1');
 }
 
-function prepareCard(card: any) {
+function prepareCard(card: BoardCardInput): BoardCard {
     return {
         title: card.title.trim() || '',
         description: (card.description || '').trim(),
@@ -139,31 +252,31 @@ function prepareCard(card: any) {
 
 let DB = loadDb('boards');
 
-let Model: any = {
-    collection: DB.getCollection('boards'),
-    get(id: any) {
+let Model = {
+    collection: DB.getCollection('boards') as BoardCollection,
+    get(id: BoardId) {
         return Model.collection.get(id);
     },
-    find(query: any = {}, options: any = {sort: {index: 1}}) {
+    find(query: BoardQuery = {}, options: BoardFindOptions = {sort: {index: 1}}) {
         return Model.collection.find(query, options);
     },
-    findOne(query: any = {}, options: any = {sort: {index: 1}}) {
+    findOne(query: BoardQuery = {}, options: BoardFindOptions = {sort: {index: 1}}) {
         return Model.collection.findOne(query, options);
     },
-    save(board: any) {
+    save(board: BoardItem) {
         validateDefaultColumn(board);
         normalizeColumns(board);
         let saved = Model.collection.update(board);
         afterPersist('save');
         return saved;
     },
-    add(item: any) {
+    add(item: BoardDraft) {
         let columns = Array.isArray(item.columns) && item.columns.length > 0
             ? cloneColumns(item.columns)
             : cloneDefaultColumns();
 
         let defaultColumnId = item.defaultColumnId || columns[0].id;
-        let board: any = {
+        let board: BoardItem = {
             title: item.title.trim() || '',
             description: item.description.trim() || '',
             current: false,
@@ -176,11 +289,11 @@ let Model: any = {
 
         board = Model.collection.add(board);
 
-        return Model.use(board.$id);
+        return Model.use(board.$id ?? board.id ?? board.index);
     },
-    remove(item: any) {
+    remove(item?: BoardItem | null) {
         if (!item) {
-            Model.collection.find().forEach((current: any) => Model.collection.remove(current));
+            Model.collection.find().forEach((current: BoardItem) => Model.collection.remove(current));
             afterPersist('remove');
             return;
         }
@@ -190,7 +303,7 @@ let Model: any = {
         afterPersist('remove');
     },
     updateIndexes() {
-        Model.find().forEach((item: any, index: any) => {
+        Model.find().forEach((item: BoardItem, index: number) => {
             item.index = index + 1;
             validateDefaultColumn(item);
             normalizeColumns(item);
@@ -203,8 +316,8 @@ let Model: any = {
     getFirst() {
         return Model.findOne();
     },
-    use(id: any) {
-        Model.find({current: true}).forEach((item: any) => {
+    use(id: BoardId) {
+        Model.find({current: true}).forEach((item: BoardItem) => {
             item.current = false;
             validateDefaultColumn(item);
             normalizeColumns(item);
@@ -219,12 +332,12 @@ let Model: any = {
         afterPersist('use');
         return saved;
     }
-};
+} as BoardModel;
 
 Model.columns = {
-    add(values: any) {
+    add(values: BoardColumnInput) {
         let current = Model.getCurrent();
-        let usedIds = new Set(current.columns.map((column: any) => column.id));
+        let usedIds = new Set(current.columns.map((column: BoardColumn) => column.id));
         current.columns.push({
             id: ensureUniqueColumnId(sanitizeColumnId(values.id || values.title), usedIds),
             title: values.title.trim() || '',
@@ -233,11 +346,11 @@ Model.columns = {
         });
         return Model.save(current);
     },
-    edit(index: any, values: any) {
+    edit(index: number, values: Partial<BoardColumnInput>) {
         let current = Model.getCurrent();
         let column = assertColumn(current, index);
 
-        if (Object.prototype.hasOwnProperty.call(values, 'title')) {
+        if (typeof values.title === 'string') {
             column.title = values.title.trim() || '';
         }
 
@@ -247,14 +360,14 @@ Model.columns = {
 
         return Model.save(current);
     },
-    setDefault(index: any) {
+    setDefault(index: number) {
         let current = Model.getCurrent();
         let column = assertColumn(current, index);
 
         current.defaultColumnId = column.id;
         return Model.save(current);
     },
-    reorder({fromIndex, toIndex}: any) {
+    reorder({fromIndex, toIndex}: {fromIndex: number; toIndex: number}) {
         let current = Model.getCurrent();
         assertColumn(current, fromIndex);
         assertColumn(current, toIndex);
@@ -263,7 +376,7 @@ Model.columns = {
         current.columns.splice(toIndex - 1, 0, column);
         return Model.save(current);
     },
-    remove(index: any) {
+    remove(index: number) {
         let current = Model.getCurrent();
         let column = assertColumn(current, index);
 
@@ -287,7 +400,7 @@ Model.columns = {
 };
 
 Model.cards = {
-    add(values: any, {columnIndex}: any = {}) {
+    add(values: BoardCardInput, {columnIndex}: {columnIndex?: number} = {}) {
         let current = Model.getCurrent();
         let defaultColumn = getDefaultColumn(current);
         let column = typeof columnIndex === 'number'
@@ -296,38 +409,38 @@ Model.cards = {
         column.cards.push(prepareCard(values));
         return Model.save(current);
     },
-    edit({columnIndex, position, values}: any) {
+    edit({columnIndex, position, values}: {columnIndex: number; position: number; values: Partial<BoardCardInput>}) {
         let current = Model.getCurrent();
         let column = assertColumn(current, columnIndex);
         let card = assertCard(column, position);
 
-        if (Object.prototype.hasOwnProperty.call(values, 'title')) {
+        if (typeof values.title === 'string') {
             card.title = values.title.trim() || '';
         }
 
-        if (Object.prototype.hasOwnProperty.call(values, 'description')) {
+        if (typeof values.description === 'string') {
             card.description = (values.description || '').trim();
         }
 
         return Model.save(current);
     },
-    remove({columnIndex, positions}: any) {
+    remove({columnIndex, positions}: {columnIndex: number; positions: Iterable<number>}) {
         let current = Model.getCurrent();
         let column = assertColumn(current, columnIndex);
-        [...positions].forEach((position: any) => assertCard(column, position));
+        [...positions].forEach((position: number) => assertCard(column, position));
         [...positions]
-            .sort((left: any, right: any) => right - left)
-            .forEach((position: any) => {
+            .sort((left: number, right: number) => right - left)
+            .forEach((position: number) => {
                 column.cards.splice(position - 1, 1);
             });
         return Model.save(current);
     },
-    moveMany({cards, toColumn}: any) {
+    moveMany({cards, toColumn}: {cards: Array<{fromColumn: number; fromPosition: number}>; toColumn: number}) {
         let current = Model.getCurrent();
         let targetColumn = assertColumn(current, toColumn);
-        let seenSelections = new Set();
+        let seenSelections = new Set<string>();
         let selections = [...cards]
-            .filter((card: any) => {
+            .filter((card: {fromColumn: number; fromPosition: number}) => {
                 let key = `${card.fromColumn}:${card.fromPosition}`;
 
                 if (seenSelections.has(key)) {
@@ -337,30 +450,30 @@ Model.cards = {
                 seenSelections.add(key);
                 return true;
             })
-            .map((card: any) => ({
+            .map((card: {fromColumn: number; fromPosition: number}): BoardCardSelection => ({
                 fromColumn: card.fromColumn,
                 fromPosition: card.fromPosition,
                 column: assertColumn(current, card.fromColumn)
             }));
 
-        selections.forEach((selection: any) => assertCard(selection.column, selection.fromPosition));
-        let incomingSelections = selections.filter((selection: any) => selection.fromColumn !== toColumn);
+        selections.forEach((selection: BoardCardSelection) => assertCard(selection.column, selection.fromPosition));
+        let incomingSelections = selections.filter((selection: BoardCardSelection) => selection.fromColumn !== toColumn);
 
         if (targetColumn.wipLimit !== null && targetColumn.cards.length + incomingSelections.length > targetColumn.wipLimit) {
             throw new Error('Cannot move cards into a column that would exceed its WIP limit');
         }
 
         let selectedIncomingCards = incomingSelections
-            .sort((left: any, right: any) => {
+            .sort((left: BoardCardSelection, right: BoardCardSelection) => {
                 if (left.fromColumn !== right.fromColumn) {
                     return left.fromColumn - right.fromColumn;
                 }
 
                 return left.fromPosition - right.fromPosition;
             })
-            .map((selection: any) => selection.column.cards[selection.fromPosition - 1]);
+            .map((selection: BoardCardSelection) => selection.column.cards[selection.fromPosition - 1]);
 
-        let groupedPositions = incomingSelections.reduce((acc: any, selection: any) => {
+        let groupedPositions = incomingSelections.reduce((acc: GroupedPositions, selection: BoardCardSelection) => {
             if (!acc[selection.fromColumn]) {
                 acc[selection.fromColumn] = [];
             }
@@ -370,24 +483,24 @@ Model.cards = {
         }, {});
 
         Object.keys(groupedPositions)
-            .map((value: any) => parseInt(value, 10))
-            .sort((left: any, right: any) => left - right)
-            .forEach((columnIndex: any) => {
+            .map((value: string) => parseInt(value, 10))
+            .sort((left: number, right: number) => left - right)
+            .forEach((columnIndex: number) => {
                 let column = getColumn(current, columnIndex);
                 groupedPositions[columnIndex]
-                    .sort((left: any, right: any) => right - left)
-                    .forEach((position: any) => {
+                    .sort((left: number, right: number) => right - left)
+                    .forEach((position: number) => {
                         column.cards.splice(position - 1, 1);
                     });
             });
 
-        selectedIncomingCards.forEach((card: any) => {
+        selectedIncomingCards.forEach((card: BoardCard) => {
             targetColumn.cards.push(card);
         });
 
         return Model.save(current);
     },
-    move({fromColumn, fromPosition, toColumn, toPosition}: any) {
+    move({fromColumn, fromPosition, toColumn, toPosition}: {fromColumn: number; fromPosition: number; toColumn: number; toPosition?: number}) {
         let current = Model.getCurrent();
         let originColumn = assertColumn(current, fromColumn);
         let targetColumn = assertColumn(current, toColumn);
@@ -419,7 +532,13 @@ Model.cards = {
                     break;
                 }
 
-                column.cards.push(previousColumn.cards.shift());
+                let shiftedCard = previousColumn.cards.shift();
+
+                if (!shiftedCard) {
+                    break;
+                }
+
+                column.cards.push(shiftedCard);
             }
         }
 

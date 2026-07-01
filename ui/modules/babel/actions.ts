@@ -10,6 +10,7 @@ const COPY_FAILED = 'Could not copy the translation.';
 type BabelValues = {text?: unknown; source?: unknown; target?: unknown; translation?: unknown};
 type TranslationGroup = {entry?: unknown};
 type TranslationResponse = {dict?: unknown; sentences?: unknown; src?: unknown};
+type Logger = {cross: (message: string, color?: string) => void};
 
 function cleanString(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
@@ -43,13 +44,10 @@ function normalizeDictionaryEntries(response: TranslationResponse) {
   return entries;
 }
 
-function createSafeDefaultProvider({fetchImpl, log}: {fetchImpl?: unknown; log?: unknown} = {}) {
+function createSafeDefaultProvider({fetchImpl, log}: {fetchImpl?: typeof fetch; log?: Logger} = {}) {
   return createGoogleTranslateProvider({
     fetchImpl,
-    log,
-    exit() {
-      throw new Error('Translation provider failed');
-    }
+    log
   });
 }
 

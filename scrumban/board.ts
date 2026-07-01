@@ -5,24 +5,52 @@ const { required, log } = __cjsImport22;
 import * as __cjsImport23 from '../utils/prompt-integer-validation';
 const { integerPromptValidator } = __cjsImport23;
 import Model from './model';
+import type { BoardCard, BoardColumn, BoardItem } from './model';
 import BoardLists from './board-lists';
 import renderBoard from './board-renderer';
 import promptBoardPriority from './board-priority-prompt';
-function getCurrentBoard() {
+
+type CardChoice = {
+    name: string;
+    value: string;
+    columnIndex: number;
+    position: number;
+    card: BoardCard;
+};
+
+type ParsedCardKey = {
+    columnIndex: number;
+    position: number;
+};
+
+type CardLookup = ParsedCardKey & {
+    board: BoardItem;
+    column: BoardColumn;
+    card: BoardCard;
+};
+
+type ColumnWithIndex = BoardColumn & {index: number};
+type ColumnAction = 'rename-column' | 'set-wip' | 'make-default' | 'move-left' | 'move-right' | 'remove-column' | 'cancel';
+type ColumnsTarget = `column:${number}` | 'add-column' | 'reset-simple-default' | 'cancel';
+type CardMove = ParsedCardKey;
+type GroupedPositions = Record<number, number[]>;
+type BoardActionOptions = Record<string, unknown>;
+
+function getCurrentBoard(): BoardItem {
     let board = Model.getCurrent();
     if (!board) {
         log.info(`You dont have any boards, try adding one.`.blue, 'blue');
         process.exit(1);
-        return;
+        throw new Error('Current board selection failed');
     }
     return board;
 }
 
-function getCards(board: any) {
-    let cards: any = [];
+function getCards(board: BoardItem) {
+    let cards: CardChoice[] = [];
 
-    board.columns.forEach((column: any, columnIndex: any) => {
-        column.cards.forEach((card: any, positionIndex: any) => {
+    board.columns.forEach((column: BoardColumn, columnIndex: number) => {
+        column.cards.forEach((card: BoardCard, positionIndex: number) => {
             cards.push({
                 name: `[${column.title}] ${card.position} ${card.title}`,
                 value: `${columnIndex + 1}:${positionIndex + 1}`,
@@ -36,24 +64,14 @@ function getCards(board: any) {
     return cards;
 }
 
-function filterChoices(choices: any, search: any) {
-    let normalizedSearch = String(search || '').trim().toLowerCase();
-
-    if (normalizedSearch.length === 0) {
-        return choices;
-    }
-
-    return choices.filter((choice: any) => choice.name.toLowerCase().includes(normalizedSearch));
-}
-
-async function selectCard(message: any, multiple: any = false) {
+async function selectCard(message: string, multiple = false): Promise<string | string[]> {
     let board = getCurrentBoard();
     let cards = getCards(board);
 
     if (cards.length === 0) {
         log.info(`You dont have any cards, try adding one.`.blue, 'blue');
         process.exit(1);
-        return;
+        throw new Error('Card selection failed');
     }
 
     let answers = await prompts.prompt([
@@ -62,7 +80,7 @@ async function selectCard(message: any, multiple: any = false) {
             name: multiple ? 'cardKeys' : 'cardKey',
             message,
             choices: cards,
-            validate(value: any) {
+            validate(value: unknown[]) {
                 if (!multiple) {
                     return true;
                 }
@@ -74,12 +92,12 @@ async function selectCard(message: any, multiple: any = false) {
     return multiple ? answers.cardKeys : answers.cardKey;
 }
 
-function parseCardKey(cardKey: any) {
-    let [columnIndex, position] = cardKey.split(':').map((value: any) => parseInt(value, 10));
+function parseCardKey(cardKey: string): ParsedCardKey {
+    let [columnIndex, position] = cardKey.split(':').map((value: string) => parseInt(value, 10));
     return {columnIndex, position};
 }
 
-function getCardByKey(cardKey: any) {
+function getCardByKey(cardKey: string): CardLookup {
     let board = getCurrentBoard();
     let {columnIndex, position} = parseCardKey(cardKey);
     let column = board.columns[columnIndex - 1];
@@ -87,8 +105,8 @@ function getCardByKey(cardKey: any) {
     return {board, columnIndex, position, column, card};
 }
 
-async function selectColumn(message: any, columns: any) {
-    let choices = columns.map((column: any) => ({name: column.title, value: column.index}));
+async function selectColumn(message: string, columns: ColumnWithIndex[]) {
+    let choices = columns.map((column: ColumnWithIndex) => ({name: column.title, value: column.index}));
     let answers = await prompts.prompt([
         {
             type: 'search',
@@ -101,9 +119,9 @@ async function selectColumn(message: any, columns: any) {
     return answers.columnIndex;
 }
 
-async function selectColumnsTarget(columns: any) {
+async function selectColumnsTarget(columns: ColumnWithIndex[]): Promise<ColumnsTarget> {
     let choices = [
-        ...columns.map((column: any) => ({name: column.title, value: `column:${column.index}`})),
+        ...columns.map((column: ColumnWithIndex) => ({name: column.title, value: `column:${column.index}`} as const)),
         {name: '+ Add column', value: 'add-column'},
         {name: '↺ Reset to simple default', value: 'reset-simple-default'},
         {name: 'Cancel', value: 'cancel'}
@@ -117,23 +135,23 @@ async function selectColumnsTarget(columns: any) {
         }
     ]);
 
-    return answers.selection;
+    return answers.selection as ColumnsTarget;
 }
 
-function getColumnsWithIndexes(board: any) {
-    return board.columns.map((column: any, index: any) => ({...column, index: index + 1}));
+function getColumnsWithIndexes(board: BoardItem) {
+    return board.columns.map((column: BoardColumn, index: number) => ({...column, index: index + 1}));
 }
 
-function hasAnyCards(board: any) {
-    return board.columns.some((column: any) => column.cards.length > 0);
+function hasAnyCards(board: BoardItem) {
+    return board.columns.some((column: BoardColumn) => column.cards.length > 0);
 }
 
-function canRemoveColumn(board: any, column: any) {
+function canRemoveColumn(board: BoardItem, column: BoardColumn) {
     return column.cards.length === 0 && column.id !== board.defaultColumnId;
 }
 
-function getColumnActions(board: any, column: any, columnIndex: any) {
-    let choices = [
+function getColumnActions(board: BoardItem, column: BoardColumn, columnIndex: number) {
+    let choices: Array<{name: string; value: ColumnAction}> = [
         {name: 'Rename', value: 'rename-column'},
         {name: 'Set WIP', value: 'set-wip'}
     ];
@@ -159,7 +177,7 @@ function getColumnActions(board: any, column: any, columnIndex: any) {
     return choices;
 }
 
-async function selectColumnAction(board: any, column: any, columnIndex: any) {
+async function selectColumnAction(board: BoardItem, column: BoardColumn, columnIndex: number): Promise<ColumnAction> {
     let answers = await prompts.prompt([
         {
             type: 'select',
@@ -169,17 +187,17 @@ async function selectColumnAction(board: any, column: any, columnIndex: any) {
         }
     ]);
 
-    return answers.action;
+    return answers.action as ColumnAction;
 }
 
-function isWipLimitReachedError(error: any) {
-    return error && /WIP limit/i.test(error.message || '');
+function isWipLimitReachedError(error: unknown) {
+    return error instanceof Error && /WIP limit/i.test(error.message);
 }
 
-function sortCardMoves(cardKeys: any) {
+function sortCardMoves(cardKeys: string[]) {
     return cardKeys
         .map(parseCardKey)
-        .sort((left: any, right: any) => {
+        .sort((left: CardMove, right: CardMove) => {
             if (left.columnIndex !== right.columnIndex) {
                 return left.columnIndex - right.columnIndex;
             }
@@ -188,14 +206,14 @@ function sortCardMoves(cardKeys: any) {
         });
 }
 
-function canMoveAllCardsToColumn(board: any, moves: any, targetColumnIndex: any) {
+function canMoveAllCardsToColumn(board: BoardItem, moves: CardMove[], targetColumnIndex: number) {
     let targetColumn = board.columns[targetColumnIndex - 1];
 
     if (!targetColumn || !targetColumn.wipLimit) {
         return true;
     }
 
-    let incomingCards = moves.filter((move: any) => move.columnIndex !== targetColumnIndex).length;
+    let incomingCards = moves.filter((move: CardMove) => move.columnIndex !== targetColumnIndex).length;
     return targetColumn.cards.length + incomingCards <= targetColumn.wipLimit;
 }
 
@@ -213,7 +231,7 @@ let Board = {
         await Board.showWithActions();
     },
     async details() {
-        let cardKey = await selectCard('Select a card.');
+        let cardKey = await selectCard('Select a card.') as string;
         let {card, column} = getCardByKey(cardKey);
 
         log('Title'.gray);
@@ -227,7 +245,7 @@ let Board = {
         }
     },
     async edit() {
-        let cardKey = await selectCard('Select a card to edit.');
+        let cardKey = await selectCard('Select a card to edit.') as string;
         let {card, columnIndex, position} = getCardByKey(cardKey);
         let answers = await prompts.prompt([
             {type: 'input', name: 'title', message: 'Title of the card', suffix: ' (required)', validate: required('title'), default: card.title},
@@ -239,8 +257,8 @@ let Board = {
     },
     async move() {
         let board = getCurrentBoard();
-        let cardKeys = await selectCard('Select cards to move.', true);
-        let columnChoices = board.columns.map((column: any, index: any) => ({name: column.title, value: index + 1}));
+        let cardKeys = await selectCard('Select cards to move.', true) as string[];
+        let columnChoices = board.columns.map((column: BoardColumn, index: number) => ({name: column.title, value: index + 1}));
         let answers = await prompts.prompt([
             {
                 type: 'search',
@@ -250,7 +268,6 @@ let Board = {
             }
         ]);
 
-        let targetColumn = board.columns[answers.columnIndex - 1];
         let moves = sortCardMoves(cardKeys);
 
         if (!canMoveAllCardsToColumn(board, moves, answers.columnIndex)) {
@@ -261,13 +278,13 @@ let Board = {
 
         try {
             Model.cards.moveMany({
-                cards: moves.map((move: any) => ({
+                cards: moves.map((move: CardMove) => ({
                     fromColumn: move.columnIndex,
                     fromPosition: move.position
                 })),
                 toColumn: answers.columnIndex
             });
-        } catch (error: any) {
+        } catch (error: unknown) {
             if (!isWipLimitReachedError(error)) {
                 throw error;
             }
@@ -305,8 +322,8 @@ let Board = {
         await Board.showWithActions();
     },
     async remove() {
-        let cardKeys = await selectCard('Select cards to remove.', true);
-        let grouped = cardKeys.reduce((acc: any, cardKey: any) => {
+        let cardKeys = await selectCard('Select cards to remove.', true) as string[];
+        let grouped = cardKeys.reduce((acc: GroupedPositions, cardKey: string) => {
             let {columnIndex, position} = parseCardKey(cardKey);
             if (!acc[columnIndex]) {
                 acc[columnIndex] = [];
@@ -316,9 +333,9 @@ let Board = {
         }, {});
 
         Object.keys(grouped)
-            .map((value: any) => parseInt(value, 10))
-            .sort((left: any, right: any) => left - right)
-            .forEach((columnIndex: any) => {
+            .map((value: string) => parseInt(value, 10))
+            .sort((left: number, right: number) => left - right)
+            .forEach((columnIndex: number) => {
                 Model.cards.remove({columnIndex, positions: grouped[columnIndex]});
             });
 
@@ -401,21 +418,21 @@ let Board = {
         await Board.show();
     },
     list() {
-        return (BoardLists as any).show();
+        return BoardLists.show();
     },
     async use() {
-        await (BoardLists as any).use();
+        await BoardLists.use(undefined);
     },
     async addBoard() {
-        await (BoardLists as any).add();
+        await BoardLists.add();
     },
     async editBoard() {
-        await (BoardLists as any).edit();
+        await BoardLists.edit(undefined);
     },
     async removeBoard() {
-        await (BoardLists as any).remove();
+        await BoardLists.remove(undefined);
     },
-    async actions(args: any, opts: any) {
+    async actions(args: unknown, opts: BoardActionOptions) {
         switch (true) {
             case !isUndefined(opts.add): await Board.add(); break;
             case !isUndefined(opts.details): await Board.details(); break;

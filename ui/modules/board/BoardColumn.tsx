@@ -93,7 +93,7 @@ function renderBoardCardListItem(card: BoardCardListItem, cardOffset: number, co
 }
 
 function boardCardListDisplayItems(cardItems: BoardCardListItem[], columnIndex: number, selectedCard?: Selection | null): BoardCardListItem[] {
-  return cardItems.map((card: any, cardOffset: any) => {
+  return cardItems.map((card: BoardCardListItem, cardOffset: number) => {
     const displayItem = typeof card === "object" && card !== null
       ? { ...card }
       : {};

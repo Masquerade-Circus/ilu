@@ -82,6 +82,14 @@ type SyncStateStore = {
     saveState: (state: NormalizedSyncState) => NormalizedSyncState;
 };
 
+function getPersistableSyncStatus(status: SyncStatus): NormalizedSyncState['status'] {
+    if (status === 'syncing' || status === 'route_after_sync') {
+        return 'pending_remote';
+    }
+
+    return status;
+}
+
 type ResolvedSyncRuntimeOptions = {
     config: SyncConfig;
     sourceRoot: string;
@@ -171,7 +179,7 @@ function createSyncRuntimeFromResolvedOptions(normalized: ResolvedSyncRuntimeOpt
         persisted = stateStore.saveState({
             ...persisted,
             enabled: syncMachine.context.enabled,
-            status: syncMachine.current,
+            status: getPersistableSyncStatus(syncMachine.current),
             hasPendingRemote: syncMachine.context.hasPendingRemote,
             retryCount: syncMachine.context.retryCount,
             backoffUntil: syncMachine.context.backoffUntil,
