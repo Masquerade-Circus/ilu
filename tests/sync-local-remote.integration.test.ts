@@ -9,20 +9,18 @@ const { execFileSync } = __cjsImport58;
 import * as __cjsImport59 from '../support/home-sandbox';
 const { withTempHome } = __cjsImport59;
 const repoRoot = path.resolve(import.meta.dirname, '..');
-const coreEngineModulePath = path.join(repoRoot, 'sync-core', 'engine.ts');
-const coreMachineModulePath = path.join(repoRoot, 'sync-core', 'machine.ts');
 import createTempGitRemote from './test-helpers/create-temp-git-remote';
 function clearRuntimeCaches() {
   [
     path.join(repoRoot, 'sync', 'commands.ts'),
     path.join(repoRoot, 'sync', 'index.ts'),
     path.join(repoRoot, 'sync', 'ilu-adapter.ts'),
+    path.join(repoRoot, 'sync', 'ilu-hooks.ts'),
     path.join(repoRoot, 'sync', 'state-store.ts'),
     path.join(repoRoot, 'sync', 'git-cli-backend.ts'),
-    path.join(repoRoot, 'sync-core', 'engine.ts'),
-    path.join(repoRoot, 'sync-core', 'machine.ts'),
     path.join(repoRoot, 'utils', 'local-paths.ts'),
     path.join(repoRoot, 'utils', 'load-db.ts'),
+    path.join(repoRoot, 'utils', 'persistence-sync.ts'),
     path.join(repoRoot, 'utils', 'create-list-model.ts'),
     path.join(repoRoot, 'todos', 'model.ts')
   ].forEach(modulePath => {
@@ -61,6 +59,16 @@ function runCli(args, options: any = {}) {
   });
 }
 
+async function waitForCondition(predicate, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw new Error('Timed out waiting for sync condition');
+}
+
 test('bootstrap local data to empty local bare remote', async () => {
   const remote = createTempGitRemote();
 
@@ -75,7 +83,7 @@ test('bootstrap local data to empty local bare remote', async () => {
     const heads = git(['ls-remote', '--heads', remote.remotePath]);
     assert.match(heads, /main/);
     assert.equal(fs.existsSync(localPaths.syncConfigFilePath()), true);
-    assert.equal(fs.existsSync(localPaths.syncStateFilePath()), true);
+    assert.equal(fs.existsSync(path.join(tempHome, '.ilu', '.sync-core', 'state.json')), true);
     assert.equal(fs.existsSync(path.join(tempHome, '.ilu', '.git')), true);
     const tracked = git(['-C', path.join(tempHome, '.ilu'), 'ls-files'], {cwd: repoRoot});
     assert.equal(/\.config\//.test(tracked), false);
@@ -128,7 +136,7 @@ test('cli sync init no deja bootstrap parcial cuando HOME inicia vacío y el rem
     assert.equal(fs.existsSync(localPaths.dbFilePath('boards')), true);
     assert.equal(fs.existsSync(localPaths.dbFilePath('clocks')), true);
     assert.equal(fs.existsSync(localPaths.syncConfigFilePath()), true);
-    assert.equal(fs.existsSync(localPaths.syncStateFilePath()), true);
+    assert.equal(fs.existsSync(path.join(iluRoot, '.sync-core', 'state.json')), true);
     assert.match(fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8'), /Seed/);
     assert.match(fs.readFileSync(localPaths.dbFilePath('notes'), 'utf8'), /Seed note/);
     assert.match(fs.readFileSync(localPaths.dbFilePath('boards'), 'utf8'), /Seed board/);
@@ -153,8 +161,9 @@ test('auto-sync after mutation pushes to local bare remote', async () => {
     await new Promise(resolve => setTimeout(resolve, 250));
     const heads = git(['ls-remote', '--heads', remote.remotePath]);
     assert.match(heads, /main/);
-    assert.equal(syncIndex.getSyncStatus().status, 'healthy');
-    assert.equal(syncIndex.getSyncStatus().hasPendingRemote, false);
+    const status = await syncIndex.getSyncStatus();
+    assert.equal(status.status, 'healthy', JSON.stringify(status));
+    assert.equal(status.hasPendingRemote, false);
   }, {prefix: 'ilu-sync-home-'});
 
   remote.cleanup();
@@ -169,95 +178,14 @@ test('sync consumer createSyncRuntime() sin argumentos sigue funcionando despué
 
     await SyncCommands.init([], {remote: remote.remotePath});
 
-    const runtime = syncIndex.createSyncRuntime();
+    const runtime = await syncIndex.createSyncRuntime();
     const status = runtime.getSyncStatus();
 
-    assert.equal(typeof runtime.notifyLocalMutation, 'function');
+    assert.equal(typeof runtime.sync, 'function');
     assert.equal(status.status, 'healthy');
   }, {prefix: 'ilu-sync-home-'});
 
   remote.cleanup();
-});
-
-test('loadFresh clears extracted sync-core runtime modules before requiring sync consumer entrypoints', () => {
-  const poisonedCreateSyncRuntime = () => ({kind: 'poisoned'});
-  const originalCoreEngineEntry = (require.cache as any)[require.resolve(coreEngineModulePath)];
-  const originalCoreMachineEntry = (require.cache as any)[require.resolve(coreMachineModulePath)];
-
-  (require.cache as any)[require.resolve(coreEngineModulePath)] = {
-    id: coreEngineModulePath,
-    filename: coreEngineModulePath,
-    loaded: true,
-    exports: {
-      createSyncRuntime: poisonedCreateSyncRuntime
-    }
-  };
-
-  (require.cache as any)[require.resolve(coreMachineModulePath)] = {
-    id: coreMachineModulePath,
-    filename: coreMachineModulePath,
-    loaded: true,
-    exports: {
-      createSyncMachine() {
-        return {kind: 'poisoned-machine'};
-      },
-      invoke() {}
-    }
-  };
-
-  try {
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-    const runtime = syncIndex.createSyncRuntimeAdvanced({
-      config: {
-        enabled: true,
-        remoteUrl: '/tmp/advanced-remote.git',
-        branch: 'main',
-        autoSync: false,
-        autoPull: false,
-        autoPush: false
-      },
-      sourceRoot: '/tmp/advanced-source',
-      stateStore: {
-        loadState() {
-          return {enabled: true, status: 'healthy'};
-        },
-        saveState(nextState) {
-          return nextState;
-        }
-      },
-      backend: {
-        ensureReady() {},
-        syncWorkingTree() {},
-        hasChanges() {
-          return false;
-        },
-        commit() {},
-        fetch() {},
-        integrate() {},
-        push() {},
-        getStatus() {
-          return '## main';
-        }
-      }
-    });
-
-    assert.notDeepEqual(runtime, {kind: 'poisoned'});
-    assert.equal(typeof runtime.getSyncStatus, 'function');
-  } finally {
-    if (originalCoreEngineEntry) {
-      (require.cache as any)[require.resolve(coreEngineModulePath)] = originalCoreEngineEntry;
-    } else {
-      delete (require.cache as any)[require.resolve(coreEngineModulePath)];
-    }
-
-    if (originalCoreMachineEntry) {
-      (require.cache as any)[require.resolve(coreMachineModulePath)] = originalCoreMachineEntry;
-    } else {
-      delete (require.cache as any)[require.resolve(coreMachineModulePath)];
-    }
-
-    clearRuntimeCaches();
-  }
 });
 
 test('remote unavailable does not remove local data', async () => {
@@ -280,4 +208,223 @@ test('remote unavailable does not remove local data', async () => {
   }, {prefix: 'ilu-sync-home-'});
 
   remote.cleanup();
+});
+
+test('sync enable and disable are idempotent with the real runtime', async () => {
+  const remote = createTempGitRemote();
+
+  await withTempHome(async () => {
+    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
+    await SyncCommands.init([], {remote: remote.remotePath});
+
+    assert.deepEqual(
+      {status: (await SyncCommands.disable()).status, enabled: (await SyncCommands.status()).enabled},
+      {status: 'disabled', enabled: false}
+    );
+    assert.equal((await SyncCommands.disable()).status, 'disabled');
+    assert.equal((await SyncCommands.enable()).status, 'healthy');
+    assert.equal((await SyncCommands.enable()).status, 'healthy');
+  }, {prefix: 'ilu-sync-enable-disable-'});
+
+  remote.cleanup();
+});
+
+test('legacy sync state migrates once into private core state without carrying enabled', async () => {
+  await withTempHome(async tempHome => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const legacyPath = localPaths.syncStateFilePath();
+    fs.mkdirSync(path.dirname(legacyPath), {recursive: true});
+    fs.writeFileSync(legacyPath, JSON.stringify({
+      enabled: false,
+      status: 'degraded_network',
+      hasPendingRemote: true,
+      pendingOperationId: 'legacy-operation',
+      retryCount: 9,
+      backoffUntil: Date.now() + 5000,
+      lastErrorKind: 'network',
+      lastErrorMessage: 'Network unavailable'
+    }));
+    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
+    const rootPath = path.join(tempHome, '.ilu');
+    const statePath = path.join(rootPath, '.sync-core', 'state.json');
+
+    assert.equal(migration.migrateLegacySyncState(rootPath), true);
+    const migrated = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(migrated.pendingOperationId, 'legacy-operation');
+    assert.equal(migrated.hasPendingRemote, true);
+    assert.equal(migrated.retryCount, 0);
+    assert.equal(migrated.lastErrorMessage, 'Network unavailable');
+    assert.equal('enabled' in migrated, false);
+
+    fs.writeFileSync(legacyPath, JSON.stringify({pendingOperationId: 'must-not-overwrite'}));
+    assert.equal(migration.migrateLegacySyncState(rootPath), false);
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).pendingOperationId, 'legacy-operation');
+  }, {prefix: 'ilu-sync-migration-'});
+});
+
+test('legacy network pending state remains retryable without a backoff timestamp', async () => {
+  await withTempHome(async (home) => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const rootPath = path.join(home, 'data');
+    fs.mkdirSync(rootPath, {recursive: true});
+    fs.mkdirSync(path.dirname(localPaths.syncStateFilePath()), {recursive: true});
+    fs.writeFileSync(localPaths.syncStateFilePath(), JSON.stringify({
+      status: 'degraded_network',
+      hasPendingRemote: true,
+      pendingOperationId: 'legacy-network',
+      lastErrorKind: 'network'
+    }));
+    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
+
+    assert.equal(migration.migrateLegacySyncState(rootPath), true);
+    const migrated = JSON.parse(fs.readFileSync(path.join(rootPath, '.sync-core', 'state.json'), 'utf8'));
+    assert.equal(migrated.retryable, true);
+    assert.equal(migrated.backoffUntil, null);
+  }, {prefix: 'ilu-sync-migration-network-'});
+});
+
+test('legacy auth pending state remains terminal even when it has a backoff timestamp', async () => {
+  await withTempHome(async (home) => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const rootPath = path.join(home, 'data');
+    fs.mkdirSync(rootPath, {recursive: true});
+    fs.mkdirSync(path.dirname(localPaths.syncStateFilePath()), {recursive: true});
+    fs.writeFileSync(localPaths.syncStateFilePath(), JSON.stringify({
+      status: 'degraded_auth',
+      hasPendingRemote: true,
+      pendingOperationId: 'legacy-auth',
+      lastErrorKind: 'auth',
+      backoffUntil: Date.now() + 5000
+    }));
+    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
+
+    assert.equal(migration.migrateLegacySyncState(rootPath), true);
+    const migrated = JSON.parse(fs.readFileSync(path.join(rootPath, '.sync-core', 'state.json'), 'utf8'));
+    assert.equal(migrated.retryable, false);
+  }, {prefix: 'ilu-sync-migration-auth-'});
+});
+
+test('autoSync false persists pending policy across module reload and retry clears it only after success', async () => {
+  await withTempHome(async () => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
+    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: false});
+    let backendCalls = 0;
+    let syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
+
+    const pending = await syncIndex.sync({domain: 'todos', action: 'save'});
+    assert.equal(pending.status, 'pending_remote');
+    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), true);
+
+    syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
+    const status = await syncIndex.getSyncStatus();
+    assert.equal(status.status, 'pending_remote');
+    const runtime = await syncIndex.createSyncRuntime({
+      backend: {
+        async synchronize() { backendCalls += 1; },
+        classifyError() { return {kind: 'unknown', retryable: false}; }
+      },
+      rootPath: localPaths.storageDirPath()
+    });
+    const result = await runtime.sync({reason: 'manual'});
+
+    assert.equal(result.status, 'healthy');
+    assert.equal(backendCalls, 1);
+    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), false);
+  }, {prefix: 'ilu-sync-policy-pending-'});
+});
+
+test('disable during backoff prevents another backend call and enable reconciles pending work', async () => {
+  await withTempHome(async () => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
+    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
+    let backendCalls = 0;
+    let fail = true;
+    const backend = {
+      async synchronize() {
+        backendCalls += 1;
+        if (fail) throw new Error('controlled transport failure');
+      },
+      classifyError() {
+        return {kind: 'network', retryable: true, safeMessage: 'Remote unavailable'};
+      }
+    };
+    const options = {backend, rootPath: localPaths.storageDirPath(), retryDelayMs: 25, maxRetryDelayMs: 25};
+    const runtime = await syncIndex.createSyncRuntime(options);
+    const active = runtime.sync({domain: 'todos', action: 'save'});
+    await waitForCondition(() => runtime.getSyncStatus().backoffUntil !== null);
+
+    configStore.saveSyncConfig({enabled: false, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    const disabled = await syncIndex.disable();
+    assert.equal(disabled.status, 'disabled');
+    assert.equal(backendCalls, 1);
+
+    fail = false;
+    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    const enabled = await syncIndex.enable(options);
+    await active;
+    assert.equal(enabled.status, 'healthy');
+    assert.equal(backendCalls, 2);
+    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), false);
+  }, {prefix: 'ilu-sync-disable-backoff-'});
+});
+
+test('disable waits for an automatic rehydrated backend before rapid enable starts another runtime', async () => {
+  await withTempHome(async () => {
+    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
+    const rootPath = localPaths.storageDirPath();
+    const stateDirectory = path.join(rootPath, '.sync-core');
+    fs.mkdirSync(stateDirectory, {recursive: true, mode: 0o700});
+    fs.writeFileSync(path.join(stateDirectory, 'state.json'), JSON.stringify({
+      status: 'degraded_network',
+      hasPendingRemote: true,
+      pendingOperationId: 'automatic-rehydrated',
+      retryCount: 0,
+      backoffUntil: null,
+      lastErrorKind: 'network',
+      lastErrorMessage: 'Remote unavailable',
+      lastSyncReason: 'save',
+      lastPhase: null,
+      lastSnapshotId: null,
+      lastSyncedSnapshotId: null,
+      retryable: true,
+      pendingContext: {action: 'save'}
+    }), {mode: 0o600});
+    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
+    let backendCalls = 0;
+    let releaseFirstBackend;
+    const firstBackend = new Promise(resolve => {
+      releaseFirstBackend = resolve;
+    });
+    const backend = {
+      async synchronize() {
+        backendCalls += 1;
+        if (backendCalls === 1) {
+          await firstBackend;
+        }
+      },
+      classifyError() {
+        return {kind: 'network', retryable: true};
+      }
+    };
+    const options = {backend, rootPath, retryDelayMs: 1, maxRetryDelayMs: 1};
+    await syncIndex.createSyncRuntime(options);
+    await waitForCondition(() => backendCalls === 1);
+
+    configStore.saveSyncConfig({enabled: false, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    await syncIndex.disable();
+    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
+    const enabling = syncIndex.enable(options);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(backendCalls, 1);
+
+    releaseFirstBackend();
+    const enabled = await enabling;
+    assert.equal(enabled.status, 'healthy');
+    assert.equal(backendCalls, 2);
+  }, {prefix: 'ilu-sync-rehydrated-backend-'});
 });

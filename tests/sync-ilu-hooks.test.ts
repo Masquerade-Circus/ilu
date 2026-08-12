@@ -8,11 +8,11 @@ function loadHooks(events, options: any = {}) {
     getSyncConfig() {
       return options.config || {enabled: true, remoteUrl: './remote.git', autoSync: true};
     },
-    notifyLocalMutation: async (context) => {
+    sync: async (context) => {
       events.push(['sync', context]);
 
-      if (typeof options.notifyLocalMutation === 'function') {
-        return options.notifyLocalMutation(context);
+      if (typeof options.sync === 'function') {
+        return options.sync(context);
       }
 
       return {status: 'healthy', hasPendingRemote: false};
@@ -144,7 +144,7 @@ test('ilu sync hook flushPending is a no-op when only status subscriber exists',
 test('ilu sync hook reports failed instead of synced when runtime persists a degraded state', async () => {
   const events = [];
   const {notifySync, restore} = loadHooks(events, {
-    notifyLocalMutation: async () => ({status: 'degraded_network', hasPendingRemote: true, lastErrorKind: 'network'})
+    sync: async () => ({status: 'degraded_network', hasPendingRemote: true, lastErrorKind: 'network'})
   });
 
   try {
@@ -169,7 +169,7 @@ test('ilu sync hook does not report active syncing when autoSync is disabled', a
   const events = [];
   const {notifySync, restore} = loadHooks(events, {
     config: {enabled: true, autoSync: false},
-    notifyLocalMutation: async () => ({status: 'pending_remote', hasPendingRemote: true})
+    sync: async () => ({status: 'pending_remote', hasPendingRemote: true})
   });
 
   try {
@@ -194,7 +194,7 @@ test('ilu sync hook reports setup instead of failed when sync is enabled without
   const events = [];
   const {notifySync, restore} = loadHooks(events, {
     config: {enabled: true, remoteUrl: null, branch: 'main', autoSync: true, autoPull: true, autoPush: true},
-    notifyLocalMutation: async () => {
+    sync: async () => {
       throw new Error('Sync runtime requires remoteUrl when sync is enabled');
     }
   });
@@ -225,7 +225,7 @@ test('ilu sync hook debounces configured TUI runner even without status subscrib
   try {
     const runnerCalls = [];
     const runner = {
-      notifyLocalMutation: async (context) => {
+      sync: async (context) => {
         runnerCalls.push(context);
         return {status: 'healthy', hasPendingRemote: false};
       },
@@ -260,7 +260,7 @@ test('ilu sync hook sends interactive mutations through configured TUI runner in
     const statuses = [];
     const runnerCalls = [];
     const runner = {
-      notifyLocalMutation: async (context) => {
+      sync: async (context) => {
         runnerCalls.push(context);
         return {status: 'healthy', hasPendingRemote: false};
       },
@@ -297,7 +297,7 @@ test('ilu sync hook preserves setup classification from configured TUI runner er
   try {
     const statuses = [];
     const runner = {
-      notifyLocalMutation: async () => {
+      sync: async () => {
         throw new Error('Sync setup needed');
       },
       hasPendingWork: () => false
@@ -330,7 +330,7 @@ test('ilu sync hook completes debounced board move status when runner resolves w
     let eventListener = null;
     const context = {domain: 'boards', action: 'save'};
     const runner = {
-      notifyLocalMutation: async () => {
+      sync: async () => {
         eventListener({state: 'syncing', message: 'Syncing...', context});
         return {status: 'healthy', hasPendingRemote: false};
       },
@@ -369,7 +369,7 @@ test('ilu sync hook does not synthesize synced while runner has queued work', as
     let eventListener = null;
     const context = {domain: 'boards', action: 'move-card'};
     const runner = {
-      notifyLocalMutation: async () => {
+      sync: async () => {
         eventListener({state: 'syncing', message: 'Syncing...', context});
         return {status: 'healthy', hasPendingRemote: false};
       },

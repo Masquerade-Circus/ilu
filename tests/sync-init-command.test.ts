@@ -44,23 +44,15 @@ function loadCommandsWithStubs(overrides: any = {}) {
     }
   };
   const defaultSyncIndex = {
-    createSyncRuntime() {
+    createSyncRuntime(options) {
+      if (options !== undefined) {
+        calls.push({kind: 'createSyncRuntime', options});
+      }
       return {
         getSyncStatus() {
           return {status: 'healthy'};
         },
-        retry: async () => {},
-        notifyLocalMutation: async () => {}
-      };
-    },
-    createSyncRuntimeAdvanced(options) {
-      calls.push({kind: 'createSyncRuntimeAdvanced', options});
-      return {
-        getSyncStatus() {
-          return {status: 'healthy'};
-        },
-        retry: async () => {},
-        notifyLocalMutation: async () => {}
+        sync: async () => {}
       };
     },
     createBootstrapBackend({branch, remoteUrl}) {
@@ -73,13 +65,9 @@ function loadCommandsWithStubs(overrides: any = {}) {
     },
     getBootstrapContext() {
       return {
-        sourceRoot: '/tmp/source',
-        ignorePatterns: ['.config/**']
+        rootPath: './tmp/source',
+        excludePatterns: ['.config/**']
       };
-    },
-    initializeSyncState(state) {
-      calls.push({kind: 'initializeSyncState', state});
-      return state;
     },
     getSyncConfig() {
       return {
@@ -257,8 +245,7 @@ test('sync init aborta si local y remoto ya tienen historia', async () => {
           getSyncStatus() {
             return {status: 'healthy'};
           },
-          retry: async () => {},
-          notifyLocalMutation: async () => {}
+          sync: async () => {}
         };
       },
       createBootstrapBackend() {
@@ -270,12 +257,9 @@ test('sync init aborta si local y remoto ya tienen historia', async () => {
       },
       getBootstrapContext() {
         return {
-          sourceRoot: '/tmp/source',
-          ignorePatterns: ['.config/**']
+          rootPath: './tmp/source',
+          excludePatterns: ['.config/**']
         };
-      },
-      initializeSyncState(state) {
-        return state;
       },
       getSyncConfig() {
         return {
@@ -303,8 +287,7 @@ test('sync init inspecciona bootstrap usando source root e ignore patterns del c
           getSyncStatus() {
             return {status: 'healthy'};
           },
-          retry: async () => {},
-          notifyLocalMutation: async () => {}
+          sync: async () => {}
         };
       },
       createBootstrapBackend() {
@@ -317,12 +300,9 @@ test('sync init inspecciona bootstrap usando source root e ignore patterns del c
       },
       getBootstrapContext() {
         return {
-          sourceRoot: '/tmp/consumer-source',
-          ignorePatterns: ['.config/**', '.cache/**']
+          rootPath: './tmp/consumer-source',
+          excludePatterns: ['.config/**', '.cache/**']
         };
-      },
-      initializeSyncState(state) {
-        return state;
       },
       getSyncConfig() {
         return {
@@ -340,24 +320,21 @@ test('sync init inspecciona bootstrap usando source root e ignore patterns del c
   await commands.init([], {remote: '/tmp/remote.git'});
 
   assert.deepEqual(inspectArgs, {
-    sourceRoot: '/tmp/consumer-source',
-    ignorePatterns: ['.config/**', '.cache/**']
+    rootPath: './tmp/consumer-source',
+    excludePatterns: ['.config/**', '.cache/**']
   });
 });
 
-test('sync init usa runtime avanzado explícito para publicar datos locales iniciales', async () => {
+test('sync init usa la factory única con backend explícito para publicar datos locales iniciales', async () => {
   const calls = [];
 
   const {commands} = loadCommandsWithStubs({
     syncIndex: {
-      createSyncRuntime() {
-        throw new Error('init should not use the default runtime path for bootstrap publishing');
-      },
-      createSyncRuntimeAdvanced(options) {
-        calls.push({kind: 'createSyncRuntimeAdvanced', options});
+      createSyncRuntime(options) {
+        calls.push({kind: 'createSyncRuntime', options});
         return {
-          async retry(context) {
-            calls.push({kind: 'retry', context});
+          async sync(context) {
+            calls.push({kind: 'sync', context});
           },
           getSyncStatus() {
             return {status: 'healthy'};
@@ -373,12 +350,9 @@ test('sync init usa runtime avanzado explícito para publicar datos locales inic
       },
       getBootstrapContext() {
         return {
-          sourceRoot: '/tmp/consumer-source',
-          ignorePatterns: ['.config/**']
+          rootPath: './tmp/consumer-source',
+          excludePatterns: ['.config/**']
         };
-      },
-      initializeSyncState(state) {
-        return state;
       },
       getSyncConfig() {
         return {
@@ -395,8 +369,9 @@ test('sync init usa runtime avanzado explícito para publicar datos locales inic
 
   await commands.init([], {remote: '/tmp/remote.git'});
 
-   assert.equal(calls[0]?.kind, 'createSyncRuntimeAdvanced');
+   assert.equal(calls[0]?.kind, 'createSyncRuntime');
    assert.equal(calls[0].options.backend.inspectBootstrap().localHasData, true);
-   assert.equal(calls[0].options.config.remoteUrl, '/tmp/remote.git');
-   assert.deepEqual(calls[1], {kind: 'retry', context: {reason: 'init'}});
+   assert.equal(calls[0].options.rootPath, './tmp/consumer-source');
+    assert.equal('enabled' in calls[0].options, false);
+    assert.deepEqual(calls[1], {kind: 'sync', context: {reason: 'init'}});
 });

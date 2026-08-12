@@ -206,7 +206,7 @@ La sincronización es local-first: los datos locales se guardan antes del trabaj
 - `boards.json`
 - `clocks.json`
 
-La carpeta `~/.ilu/.config/` guarda configuración local y estado runtime. No forma parte de los datos sincronizados.
+La carpeta `~/.ilu/.config/` guarda configuración local. El estado privado del runtime vive en `~/.ilu/.sync-core/state.json`. Ninguna de las dos carpetas forma parte de los datos sincronizados.
 
 ## Traducción
 
@@ -257,7 +257,7 @@ Archivos de datos actuales:
 Archivos de configuración y estado actuales:
 
 - `~/.ilu/.config/sync-config.json`
-- `~/.ilu/.config/sync-state.json`
+- `~/.ilu/.sync-core/state.json`
 - `~/.ilu/.config/tts-config.json`
 
 ## Prompts interactivos

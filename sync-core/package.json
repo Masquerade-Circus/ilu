@@ -1,0 +1,68 @@
+{
+  "name": "sync-core",
+  "version": "1.0.0",
+  "description": "Backend-agnostic synchronization core with pluggable backends, sync flow coordination, operational state management, and built-in Git support.",
+  "type": "module",
+  "main": "./dist/sync-core.js",
+  "module": "./dist/index.mjs",
+  "unpkg": "./dist/sync-core.min.js",
+  "jsdelivr": "./dist/sync-core.min.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "require": "./dist/sync-core.js",
+      "import": "./dist/index.mjs",
+      "default": "./dist/sync-core.js"
+    },
+    "./git": {
+      "types": "./dist/types/git.d.ts",
+      "require": "./dist/git.cjs",
+      "import": "./dist/git.mjs",
+      "default": "./dist/git.cjs"
+    },
+    "./diagram": {
+      "types": "./dist/types/diagram.d.ts",
+      "require": "./dist/diagram.cjs",
+      "import": "./dist/diagram.mjs",
+      "default": "./dist/diagram.cjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "test": "bun run build && node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "bun run build.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format:check": "prettier --check .",
+    "format": "prettier --write ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Masquerade-Circus/sync-core.git"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "x-robot": "^1.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^25.9.1",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.9.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0"
+  }
+}

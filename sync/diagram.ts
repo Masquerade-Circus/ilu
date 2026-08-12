@@ -1,2 +1,2 @@
-import __defaultExport from '../sync-core/diagram.ts';
+import __defaultExport from 'sync-core/diagram';
 export default __defaultExport;

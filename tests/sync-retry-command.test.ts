@@ -6,21 +6,14 @@ const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
 
-test('sync retry delegates to runtime retry and returns status', async () => {
+test('sync retry delegates to the ilu wrapper without requiring a core retry method', async () => {
   const originalLoad = Module._load;
   const calls = [];
   const runtimeCreationArgs = [];
   const syncIndex = {
-    createSyncRuntime(...args) {
-      runtimeCreationArgs.push(args);
-      return {
-        async retry(context) {
-          calls.push(context);
-        },
-        getSyncStatus() {
-          return {status: 'healthy'};
-        }
-      };
+    async retry(context) {
+      calls.push(context);
+      return {status: 'healthy'};
     },
     getSyncConfig() {
       return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
@@ -47,7 +40,7 @@ test('sync retry delegates to runtime retry and returns status', async () => {
     const result = await commands.retry();
 
     assert.deepEqual(calls, [{reason: 'manual'}]);
-    assert.deepEqual(runtimeCreationArgs, [[]]);
+    assert.deepEqual(runtimeCreationArgs, []);
     assert.deepEqual(result, {status: 'healthy'});
   } finally {
     Module._load = originalLoad;
@@ -60,15 +53,9 @@ test('sync enable re-enables runtime state instead of leaving it disabled', asyn
   const repoRoot = path.resolve(import.meta.dirname, '..');
   const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
   const savedConfigs = [];
-  const savedStates = [];
   const syncIndex = {
-    createSyncRuntime() {
-      return {
-        async enable() {},
-        getSyncStatus() {
-          return {status: 'healthy', enabled: true};
-        }
-      };
+    async enable() {
+      return {status: 'healthy', enabled: true};
     },
     getSyncConfig() {
       return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
@@ -129,13 +116,8 @@ test('sync enable reescribe solo sync-config sin depender de config de tts', asy
 
   const savedConfigs = [];
   const syncIndex = {
-    createSyncRuntime() {
-      return {
-        async enable() {},
-        getSyncStatus() {
-          return {status: 'healthy', enabled: true};
-        }
-      };
+    async enable() {
+      return {status: 'healthy', enabled: true};
     },
     getSyncConfig() {
       return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};

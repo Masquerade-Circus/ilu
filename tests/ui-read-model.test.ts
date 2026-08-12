@@ -128,7 +128,7 @@ test('buildReadSnapshot formatea clocks como HH:MM:SS deterministico sin AM/PM',
     });
     process.stdout.write(JSON.stringify(snapshot.clocks.items[0]));
   `;
-  const output = execFileSync(process.execPath, ['-e', script], {
+  const output = execFileSync(process.execPath, ['--import', 'tsx', '-e', script], {
     cwd: repoRoot,
     env: {...process.env, LC_ALL: 'en_US.UTF-8', LANG: 'en_US.UTF-8'},
     encoding: 'utf8'

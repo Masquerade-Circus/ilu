@@ -14,7 +14,7 @@ type SendMessage = {type: string; payload: Record<string, unknown>};
 type Send = (message: SendMessage) => void;
 type Waiter = {id: string; resolve: (status: SyncStatus) => void};
 type SyncIndex = {
-  notifyLocalMutation: (context: SyncContext) => Promise<SyncStatus>;
+  sync: (context: SyncContext) => Promise<SyncStatus>;
   getSyncStatus?: () => SyncStatus;
 };
 type TuiSyncRunnerOptions = {
@@ -109,7 +109,7 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     }
 
     try {
-      const result = await syncIndex.notifyLocalMutation(context);
+      const result = await syncIndex.sync(context);
       lastStatus = result;
       const hasQueuedMutation = pendingContext !== null;
 
@@ -147,14 +147,14 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     if (flushWaiters.length > 0) {
       const waitersToFlush = flushWaiters;
       flushWaiters = [];
-      const status = lastStatus || readStatus();
+      const status = lastStatus || (await readStatus());
       finishWaiters(waitersToFlush, status);
     }
   }
 
-  function readStatus() {
+  async function readStatus() {
     if (syncIndex && typeof syncIndex.getSyncStatus === 'function') {
-      return syncIndex.getSyncStatus();
+      return await syncIndex.getSyncStatus();
     }
 
     return lastStatus || {status: 'disabled', hasPendingRemote: false};
@@ -174,19 +174,16 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     });
   }
 
-  function flush(id: string) {
-    return new Promise<SyncStatus>((resolve) => {
-      const waiter = {id, resolve};
+  async function flush(id: string) {
+    if (active || pendingContext !== null) {
+      return new Promise<SyncStatus>((resolve) => {
+        flushWaiters.push({id, resolve});
+      });
+    }
 
-      if (active || pendingContext !== null) {
-        flushWaiters.push(waiter);
-        return;
-      }
-
-      const status = lastStatus || readStatus();
-      emit('sync:result', {id, ok: true, status});
-      resolve(status);
-    });
+    const status = lastStatus || (await readStatus());
+    emit('sync:result', {id, ok: true, status});
+    return status;
   }
 
   async function shutdown(id: string) {
@@ -227,7 +224,7 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
 
     if (messageType === 'sync:status') {
       try {
-        const status = readStatus();
+        const status = await readStatus();
         emit('sync:result', {id: payload.id, ok: true, status});
       } catch (error: unknown) {
         void error;

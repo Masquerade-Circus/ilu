@@ -4,15 +4,20 @@
   "type": "module",
   "description": "Cli tools for productivity, notes, todo-lists, etc...",
   "author": "Masquerade <christian@masquerade-circus.net>",
-  "repository": "git@github.com:Masquerade-Circus/ilu.git",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Masquerade-Circus/ilu.git"
+  },
   "license": "Apache-2.0",
+  "workspaces": [
+    "sync-core"
+  ],
   "files": [
     "bin/",
     "clocks/",
     "notes/",
     "scrumban/",
     "sync/",
-    "sync-core/",
     "todos/",
     "translate/",
     "tts/",
@@ -25,14 +30,14 @@
     "!**/tests/"
   ],
   "bin": {
-    "ilu": "./bin/cli.js"
+    "ilu": "bin/cli.js"
   },
   "engines": {
     "node": ">=20.11.0"
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "node --import tsx --import ./support/test-home-guard.ts --test",
+    "test": "node --import tsx --import ./support/test-home-guard.ts --test tests/*.test.ts tests/test-helpers/*.test.ts translate/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts"
   },
@@ -46,6 +51,7 @@
     "iludb": "^1.0.0",
     "lodash": "^4.17.11",
     "openai": "^6.34.0",
+    "sync-core": "^1.0.0",
     "tsx": "^4.22.4",
     "valyrian.js": "^9.1.13",
     "x-robot": "^1.1.0"
@@ -57,5 +63,18 @@
     "globals": "^17.7.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/Masquerade-Circus/ilu/issues"
+  },
+  "homepage": "https://github.com/Masquerade-Circus/ilu#readme",
+  "bundleDependencies": [
+    "sync-core"
+  ]
 }

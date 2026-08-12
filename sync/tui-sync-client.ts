@@ -121,7 +121,7 @@ function createTuiSyncClient(options: TuiSyncClientOptions = {}) {
   }
 
   return {
-    notifyLocalMutation(context: unknown = {}) {
+    sync(context: unknown = {}) {
       const safeContext = isObject(context) ? context : {};
       pendingMutations += 1;
       return send('sync:mutation', {context: safeContext})

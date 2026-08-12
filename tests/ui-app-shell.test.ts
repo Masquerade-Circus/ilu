@@ -553,7 +553,7 @@ test('mountInteractiveSession waits for TUI sync client shutdown before terminal
         createTuiSyncClient() {
           events.push('create-client');
           return {
-            notifyLocalMutation: async () => ({status: 'healthy', hasPendingRemote: false}),
+            sync: async () => ({status: 'healthy', hasPendingRemote: false}),
             shutdown: async () => {
               events.push('shutdown-start');
               await Promise.resolve();

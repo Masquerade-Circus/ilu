@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 function deferred() {
   let resolve;
@@ -17,7 +18,7 @@ test('TUI sync runner rejects malformed IPC messages without touching sync runti
   let calls = 0;
   const runner = createTuiSyncRunner({
     syncIndex: {
-      notifyLocalMutation() {
+      sync() {
         calls += 1;
         return {status: 'healthy', hasPendingRemote: false};
       }
@@ -45,7 +46,7 @@ test('TUI sync runner keeps one active Git sync and coalesces mutations for the 
   const calls = [];
   const runner = createTuiSyncRunner({
     syncIndex: {
-      notifyLocalMutation(context) {
+      sync(context) {
         calls.push(context);
         return calls.length === 1 ? first.promise : second.promise;
       }
@@ -91,7 +92,7 @@ test('TUI sync runner does not start queued mutation after active sync fails', a
   const calls = [];
   const runner = createTuiSyncRunner({
     syncIndex: {
-      notifyLocalMutation(context) {
+      sync(context) {
         calls.push(context);
         return first.promise;
       }
@@ -122,53 +123,26 @@ test('TUI sync runner does not start queued mutation after active sync fails', a
 
 test('TUI sync runner reports failed instead of setup when a coalesced mutation hits a backend error with valid config', async () => {
   const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const { createSyncRuntimeAdvanced } = await import('../sync-core/advanced');
+  const { createSyncRuntime } = await import('sync-core');
   const sent = [];
   const firstFetch = deferred();
   let fetchCalls = 0;
-  const persistedState = {
-    enabled: true,
-    status: 'healthy',
-    hasPendingRemote: false,
-    retryCount: 0,
-    lastErrorKind: null,
-    lastErrorMessage: null
-  };
-  const runtime = createSyncRuntimeAdvanced({
-    config: {
-      enabled: true,
-      remoteUrl: 'file://redacted-remote.git',
-      branch: 'main',
-      autoSync: true,
-      autoPull: true,
-      autoPush: true
-    },
-    sourceRoot: './tmp/source',
-    ignorePatterns: ['.config/**'],
-    stateStore: {
-      loadState() {
-        return {...persistedState};
-      },
-      saveState(nextState) {
-        Object.assign(persistedState, nextState);
-        return {...persistedState};
-      }
-    },
+  const rootPath = './tmp/source';
+  fs.mkdirSync(rootPath, {recursive: true});
+  const runtime = await createSyncRuntime({
+    rootPath,
+    excludePatterns: ['.config/**'],
     backend: {
-      ensureReady() {},
-      syncWorkingTree() {},
-      hasChanges() { return true; },
-      commit() {},
-      fetch() {
+      async synchronize() {
         fetchCalls += 1;
         if (fetchCalls === 1) {
           return firstFetch.promise;
         }
         throw new Error('simulated backend failure after queued mutation');
       },
-      integrate() {},
-      push() {},
-      getStatus() { return '## main'; }
+      classifyError() {
+        return {kind: 'unknown', retryable: false, safeMessage: 'Sync failed'};
+      }
     }
   });
   const runner = createTuiSyncRunner({
@@ -188,9 +162,10 @@ test('TUI sync runner reports failed instead of setup when a coalesced mutation 
     'syncing', 'failed'
   ]);
   assert.equal(sent.some(message => message.type === 'sync:event' && message.payload.state === 'setup'), false);
-  assert.equal(persistedState.status, 'failed');
-  assert.equal(persistedState.hasPendingRemote, true);
-  assert.equal(persistedState.lastErrorKind, 'unknown');
+  assert.equal(runtime.getSyncStatus().status, 'failed');
+  assert.equal(runtime.getSyncStatus().hasPendingRemote, true);
+  assert.equal(runtime.getSyncStatus().lastErrorKind, 'unknown');
+  fs.rmSync(rootPath, {recursive: true, force: true});
 });
 
 test('TUI sync runner flush waits for active and queued mutation before shutdown result', async () => {
@@ -202,7 +177,7 @@ test('TUI sync runner flush waits for active and queued mutation before shutdown
   let closed = false;
   const runner = createTuiSyncRunner({
     syncIndex: {
-      notifyLocalMutation(context) {
+      sync(context) {
         calls.push(context);
         return calls.length === 1 ? first.promise : second.promise;
       },

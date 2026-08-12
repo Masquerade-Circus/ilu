@@ -24,7 +24,7 @@ export type TerminalRuntimeModule = typeof terminalRuntime;
 export type ValyrianRuntime = { v: (tag: unknown, props?: Record<string, unknown>, ...children: unknown[]) => JSX.Element };
 export type Runtime = { terminal: TerminalRuntimeModule; valyrian: ValyrianRuntime };
 export type SyncStatusEvent = { state?: unknown; message?: unknown; context?: unknown };
-export type TuiSyncRunnerClient = { notifyLocalMutation: (context?: unknown) => Promise<unknown>; flush?: () => Promise<unknown>; shutdown?: () => Promise<unknown>; dispose?: () => void; hasPendingWork?: () => boolean; onEvent?: (listener: (event: SyncStatusEvent) => void) => () => void };
+export type TuiSyncRunnerClient = { sync: (context?: unknown) => Promise<unknown>; flush?: () => Promise<unknown>; shutdown?: () => Promise<unknown>; dispose?: () => void; hasPendingWork?: () => boolean; onEvent?: (listener: (event: SyncStatusEvent) => void) => () => void };
 export type NotifySyncHook = ((context?: unknown) => void) & { onSyncStatus?: (listener: (event: SyncStatusEvent) => void) => () => void; flushPending?: () => boolean | Promise<boolean>; configureSyncRunner?: (runner: TuiSyncRunnerClient | null) => () => void };
 export type Tab = "Todo" | "Notes" | "Board" | "Clocks" | "Sync" | "Translate" | "Speech";
 export type AppRuntimeState = AppState & {

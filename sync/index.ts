@@ -1,73 +1,59 @@
-import * as __cjsImport29 from '../sync-core/engine.ts';
-const { createSyncRuntime: createEngineRuntime } = __cjsImport29;
-import * as __cjsImport30 from '../sync-core/advanced.ts';
-const { createSyncRuntimeAdvanced: createEngineRuntimeAdvanced } = __cjsImport30;
+import { createSyncRuntime as createCoreSyncRuntime } from 'sync-core';
+import type { NormalizedSyncState, SyncBackend, SyncMutationContext, SyncRuntime, SyncRuntimeOptions } from 'sync-core';
 import adapter from './ilu-adapter.ts';
-import * as __cjsImport31 from './git-cli-backend.ts';
-const { createGitCliBackend } = __cjsImport31;
-import stateStore from './state-store.ts';
-type SyncMutationContext = {
-  domain?: string;
-  action?: string;
-  reason?: string;
-} & Record<string, unknown>;
+import { createGitBackend } from './git-cli-backend.ts';
+import { clearPendingMarker, loadPendingMarker, migrateLegacySyncState, savePendingMarker } from './state-store.ts';
 
-type SyncAdapter = {
-  getSyncConfig: () => Record<string, unknown>;
-  getSourceRoot: () => string;
-  getIgnorePatterns?: () => string[];
-  buildCommitMessage: (context: SyncMutationContext) => string;
+type SyncRuntimeOverrides = Partial<SyncRuntimeOptions>;
+type IluSyncState = Omit<NormalizedSyncState, 'status'> & {
+  enabled: boolean;
+  status: NormalizedSyncState['status'] | 'disabled';
 };
-
-type SyncRuntimeOverrides = Record<string, unknown> & {
-  buildCommitMessage?: (context: SyncMutationContext) => string;
-};
-
-type SyncRuntimeAdvancedOptions = NonNullable<Parameters<typeof createEngineRuntimeAdvanced>[0]>;
-type SyncStatus = Record<string, unknown>;
-type SyncRuntime = {
-  notifyLocalMutation: (context: SyncMutationContext) => Promise<SyncStatus>;
-  getSyncStatus: () => SyncStatus;
-  retry: (context: SyncMutationContext) => Promise<unknown>;
-  enable?: () => Promise<SyncStatus>;
-  disable?: () => Promise<SyncStatus>;
+type IluSyncRuntime = {
+  sync(context?: SyncMutationContext): Promise<IluSyncState>;
+  getSyncStatus(): IluSyncState;
 };
 
 let runtime: SyncRuntime | null = null;
+let runtimePromise: Promise<SyncRuntime> | null = null;
+let generation = 0;
+let lastContext: SyncMutationContext = {};
+let enableBarrier: Promise<void> = Promise.resolve();
+const activeSyncs = new Set<Promise<NormalizedSyncState>>();
+const activeBackendInvocations = new Set<Promise<void>>();
+const runtimeGenerations = new WeakMap<SyncRuntime, number>();
 
-function getRuntimeOptions(consumerAdapter: SyncAdapter = adapter, overrides: SyncRuntimeOverrides = {}) {
-  let config = consumerAdapter.getSyncConfig();
-
+function disabledState(): IluSyncState {
+  const pending = loadPendingMarker() !== null;
   return {
-    enabled: Object.prototype.hasOwnProperty.call(overrides, 'enabled')
-      ? overrides.enabled
-      : config.enabled,
-    remoteUrl: Object.prototype.hasOwnProperty.call(overrides, 'remoteUrl')
-      ? overrides.remoteUrl
-      : config.remoteUrl,
-    branch: Object.prototype.hasOwnProperty.call(overrides, 'branch')
-      ? overrides.branch
-      : config.branch,
-    autoSync: Object.prototype.hasOwnProperty.call(overrides, 'autoSync')
-      ? overrides.autoSync
-      : config.autoSync,
-    autoPull: Object.prototype.hasOwnProperty.call(overrides, 'autoPull')
-      ? overrides.autoPull
-      : config.autoPull,
-    autoPush: Object.prototype.hasOwnProperty.call(overrides, 'autoPush')
-      ? overrides.autoPush
-      : config.autoPush,
-    sourceRoot: Object.prototype.hasOwnProperty.call(overrides, 'sourceRoot')
-      ? overrides.sourceRoot
-      : consumerAdapter.getSourceRoot(),
-    ignorePatterns: Object.prototype.hasOwnProperty.call(overrides, 'ignorePatterns')
-      ? overrides.ignorePatterns
-      : (typeof consumerAdapter.getIgnorePatterns === 'function'
-        ? consumerAdapter.getIgnorePatterns()
-        : []),
-    buildCommitMessage: typeof overrides.buildCommitMessage === 'function'
-      ? overrides.buildCommitMessage
-      : (context: SyncMutationContext) => consumerAdapter.buildCommitMessage(context)
+    enabled: false,
+    status: 'disabled',
+    hasPendingRemote: pending,
+    pendingOperationId: null,
+    retryCount: 0,
+    backoffUntil: null,
+    lastErrorKind: null,
+    lastErrorMessage: null,
+    lastSyncReason: null,
+    lastPhase: null,
+    lastSnapshotId: null,
+    lastSyncedSnapshotId: null
+  };
+}
+
+function enabledState(state: NormalizedSyncState): IluSyncState {
+  if (loadPendingMarker() !== null) {
+    return {...state, enabled: true, status: 'pending_remote', hasPendingRemote: true};
+  }
+  return {...state, enabled: true};
+}
+
+function pendingState(): IluSyncState {
+  return {
+    ...disabledState(),
+    enabled: true,
+    status: 'pending_remote',
+    hasPendingRemote: true
   };
 }
 
@@ -77,93 +63,241 @@ function getSyncConfig() {
 
 function getBootstrapContext() {
   return {
-    sourceRoot: adapter.getSourceRoot(),
-    ignorePatterns: typeof adapter.getIgnorePatterns === 'function'
-      ? adapter.getIgnorePatterns()
-      : []
+    rootPath: adapter.getSourceRoot(),
+    excludePatterns: typeof adapter.getIgnorePatterns === 'function' ? adapter.getIgnorePatterns() : []
   };
 }
 
 function createBootstrapBackend(options: Record<string, string | null> = {}) {
-  let config = getSyncConfig();
-  let bootstrapContext = getBootstrapContext();
-
-  return createGitCliBackend({
-    repoPath: options.repoPath || bootstrapContext.sourceRoot,
+  const config = getSyncConfig();
+  const bootstrapContext = getBootstrapContext();
+  return createGitBackend({
+    repoPath: options.repoPath || bootstrapContext.rootPath,
     branch: options.branch || config.branch,
     remote: options.remote || 'origin',
-    remoteUrl: options.remoteUrl || config.remoteUrl
+    remoteUrl: options.remoteUrl || config.remoteUrl,
+    receiveRemote: config.autoPull !== false,
+    publishLocal: config.autoPush !== false,
+    describeChange: (context) => adapter.buildCommitMessage(context)
   });
 }
 
-function initializeSyncState(state: Record<string, unknown> = {}) {
-  return stateStore.saveState({
-    ...stateStore.defaultState(),
-    ...state
-  });
+function getRuntimeOptions(overrides: SyncRuntimeOverrides = {}): SyncRuntimeOptions {
+  const config = getSyncConfig();
+  const rootPath = overrides.rootPath ?? adapter.getSourceRoot();
+  return {
+    ...overrides,
+    backend: overrides.backend ?? createGitBackend({
+      repoPath: rootPath,
+      branch: config.branch,
+      remote: 'origin',
+      remoteUrl: config.remoteUrl,
+      receiveRemote: config.autoPull !== false,
+      publishLocal: config.autoPush !== false,
+      describeChange: (context) => adapter.buildCommitMessage(context)
+    }),
+    rootPath,
+    excludePatterns: overrides.excludePatterns ?? adapter.getIgnorePatterns()
+  };
 }
 
-function createSyncRuntime(overrides: SyncRuntimeOverrides = {}) {
-  let forbidden = ['backend', 'stateStore', 'adapter', 'config']
-    .filter((key) => Object.prototype.hasOwnProperty.call(overrides, key));
-
-  if (forbidden.length > 0) {
-    throw new Error(`sync.createSyncRuntime does not accept ${forbidden.join(' or ')} overrides`);
-  }
-
-  runtime = createEngineRuntime(getRuntimeOptions(adapter, overrides)) as unknown as SyncRuntime;
-
-  return runtime;
+function backendForGeneration(backend: SyncBackend, ownerGeneration: number): SyncBackend {
+  return {
+    async synchronize(request) {
+      if (ownerGeneration !== generation) {
+        return;
+      }
+      const invocation = Promise.resolve().then(() => backend.synchronize(request));
+      activeBackendInvocations.add(invocation);
+      try {
+        await invocation;
+      } finally {
+        activeBackendInvocations.delete(invocation);
+      }
+    },
+    classifyError(error, request) {
+      return backend.classifyError(error, request);
+    }
+  };
 }
 
-function createSyncRuntimeAdvanced(options: SyncRuntimeAdvancedOptions = {}) {
-  runtime = createEngineRuntimeAdvanced({
+async function startRuntime(overrides: SyncRuntimeOverrides = {}) {
+  const options = getRuntimeOptions(overrides);
+  migrateLegacySyncState(options.rootPath);
+  generation += 1;
+  const ownerGeneration = generation;
+  const creatingRuntime = createCoreSyncRuntime({
     ...options,
-    sourceRoot: options.sourceRoot || adapter.getSourceRoot(),
-    ignorePatterns: Object.prototype.hasOwnProperty.call(options, 'ignorePatterns')
-      ? options.ignorePatterns
-      : (typeof adapter.getIgnorePatterns === 'function'
-        ? adapter.getIgnorePatterns()
-        : []),
-    buildCommitMessage: typeof options.buildCommitMessage === 'function'
-      ? options.buildCommitMessage
-      : (context: SyncMutationContext) => adapter.buildCommitMessage(context),
-    stateStore: options.stateStore || (stateStore as unknown as NonNullable<SyncRuntimeAdvancedOptions['stateStore']>)
-  }) as unknown as SyncRuntime;
-
-  return runtime;
-}
-
-function ensureRuntime() {
-  if (!runtime) {
-    runtime = createSyncRuntime();
+    backend: backendForGeneration(options.backend, ownerGeneration)
+  });
+  runtimePromise = creatingRuntime;
+  try {
+    const createdRuntime = await creatingRuntime;
+    runtimeGenerations.set(createdRuntime, ownerGeneration);
+    if (ownerGeneration === generation) {
+      runtime = createdRuntime;
+    }
+    return createdRuntime;
+  } catch (error) {
+    if (runtimePromise === creatingRuntime) {
+      runtimePromise = null;
+    }
+    throw error;
   }
+}
 
+async function runCoreSync(core: SyncRuntime, context: SyncMutationContext = {}) {
+  const operationGeneration = runtimeGenerations.get(core);
+  const marker = loadPendingMarker();
+  const mergedContext = {...(marker?.context ?? {}), ...context};
+  lastContext = mergedContext;
+  savePendingMarker(mergedContext);
+  const operation = core.sync(mergedContext).then((state) => state);
+  activeSyncs.add(operation);
+  try {
+    const state = await operation;
+    if (
+      operationGeneration === generation &&
+      getSyncConfig().enabled === true &&
+      state.status === 'healthy' &&
+      state.hasPendingRemote === false
+    ) {
+      clearPendingMarker();
+    }
+    return state;
+  } finally {
+    activeSyncs.delete(operation);
+  }
+}
+
+function wrapRuntime(core: SyncRuntime): IluSyncRuntime {
+  return {
+    async sync(context = {}) {
+      return enabledState(await runCoreSync(core, context));
+    },
+    getSyncStatus() {
+      return enabledState(core.getSyncStatus());
+    }
+  };
+}
+
+function disabledRuntime(): IluSyncRuntime {
+  return {
+    async sync() {
+      return disabledState();
+    },
+    getSyncStatus() {
+      return disabledState();
+    }
+  };
+}
+
+async function createSyncRuntime(overrides: SyncRuntimeOverrides = {}) {
+  if (getSyncConfig().enabled !== true) {
+    return disabledRuntime();
+  }
+  await enableBarrier;
+  if (Object.keys(overrides).length === 0 && runtime !== null) {
+    return wrapRuntime(runtime);
+  }
+  return wrapRuntime(await startRuntime(overrides));
+}
+
+async function ensureRuntime(): Promise<SyncRuntime> {
+  if (getSyncConfig().enabled !== true) {
+    throw new Error('Sync is disabled');
+  }
+  await enableBarrier;
+  if (runtime !== null) {
+    return runtime;
+  }
+  if (runtimePromise === null) {
+    return startRuntime();
+  }
+  runtime = await runtimePromise;
   return runtime;
 }
 
-function notifyLocalMutation(context: SyncMutationContext) {
-  return ensureRuntime().notifyLocalMutation(context);
+async function sync(context: SyncMutationContext = {}) {
+  const config = getSyncConfig();
+  if (config.enabled !== true) {
+    return disabledState();
+  }
+  if (config.autoSync === false) {
+    lastContext = {...context};
+    savePendingMarker(lastContext);
+    return pendingState();
+  }
+  return enabledState(await runCoreSync(await ensureRuntime(), context));
 }
 
-function getSyncStatus() {
-  return ensureRuntime().getSyncStatus();
+async function getSyncStatus() {
+  if (getSyncConfig().enabled !== true) {
+    return disabledState();
+  }
+  if (loadPendingMarker() !== null && runtime === null) {
+    return pendingState();
+  }
+  return enabledState((await ensureRuntime()).getSyncStatus());
 }
 
-function retry(context: SyncMutationContext) {
-  return ensureRuntime().retry(context);
+async function retry(context: SyncMutationContext = {}) {
+  if (getSyncConfig().enabled !== true) {
+    return disabledState();
+  }
+  return enabledState(await runCoreSync(await ensureRuntime(), context));
 }
 
-export { getSyncConfig, getBootstrapContext, getRuntimeOptions, createBootstrapBackend, initializeSyncState, createSyncRuntime, createSyncRuntimeAdvanced, notifyLocalMutation, getSyncStatus, retry };
+async function disable() {
+  const currentState = runtime?.getSyncStatus() ?? null;
+  if (currentState?.hasPendingRemote === true || activeSyncs.size > 0) {
+    savePendingMarker(lastContext);
+  }
+  generation += 1;
+  const operations = [...activeSyncs, ...activeBackendInvocations];
+  const backoffUntil = currentState?.backoffUntil ?? null;
+  const previousBarrier = enableBarrier;
+  enableBarrier = Promise.all([previousBarrier, Promise.allSettled(operations)]).then(async () => {
+    if (operations.length === 0 && backoffUntil !== null && backoffUntil > Date.now()) {
+      await new Promise<void>((resolve) => setTimeout(resolve, backoffUntil - Date.now()));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  });
+  runtime = null;
+  runtimePromise = null;
+  return disabledState();
+}
+
+async function enable(overrides: SyncRuntimeOverrides = {}) {
+  await enableBarrier;
+  const core = Object.keys(overrides).length > 0 ? await startRuntime(overrides) : await ensureRuntime();
+  if (loadPendingMarker() !== null || core.getSyncStatus().hasPendingRemote) {
+    return enabledState(await runCoreSync(core, {reason: 'enable'}));
+  }
+  return enabledState(core.getSyncStatus());
+}
+
+export {
+  getSyncConfig,
+  getBootstrapContext,
+  getRuntimeOptions,
+  createBootstrapBackend,
+  createSyncRuntime,
+  sync,
+  getSyncStatus,
+  retry,
+  disable,
+  enable
+};
 export default {
   getSyncConfig,
   getBootstrapContext,
   getRuntimeOptions,
   createBootstrapBackend,
-  initializeSyncState,
   createSyncRuntime,
-  createSyncRuntimeAdvanced,
-  notifyLocalMutation,
+  sync,
   getSyncStatus,
-  retry
+  retry,
+  disable,
+  enable
 };

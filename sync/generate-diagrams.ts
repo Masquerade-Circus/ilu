@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import * as __cjsImport26 from '../sync-core/diagram.ts';
+import * as __cjsImport26 from 'sync-core/diagram';
 const { generateSyncDiagrams } = __cjsImport26;
 generateSyncDiagrams()
     .then((result: Awaited<ReturnType<typeof generateSyncDiagrams>>) => {

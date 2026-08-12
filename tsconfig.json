@@ -16,5 +16,5 @@
     "noUncheckedIndexedAccess": false
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "tmp", "tests", "**/*.test.ts"]
+  "exclude": ["node_modules", "sync-core", "tmp", "tests", "**/*.test.ts"]
 }

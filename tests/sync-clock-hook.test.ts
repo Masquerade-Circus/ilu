@@ -6,7 +6,7 @@ import { withTempHome } from '../support/home-sandbox';
 async function loadClocksModel(events) {
   const state = {syncIndexLoadCount: 0};
   const restoreExecutor = configureSyncExecutor({
-    notifyLocalMutation: async (context) => {
+    sync: async (context) => {
       state.syncIndexLoadCount += 1;
       events.push(context);
     }

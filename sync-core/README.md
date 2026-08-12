@@ -1,285 +1,283 @@
-# `sync-core`
+# sync-core
 
-Sincronización local-first para carpetas de datos, archivos y configuración de usuario en proyectos Node.js.
+**Add durable, backend-agnostic synchronization to a Node application through one factory and two runtime methods.**
 
-## ¿Qué es?
+`sync-core` coordinates synchronization work, persists pending operations, retries retryable failures and absorbs bursts of repeated signals. Your application keeps ownership of its data. You provide a backend and the directory that contains that data, then call `sync()` whenever local work should reach the backend.
 
-`sync-core` es una librería para agregar sincronización confiable a herramientas y aplicaciones que guardan datos localmente primero y después los sincronizan con un remoto.
+Git support is included through `sync-core/git`. Custom backends implement a two-method contract without exposing provider policy to the core.
 
-Su trabajo es encargarse de la capa difícil de sync: detectar trabajo pendiente, sincronizar una carpeta fuente, conservar estado, degradarse con claridad cuando algo falla y permitir recuperación sin perder el foco local-first.
+## Quick start
 
-## ¿Qué problema resuelve?
+```ts
+import { createSyncRuntime } from "sync-core";
+import { createGitBackend } from "sync-core/git";
 
-Guardar archivos locales es fácil. Convertir eso en una experiencia de sincronización usable y mantenible no lo es.
+const rootPath = "./data";
 
-Cuando una herramienta guarda datos del usuario en disco, normalmente aparecen problemas como estos:
+const remoteUrl = process.env.SYNC_REMOTE_URL;
+if (!remoteUrl) {
+  throw new Error("SYNC_REMOTE_URL is required");
+}
 
-- la escritura local no debe depender del remoto;
-- no todo lo que existe en la carpeta debe sincronizarse;
-- hace falta saber si hay cambios pendientes por subir;
-- los errores de red, autenticación o conflicto no deberían romper la experiencia local;
-- el estado de sincronización debe sobrevivir entre ejecuciones;
-- no quieres mezclar lógica de negocio con lógica de retry, degradación y sincronización.
+const backend = createGitBackend({
+  repoPath: rootPath,
+  remoteUrl,
+  branch: "main"
+});
 
-`sync-core` existe para resolver esa capa. Te permite tratar una carpeta local como fuente de trabajo y delegar al core la responsabilidad de mantenerla sincronizada con un remoto bajo una estrategia local-first.
+const runtime = await createSyncRuntime({
+  backend,
+  rootPath,
+  excludePatterns: [".config/**"]
+});
 
-## ¿Para quién es?
+await runtime.sync({ domain: "documents", action: "save" });
+console.log(runtime.getSyncStatus());
+```
 
-`sync-core` está pensado para developers que construyen:
+The developer supplies `backend`, `rootPath` and, when needed, exclusion or retry options. The runtime creates a missing `rootPath`, then handles coordination and operational persistence.
 
-- CLIs con almacenamiento local;
-- herramientas de productividad;
-- developer tools;
-- utilidades que guardan archivos o snapshots del usuario;
-- apps Node.js que trabajan con una carpeta local de datos o configuración.
+`sync()` starts that coordination. It does not receive, own or store your user data. The backend reads or writes data under `rootPath` according to its own provider protocol. The optional context only describes why synchronization was requested and is forwarded to the backend.
 
-Es una buena opción si tu proyecto:
+## How it works
 
-- persiste datos en archivos;
-- necesita sincronizar con un remoto;
-- necesita reglas de exclusión;
-- quiere separar el sync de la lógica de producto;
+Each `sync()` call becomes part of an operation with a stable `operationId`. The runtime persists pending state before backend work, calls `backend.synchronize()`, classifies failures and retries only those marked `retryable`.
 
-## Beneficios principales
+```ts
+await runtime.sync();
+await runtime.sync({ domain: "documents", action: "save" });
+runtime.getSyncStatus();
+```
 
-### 1) Local-first de verdad
+- `sync(context?)` starts or joins the operation that covers the call and resolves with its resulting state.
+- `getSyncStatus()` returns the current in-memory state without starting backend work.
+- The runtime keeps at most one active operation and one trailing coalesced operation.
+- Successful work clears pending state. Terminal failures remain visible through runtime status and durable state.
 
-La prioridad es la persistencia local. La sincronización remota ocurre después.
+## Runtime options
 
-Eso ayuda a evitar que una escritura del usuario dependa de la red o de la salud del remoto para poder completarse.
+```ts
+type SyncRuntimeOptions = {
+  backend: SyncBackend;
+  rootPath: string;
+  excludePatterns?: string[];
+  maxRetries?: number;
+  retryDelayMs?: number;
+  retryBackoffFactor?: number;
+  maxRetryDelayMs?: number;
+};
+```
 
-### 2) Trabaja con carpetas reales, no con una lista rígida de archivos
+| Option               | Default | Purpose                                     |
+| -------------------- | ------: | ------------------------------------------- |
+| `excludePatterns`    |    `[]` | Files and directories the backend must skip |
+| `maxRetries`         |     `3` | Retry attempts after the initial attempt    |
+| `retryDelayMs`       |  `1000` | Initial retry delay                         |
+| `retryBackoffFactor` |     `2` | Exponential delay multiplier                |
+| `maxRetryDelayMs`    | `30000` | Cap for the calculated exponential delay    |
 
-El core opera sobre una carpeta fuente y patrones de exclusión.
+`rootPath` names the directory that contains your application data. The factory creates it recursively with restrictive permissions when it is missing, without changing permissions on an existing directory. It rejects a file or symbolic link at the final `rootPath`, then initializes `.sync-core` with its private-state guarantees. Creation, inspection or write failures stop startup with a clear error instead of falling back to memory.
 
-Eso lo vuelve más útil para proyectos reales donde los datos viven como árbol de archivos.
+The runtime protects the final `rootPath`, `.sync-core` and its state files. Parent directories are allowed to include platform-standard links, so the application must choose a path whose ancestors it trusts.
 
-### 3) Estados explícitos y útiles
+The factory also validates the backend contract and retry values. It automatically adds `.sync-core/**` to the exclusions passed to every backend.
 
-No reduce todo a “sirvió / falló”.
+## Automatic retry that survives restarts
 
-El runtime puede representar estados como:
+Retryable failures use configurable exponential backoff. With the defaults, retries wait 1, 2 and 4 seconds. The initial backend call does not count as a retry.
 
-- `disabled`
-- `healthy`
-- `pending_remote`
-- `degraded_network`
-- `degraded_auth`
-- `conflict`
-- `misconfigured`
+When `classifyError()` returns `retryAfterMs`, that value becomes the minimum wait. It can exceed `maxRetryDelayMs` because provider guidance takes precedence over the calculated cap.
 
-Eso facilita integrar mensajes claros, diagnósticos, retries y UX más honestas.
+The runtime preserves the same `operationId` across every attempt and process restart. On startup, it rehydrates retryable pending work and resumes after the persisted backoff. A retry timer with waiting callers keeps the process alive. A timer restored without callers uses `unref()` so pending background work does not hold the process open by itself.
 
-### 4) Reintentos y degradación sin improvisar
+Non-retryable failures and exhausted retries remain pending in a terminal state. The core has no manual retry method or external scheduler contract.
 
-Cuando el remoto falla, el core puede conservar el trabajo pendiente y dejar el sistema listo para reintento, en lugar de hacer que tu app invente esa lógica una y otra vez.
+## Repeated calls without lost mutations
 
-### 5) Separación entre dominio y sincronización
+`sync-core` coalesces coordination work rather than delaying calls through throttle or debounce windows.
 
-Tu aplicación define qué datos guarda, dónde los guarda y qué quiere excluir.
+- Calls grouped before the first operation starts in the same microtask share that operation and promise.
+- Calls received while work or backoff is active join one trailing operation.
+- Every caller waits for the operation that covers its call.
+- A successful active operation starts the trailing operation next.
+- A signal received during backoff preserves the wait and cannot cancel active backend work.
+- A terminal active failure persists the trailing operation and resolves its callers with the terminal state.
 
-`sync-core` se encarga del flujo de sincronización.
+This gives the application a direct rule: call `sync()` after a relevant local mutation. The core groups redundant coordination signals while preserving work that arrives during an active operation.
 
-## Cómo pensar `sync-core`
+## Bring your own backend
 
-La forma correcta de entenderlo es esta:
+A custom backend implements only `synchronize()` and `classifyError()`:
 
-> Tu producto guarda datos locales.  
-> `sync-core` convierte eso en una experiencia de sincronización confiable.
+```ts
+import type { SyncBackend } from "sync-core";
 
-De esta forma no tienes que mezclar:
+declare function synchronizeProviderData(input: {
+  operationId: string;
+  rootPath: string;
+  excludePatterns: string[];
+}): Promise<void>;
+declare function isTemporaryProviderError(error: unknown): boolean;
 
-- persistencia local,
-- detección de trabajo pendiente,
-- pipeline de sincronización,
-- degradación,
-- retry,
-- y estado persistido de sync
+const backend: SyncBackend = {
+  async synchronize(request) {
+    await synchronizeProviderData({
+      operationId: request.operationId,
+      rootPath: request.rootPath,
+      excludePatterns: request.excludePatterns
+    });
+  },
 
-dentro del mismo lugar donde vive tu dominio.
-
-## Alcance de `sourceRoot`
-
-Se sincroniza todo el contenido ubicado dentro de `sourceRoot`, con dos excepciones: cualquier ruta que coincida con `ignorePatterns` y la carpeta `.config`.
-
-En términos prácticos, esto significa que `.config` nunca se sincroniza, aunque esté dentro de `sourceRoot`. Por lo tanto, es seguro guardar ahí configuraciones adicionales cuando el dominio del developer lo requiera, sin que formen parte de la sincronización.
-
-## Integración breve
-
-La API principal es plana y está pensada para el caso normal.
-
-El runtime principal se crea así:
-
-```js
-const { createSyncRuntime } = require("./sync-core/engine");
-
-const runtime = createSyncRuntime({
-  enabled: true,
-  remoteUrl: "/tmp/remote.git",
-  branch: "main",
-  autoSync: true,
-  autoPull: true,
-  autoPush: true,
-  sourceRoot: "/ruta/a/tu/carpeta-de-datos",
-  ignorePatterns: [".config/**"],
-  buildCommitMessage(context = {}) {
-    return `sync(${context.domain || "data"}): ${context.action || "save"} local data snapshot`;
+  classifyError(error) {
+    return isTemporaryProviderError(error)
+      ? { kind: "network", retryable: true, safeMessage: "Provider unavailable" }
+      : { kind: "unknown", retryable: false, safeMessage: "Synchronization failed" };
   }
+};
+```
+
+The complete request contract is:
+
+```ts
+type SyncRequest = {
+  operationId: string;
+  rootPath: string;
+  excludePatterns: string[];
+  context: SyncMutationContext;
+};
+
+type SyncBackend = {
+  synchronize(request: SyncRequest): Promise<void>;
+  classifyError(error: unknown, request: SyncRequest): SyncFailure;
+};
+
+type SyncFailure = {
+  kind: "network" | "auth" | "conflict" | "config" | "unknown";
+  retryable: boolean;
+  retryAfterMs?: number;
+  safeMessage?: string;
+};
+```
+
+Backends must treat repeated requests with the same `operationId` as idempotent. Keep `safeMessage` free of secrets and provider internals because it can reach user-visible status.
+
+The core does not discover providers or data automatically. Your application selects and configures the backend.
+
+## Durable internal state
+
+The Node runtime stores private operational state at:
+
+```text
+<rootPath>/.sync-core/state.json
+```
+
+This state belongs exclusively to the runtime. It tracks coordination, pending work and retry recovery, not application data. `.sync-core/**` is always excluded from backend synchronization.
+
+The state directory uses mode `0700`, and state or temporary files use `0600` where the host supports POSIX permissions. Persistence rejects symlinks, validates JSON, writes through a temporary file and atomic rename, and uses `fsync` where the platform supports it. Invalid or unwritable state fails clearly. The runtime never falls back silently to memory.
+
+There is no public state-store type, factory, option or package subpath.
+
+## Git backend
+
+`createGitBackend()` keeps Git-specific configuration and behavior outside the common runtime contract:
+
+```ts
+type GitCliBackendOptions = {
+  repoPath?: string | null;
+  branch?: string;
+  remote?: string;
+  remoteUrl?: string | null;
+  receiveRemote?: boolean;
+  publishLocal?: boolean;
+  describeChange?: (context: SyncMutationContext) => string | PromiseLike<string>;
+};
+```
+
+Git defaults to `branch: "main"`, `remote: "origin"`, `remoteUrl: null`, `receiveRemote: true` and `publishLocal: true`. The type permits an omitted or null `repoPath` so setup flows can construct the backend before choosing a repository. Synchronization requires `repoPath` to be configured.
+
+```ts
+import { createGitBackend } from "sync-core/git";
+
+const backend = createGitBackend({
+  repoPath: "./sync-repository",
+  remoteUrl: process.env.SYNC_REMOTE_URL ?? null,
+  branch: "main",
+  remote: "origin",
+  receiveRemote: true,
+  publishLocal: true,
+  describeChange: (context) => `sync(${context.domain ?? "data"}): ${context.action ?? "save"} local data snapshot`
 });
 ```
 
-Después, tu aplicación normalmente interactúa con el runtime así:
+`receiveRemote` and `publishLocal` default to `true`. The backend handles repository initialization, commits, fetch, integration and push. `repoPath` can differ from the runtime `rootPath`. In that arrangement, the backend copies included data between both directories.
 
-```js
-await runtime.notifyLocalMutation({
-  domain: "todos",
-  action: "save"
-});
+For a separate `repoPath`, an empty application root does not imply that every repository file was deleted. When the root has no synchronizable data and the repository already does, the first synchronization hydrates the root from the repository before any change calculation. This bootstrap preserves exclusions, ignores `.git` and symbolic links, and does not create a deletion commit or publish one. A root that already contains synchronizable data remains authoritative for normal local changes. Applications should call `inspectBootstrap()` before the first synchronization and stop for an explicit decision when both local data and remote history exist.
 
-const status = runtime.getSyncStatus();
+The Git backend also exposes `inspectBootstrap()` and `adoptRemote()` for explicit product setup flows. Runtime creation performs no automatic discovery or adoption.
+
+## Node runtime and browser bundles
+
+The runtime requires Node.js 20.11 or newer. Git usage also requires Git on `PATH`.
+
+The UMD bundle can load through CommonJS, AMD or a browser global, and ESM and CommonJS Node entry points are built. Browser, AMD and global loading does not provide browser synchronization. Calling `createSyncRuntime()` outside Node rejects with:
+
+```text
+sync-core createSyncRuntime() supports Node.js only
 ```
 
-Y cuando hace falta reintentar:
+There is no browser persistence implementation or in-memory fallback.
 
-```js
-await runtime.retry({ reason: "manual" });
+## Public API
+
+The root `sync-core` export provides `createSyncRuntime` and its public types.
+
+```ts
+declare function createSyncRuntime(options: SyncRuntimeOptions): Promise<SyncRuntime>;
+
+type SyncRuntime = {
+  sync(context?: SyncMutationContext): Promise<NormalizedSyncState>;
+  getSyncStatus(): NormalizedSyncState;
+};
 ```
 
-## API principal vs API avanzada
+Public package entries:
 
-### API principal: `createSyncRuntime()`
+- `sync-core`
+- `sync-core/git`
+- `sync-core/diagram`
 
-Esta es la ruta recomendada para casi todos los consumers.
+No public state-store subpath exists.
 
-La API principal recibe solo configuración de uso común:
+## Operational limits
 
-- flags de sync (`enabled`, `autoSync`, `autoPull`, `autoPush`);
-- remoto (`remoteUrl`, `branch`);
-- carpeta fuente (`sourceRoot`);
-- exclusiones (`ignorePatterns`);
-- mensaje de snapshot (`buildCommitMessage`).
+- Use one runtime owner per root and backend. Separate runtime instances do not coordinate through locks.
+- Make backend processing idempotent for each stable `operationId`.
+- Select and configure the backend explicitly. The core performs no provider or data discovery.
+- Call `sync()` after relevant mutations. The core does not observe the filesystem or application state for changes.
+- Run the synchronization runtime in Node. Browser bundles expose only the Node-only rejection boundary.
 
-El core resuelve internamente el backend y el state store por default.
+## Build from this workspace
 
-### API avanzada: `createSyncRuntimeAdvanced()`
-
-Solo usa esta ruta si necesitas extensibilidad explícita. Para el caso normal, sigue usando `createSyncRuntime()`.
-
-```js
-const { createSyncRuntimeAdvanced } = require("./sync-core/advanced");
-
-const runtime = createSyncRuntimeAdvanced({
-  config: {
-    enabled: true,
-    remoteUrl: "/tmp/remote.git",
-    branch: "main",
-    autoSync: true,
-    autoPull: true,
-    autoPush: true
-  },
-  sourceRoot: "/ruta/a/tu/carpeta-de-datos",
-  ignorePatterns: [".config/**"],
-  buildCommitMessage(context = {}) {
-    return `sync(${context.domain || "data"}): ${context.action || "save"} local data snapshot`;
-  },
-  stateStore,
-  backend
-});
+```bash
+cd sync-core
+bun install
+bun run build
 ```
 
-Regla de diseño:
+The build produces UMD, ESM, CommonJS and TypeScript declaration artifacts under `dist/`. This repository does not confirm an npm publication workflow, so consumers should install or link the built local package according to their workspace setup.
 
-- `createSyncRuntime()` = API simple principal.
-- `createSyncRuntimeAdvanced()` = API avanzada para inyección explícita.
-- No mezclar ambas firmas en el mismo entrypoint.
+## Development
 
-## Responsabilidades del consumer vs del core
+```bash
+npm run typecheck
+npm run lint
+npm run format:check
+npm test
+npm run build
+```
 
-## Lo que le toca al consumer
+Git is the only included backend.
 
-El consumer es responsable de:
+## License
 
-- decidir dónde vive la carpeta fuente;
-- definir qué rutas o patrones deben ignorarse;
-- entregar la configuración de sync;
-- definir cómo describir cada snapshot;
-- decidir cómo presentar la experiencia en CLI, UI o comandos.
-
-También le toca decidir qué eventos de dominio disparan `notifyLocalMutation()`.
-
-Si necesita composición manual de `stateStore` o `backend`, eso ya pertenece a la API avanzada, no a la integración principal.
-
-## Lo que resuelve el core
-
-`sync-core` se hace cargo de:
-
-- normalizar y rehidratar el estado de sync;
-- mantener una máquina de estados operativa para el flujo de sincronización;
-- reaccionar a mutaciones locales;
-- ejecutar el pipeline de sync;
-- clasificar errores comunes en categorías útiles;
-- conservar trabajo pendiente cuando el remoto falla;
-- habilitar retry;
-- exponer un estado legible para diagnóstico e integración.
-
-> **Nota sobre conflictos:** `sync-core` no resuelve conflictos automáticamente. Si durante la sincronización aparecen conflictos, deben revisarse y resolverse con Git, GitHub o una herramienta externa de merge/diff.
-
-## Alcance actual
-
-Hoy `sync-core` cubre un problema concreto y acotado:
-
-- sincronización basada en carpeta fuente;
-- reglas de exclusión con `ignorePatterns`;
-- persistencia de estado;
-- estrategia local-first;
-- retry explícito;
-- estados degradados útiles;
-- clasificación de errores de sync;
-- composición mediante contratos pequeños;
-- una ruta avanzada explícita para extensibilidad cuando hace falta.
-
-No intenta cubrir todo el universo de sincronización. Intenta resolver bien un caso específico y frecuente en tools basadas en archivos.
-
-## Límites actuales y honestidad de alcance
-
-Conviene ser explícitos:
-
-- es reusable, pero **no** universal;
-- está orientado a snapshots de una carpeta local;
-- el backend reusable observado hoy es opinionado hacia Git CLI y filesystem;
-- por default, ese backend opera sobre `sourceRoot` usando Git CLI y puede crear o actualizar `.git`, `.gitignore` y `.config/sync-state.json`; los `ignorePatterns` se registran en `.gitignore`, y la carpeta `.config` también se excluye automáticamente;
-- la integración principal ya no exige composición manual de backend/state store;
-- la composición manual vive en la API avanzada y sigue siendo una integración de bajo nivel para developers;
-- si buscas colaboración en tiempo real, merge semántico complejo o sync distribuido generalista, este no es ese producto.
-
-En otras palabras: `sync-core` ayuda mucho cuando tu problema se parece al que resuelve. No pretende fingir que resuelve todos los demás.
-
-## Cuándo sí tiene buen fit
-
-`sync-core` tiene buen fit si:
-
-- tu aplicación guarda archivos del usuario en disco;
-- quieres mantener la escritura local como prioridad;
-- necesitas sincronizar una carpeta completa;
-- quieres dejar fuera ciertos archivos o directorios;
-- necesitas retries y estados explícitos;
-- quieres separar tu lógica de producto de la lógica de sync.
-
-## Cuándo probablemente no
-
-Probablemente no es la mejor opción si necesitas:
-
-- edición colaborativa en tiempo real;
-- reconciliación avanzada entre múltiples actores;
-- un protocolo de sync completamente agnóstico y abstracto;
-- una solución cerrada que no requiera composición del lado del consumer.
-
-## Resumen
-
-`sync-core` no intenta ser “la librería de sync para todo”.
-
-Su propuesta es más concreta:
-
-**darle a una app o herramienta Node.js una base confiable para sincronizar una carpeta local de datos/configuración del usuario con un remoto, manteniendo una estrategia local-first, estado persistido y una integración pública clara mediante una API plana.**
-
-Si tu producto ya guarda datos en archivos y lo que te falta es una capa de sync seria, reusable y honesta sobre su alcance, ese es exactamente el espacio donde `sync-core` quiere ayudarte.
+Apache-2.0

@@ -8,7 +8,7 @@ type SyncListener = (event: SyncEvent) => void;
 type SyncConfig = {enabled?: boolean; autoSync?: boolean; remoteUrl?: string | null};
 type SyncExecutor = {
     getSyncConfig?: () => SyncConfig;
-    notifyLocalMutation: (context: SyncContext) => Promise<unknown>;
+    sync: (context: SyncContext) => Promise<unknown>;
     onEvent?: (listener: SyncListener) => () => void;
     hasPendingWork?: () => boolean;
     flush?: () => Promise<unknown>;
@@ -84,7 +84,7 @@ function configureSyncRunner(runner: SyncExecutor | null) {
         syncRunnerUnsubscribe = null;
     }
 
-    syncRunner = runner && typeof runner.notifyLocalMutation === 'function' ? runner : null;
+    syncRunner = runner && typeof runner.sync === 'function' ? runner : null;
 
     if (syncRunner && typeof syncRunner.onEvent === 'function') {
         syncRunnerUnsubscribe = syncRunner.onEvent((event: SyncEvent) => {
@@ -110,7 +110,7 @@ function configureSyncRunner(runner: SyncExecutor | null) {
 
 function configureSyncExecutor(executor: SyncExecutor | null) {
     let previousExecutor = syncExecutor;
-    syncExecutor = executor && typeof executor.notifyLocalMutation === 'function' ? executor : null;
+    syncExecutor = executor && typeof executor.sync === 'function' ? executor : null;
 
     return () => {
         syncExecutor = previousExecutor;
@@ -142,11 +142,11 @@ function logSyncing(syncIndex: SyncExecutor | null) {
 }
 
 function activeSyncExecutor(syncIndex: SyncExecutor | null = defaultSyncIndex): SyncExecutor {
-    if (syncRunner && typeof syncRunner.notifyLocalMutation === 'function') {
+    if (syncRunner && typeof syncRunner.sync === 'function') {
         return syncRunner;
     }
 
-    if (syncExecutor && typeof syncExecutor.notifyLocalMutation === 'function') {
+    if (syncExecutor && typeof syncExecutor.sync === 'function') {
         return syncExecutor;
     }
 
@@ -192,7 +192,7 @@ function runSyncNow(context: SyncContext, syncIndex: SyncExecutor | null = null)
                 logSyncing(activeSyncIndex);
             }
 
-            return activeSyncIndex.notifyLocalMutation(context)
+            return activeSyncIndex.sync(context)
                 .then((result: unknown) => ({result, visibleStatusOwnedByExecutor, terminalEventVersion}));
         })
         .then(({result, visibleStatusOwnedByExecutor, terminalEventVersion}: SyncRunResult) => {

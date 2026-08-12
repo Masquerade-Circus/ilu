@@ -6,6 +6,7 @@ let {
     SYNC_CONFIG_FILENAME,
     TTS_CONFIG_FILENAME,
     SYNC_STATE_FILENAME,
+    SYNC_PENDING_FILENAME,
     SYNC_LOCK_FILENAME
 } = syncContracts;
 
@@ -29,6 +30,10 @@ function syncStateFilePath() {
     return path.join(syncDirPath(), SYNC_STATE_FILENAME);
 }
 
+function syncPendingFilePath() {
+    return path.join(syncDirPath(), SYNC_PENDING_FILENAME);
+}
+
 function ttsConfigFilePath() {
     return path.join(syncDirPath(), TTS_CONFIG_FILENAME);
 }
@@ -37,7 +42,7 @@ function syncLockFilePath() {
     return path.join(syncDirPath(), SYNC_LOCK_FILENAME);
 }
 
-export { storageDirPath, dbFilePath, syncDirPath, syncConfigFilePath, ttsConfigFilePath, syncStateFilePath, syncLockFilePath };
+export { storageDirPath, dbFilePath, syncDirPath, syncConfigFilePath, ttsConfigFilePath, syncStateFilePath, syncPendingFilePath, syncLockFilePath };
 export default {
     storageDirPath,
     dbFilePath,
@@ -45,5 +50,6 @@ export default {
     syncConfigFilePath,
     ttsConfigFilePath,
     syncStateFilePath,
+    syncPendingFilePath,
     syncLockFilePath
 };

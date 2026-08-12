@@ -58,39 +58,29 @@ async function init(_args: string[] = [], options: InitOptions = {}) {
         }
     });
 
-    let initialState = dependencies.sync.initializeSyncState({
-        enabled: true,
-        status: bootstrap.localHasData || bootstrap.remoteHasHistory ? 'pending_remote' : 'healthy'
-    });
-
     if (!bootstrap.localHasData && bootstrap.remoteHasHistory) {
-        backend.ensureReady();
-        backend.fetch();
         backend.adoptRemote();
-        dependencies.sync.initializeSyncState({...initialState, status: 'healthy', hasPendingRemote: false});
+        await dependencies.sync.createSyncRuntime({
+            rootPath: bootstrapContext.rootPath,
+            excludePatterns: bootstrapContext.excludePatterns,
+            backend
+        });
     }
 
     if (bootstrap.localHasData && !bootstrap.remoteHasHistory) {
-        let bootstrapConfig = dependencies.sync.getSyncConfig();
-        let runtime = dependencies.sync.createSyncRuntimeAdvanced({
-            config: {
-                ...bootstrapConfig,
-                enabled: true,
-                remoteUrl,
-                branch
-            },
-            sourceRoot: bootstrapContext.sourceRoot,
-            ignorePatterns: bootstrapContext.ignorePatterns,
+        let runtime = await dependencies.sync.createSyncRuntime({
+            rootPath: bootstrapContext.rootPath,
+            excludePatterns: bootstrapContext.excludePatterns,
             backend
         });
-        await runtime.retry({reason: 'init'});
+        await runtime.sync({reason: 'init'});
     }
 
     return config;
 }
 
 async function status() {
-    let currentStatus = dependencies.sync.createSyncRuntime().getSyncStatus();
+    let currentStatus = (await dependencies.sync.createSyncRuntime()).getSyncStatus();
     console.log(`Sync: ${currentStatus.status}`);
     if (currentStatus.hasPendingRemote) {
         console.log('Pending remote sync: yes');
@@ -102,29 +92,19 @@ async function status() {
 }
 
 async function retry() {
-    let runtime = dependencies.sync.createSyncRuntime();
-    await runtime.retry({reason: 'manual'});
-    return runtime.getSyncStatus();
+    return dependencies.sync.retry({reason: 'manual'});
 }
 
 async function enable() {
     let config = dependencies.sync.getSyncConfig();
     saveConfig({sync: {...config, enabled: true}});
-    let runtime = dependencies.sync.createSyncRuntime();
-    if (typeof runtime.enable === 'function') {
-        await runtime.enable();
-    }
-    return runtime.getSyncStatus();
+    return dependencies.sync.enable();
 }
 
 async function disable() {
     let config = dependencies.sync.getSyncConfig();
     saveConfig({sync: {...config, enabled: false}});
-    let runtime = dependencies.sync.createSyncRuntime();
-    if (typeof runtime.disable === 'function') {
-        await runtime.disable();
-    }
-    return runtime.getSyncStatus();
+    return dependencies.sync.disable();
 }
 
 export { init, status, retry, enable, disable, configureCommandDependencies, resetCommandDependencies };
