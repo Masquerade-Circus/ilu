@@ -135,6 +135,10 @@ function createTuiSyncClient(options: TuiSyncClientOptions = {}) {
     flush() {
       return send('sync:flush');
     },
+    reconcileFile(input: unknown) {
+      const safeInput = isObject(input) ? input : {};
+      return send('sync:reconcile', safeInput);
+    },
     status() {
       return send('sync:status');
     },

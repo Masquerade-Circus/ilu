@@ -15,6 +15,7 @@ import { createSnapshotRef } from "./app-snapshot";
 import { createTuiSyncClient } from "../sync/tui-sync-client";
 import notifySyncHook from "../sync/ilu-hooks";
 import syncIndex from "../sync";
+import { onDataRecovery as defaultOnDataRecovery } from '../sync/iludb-recovery';
 import { createAppShell } from "./components/AppShell";
 import { FOOTER_STYLE, footerLine, footerSegments } from "./components/Footer";
 import { createButton } from "./components/Button";
@@ -90,7 +91,7 @@ function enableClockFooterTicker(session: TerminalSession, snapshotRef: Snapshot
     }
 
     snapshotRef.refresh("clocks");
-    session.update();
+    session?.update();
   }, 1000);
 
   session.destroy = () => {
@@ -251,7 +252,7 @@ function applyPendingFocus(session: TerminalSession | null, state: AppRuntimeSta
   if (focused) {
     overlayFocusSignatures.set(state, signature);
     trackedFocusIds.set(state, initialFocusId);
-    session.update();
+    session?.update();
   }
 
   return focused;
@@ -537,6 +538,39 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
   const cleanupSyncRunner = createTuiSyncRunnerCleanup();
   session = enableSyncStatusUpdates(session, state, cleanupSyncRunner);
+  let recoveryActive = true;
+  const unsubscribeRecovery = defaultOnDataRecovery((event) => {
+    if (recoveryActive === false) {
+      return;
+    }
+
+    const domain = event.domain === "todos" ? "todo" : event.domain === "notes" ? "notes" : event.domain === "boards" ? "board" : null;
+    if (domain !== null) {
+      snapshotRef.refresh(domain);
+    }
+    const message = event.error !== null
+      ? "Data recovery could not finish safely. The current file was preserved."
+      : event.result?.status === "reconciled"
+        ? "Remote changes were integrated. Repeat the action."
+        : "Local data was reloaded. Repeat the action.";
+    if (domain === "todo") {
+      state.todo.actionError = message;
+    } else if (domain === "notes") {
+      state.notesState.actionError = message;
+    } else if (domain === "board") {
+      state.board.actionError = message;
+      state.board.overlay = "card-action-error";
+    }
+    if (session !== null) {
+      session.update();
+    }
+  });
+  const destroyWithRecovery = session.destroy.bind(session);
+  session.destroy = () => {
+    recoveryActive = false;
+    unsubscribeRecovery();
+    return destroyWithRecovery();
+  };
   session = enableClockFooterTicker(session, snapshotRef);
   applyPendingFocus(session, state);
 

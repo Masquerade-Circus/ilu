@@ -621,6 +621,55 @@ test('mountInteractiveSession updates Sync top nav after background board sync c
   });
 });
 
+test('mountInteractiveSession refreshes recovery outcomes and unsubscribes on destroy', async () => {
+  const listeners = new Set();
+  const refreshes = [];
+  const buildSnapshot = (domain) => {
+    refreshes.push(domain);
+    return richSnapshot();
+  };
+  const onDataRecovery = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const stdin = new FakeStdin();
+  const stdout = new FakeStdout();
+  await loadUiWithPatchedModules((request, parent, loaded) => {
+    if (request === '../sync/iludb-recovery' && parent && parent.filename === uiModulePath) {
+      return {...loaded, onDataRecovery};
+    }
+
+    return loaded;
+  }, async (Ui) => {
+    const session = await Ui.mountInteractiveSession({stdin, stdout, buildSnapshot});
+    const listener = [...listeners][0];
+
+    try {
+      listener({domain: 'todos', result: {status: 'reloaded-local'}, error: null});
+      assert.equal(refreshes.includes('todo'), true);
+      assert.match(session.output(), /Local data was reloaded/i);
+
+      session.click('tab-notes');
+      listener({domain: 'notes', result: {status: 'reconciled'}, error: null});
+      assert.equal(refreshes.includes('notes'), true);
+      assert.match(session.output(), /Remote changes were integrated/i);
+
+      session.click('tab-board');
+      listener({domain: 'boards', result: null, error: new Error('internal path /home/private')});
+      assert.equal(refreshes.includes('board'), true);
+      assert.match(session.output(), /Data recovery could not finish safely/i);
+      assert.doesNotMatch(session.output(), /\/home\/|internal path/i);
+    } finally {
+      await session.destroy();
+    }
+
+    assert.equal(listeners.size, 0);
+    const refreshCount = refreshes.length;
+    listener({domain: 'todos', result: {status: 'reloaded-local'}, error: null});
+    assert.equal(refreshes.length, refreshCount);
+  });
+});
+
 test('createHeadlessSession cambia a Board al hacer click en top nav', async () => {
   const Ui = require(uiModulePath);
 

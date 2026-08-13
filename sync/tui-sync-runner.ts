@@ -2,19 +2,20 @@ import { fileURLToPath } from 'node:url';
 import defaultSyncIndex from './index.ts';
 import * as __cjsImport35 from './tui-sync-status.ts';
 const { isSyncSetupError, syncSetupStatus, syncStatusFromResult } = __cjsImport35;
-const VALID_TYPES = new Set(['sync:mutation', 'sync:flush', 'sync:status', 'sync:shutdown']);
+const VALID_TYPES = new Set(['sync:mutation', 'sync:reconcile', 'sync:flush', 'sync:status', 'sync:shutdown']);
 const INVALID_SYNC_MESSAGE = 'Invalid sync message';
 
 type SyncContext = Record<string, unknown>;
 type SyncStatus = Record<string, unknown>;
-type SyncMessageType = 'sync:mutation' | 'sync:flush' | 'sync:status' | 'sync:shutdown';
+type SyncMessageType = 'sync:mutation' | 'sync:reconcile' | 'sync:flush' | 'sync:status' | 'sync:shutdown';
 type IpcMessage = {type?: unknown; payload?: unknown};
-type IpcPayload = {id?: unknown; context?: unknown};
+type IpcPayload = {id?: unknown; context?: unknown; filePath?: unknown; snapshot?: unknown};
 type SendMessage = {type: string; payload: Record<string, unknown>};
 type Send = (message: SendMessage) => void;
 type Waiter = {id: string; resolve: (status: SyncStatus) => void};
 type SyncIndex = {
   sync: (context: SyncContext) => Promise<SyncStatus>;
+  reconcileFile?: (input: {filePath: string; snapshot: string; context: SyncContext}) => Promise<SyncStatus>;
   getSyncStatus?: () => SyncStatus;
 };
 type TuiSyncRunnerOptions = {
@@ -64,8 +65,13 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
   let pendingContext: SyncContext | null = null;
   let activeWaiters: Waiter[] = [];
   let pendingWaiters: Waiter[] = [];
-  let flushWaiters: Waiter[] = [];
+  let backendIdleWaiters: Array<() => void> = [];
+  let idleWaiters: Array<() => void> = [];
   let lastStatus: SyncStatus | null = null;
+  let recoveryQueue: Promise<void> = Promise.resolve();
+  let pendingRecoveries = 0;
+  let deferredContext: SyncContext | null = null;
+  let deferredWaiters: Waiter[] = [];
 
   function emit(type: string, payload: Record<string, unknown>) {
     safeSend(send, {type, payload});
@@ -95,6 +101,31 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     for (const waiter of waiters) {
       emit('sync:error', {id: waiter.id, ok: false, message});
       waiter.resolve({status: 'failed', hasPendingRemote: true});
+    }
+  }
+
+  function backendIsIdle() {
+    return active === false && pendingContext === null;
+  }
+
+  function isIdle() {
+    return backendIsIdle()
+      && pendingRecoveries === 0
+      && deferredContext === null
+      && deferredWaiters.length === 0;
+  }
+
+  function notifyIdleWaiters() {
+    if (backendIsIdle() && backendIdleWaiters.length > 0) {
+      const ready = backendIdleWaiters;
+      backendIdleWaiters = [];
+      ready.forEach((resolve) => resolve());
+    }
+
+    if (isIdle() && idleWaiters.length > 0) {
+      const ready = idleWaiters;
+      idleWaiters = [];
+      ready.forEach((resolve) => resolve());
     }
   }
 
@@ -144,12 +175,21 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
       return;
     }
 
-    if (flushWaiters.length > 0) {
-      const waitersToFlush = flushWaiters;
-      flushWaiters = [];
-      const status = lastStatus || (await readStatus());
-      finishWaiters(waitersToFlush, status);
+    notifyIdleWaiters();
+  }
+
+  function waitForBackendIdle(): Promise<void> {
+    if (backendIsIdle()) {
+      return Promise.resolve();
     }
+    return new Promise((resolve) => backendIdleWaiters.push(resolve));
+  }
+
+  function waitForIdle(): Promise<void> {
+    if (isIdle()) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => idleWaiters.push(resolve));
   }
 
   async function readStatus() {
@@ -164,6 +204,12 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     return new Promise<SyncStatus>((resolve) => {
       const waiter = {id, resolve};
 
+      if (pendingRecoveries > 0) {
+        deferredContext = context;
+        deferredWaiters.push(waiter);
+        return;
+      }
+
       if (active) {
         pendingContext = context;
         pendingWaiters.push(waiter);
@@ -174,13 +220,39 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
     });
   }
 
-  async function flush(id: string) {
-    if (active || pendingContext !== null) {
-      return new Promise<SyncStatus>((resolve) => {
-        flushWaiters.push({id, resolve});
+  function enqueueRecovery(input: {id: string; filePath: string; snapshot: string; context: SyncContext}): Promise<void> {
+    pendingRecoveries += 1;
+    const operation = recoveryQueue.then(async () => {
+      await waitForBackendIdle();
+      if (typeof syncIndex.reconcileFile !== 'function') {
+        throw new Error('Sync recovery is unavailable');
+      }
+      const status = await syncIndex.reconcileFile({
+        filePath: input.filePath,
+        snapshot: input.snapshot,
+        context: input.context
       });
-    }
+      lastStatus = status;
+      emit('sync:result', {id: input.id, ok: true, status});
+    }).catch(() => {
+      emit('sync:error', {id: input.id, ok: false, message: 'Sync failed'});
+    }).finally(() => {
+      pendingRecoveries -= 1;
+      if (pendingRecoveries === 0 && deferredContext !== null) {
+        const context = deferredContext;
+        const waiters = deferredWaiters;
+        deferredContext = null;
+        deferredWaiters = [];
+        void run(context, waiters);
+      }
+      notifyIdleWaiters();
+    });
+    recoveryQueue = operation;
+    return operation;
+  }
 
+  async function flush(id: string) {
+    await waitForIdle();
     const status = lastStatus || (await readStatus());
     emit('sync:result', {id, ok: true, status});
     return status;
@@ -214,6 +286,27 @@ function createTuiSyncRunner(options: TuiSyncRunnerOptions = {}) {
       }
 
       await enqueueMutation(payload.id, payload.context);
+      return;
+    }
+
+    if (messageType === 'sync:reconcile') {
+      if (
+        typeof payload.filePath !== 'string'
+        || payload.filePath.trim().length === 0
+        || typeof payload.snapshot !== 'string'
+        || !isValidContext(payload.context)
+        || typeof syncIndex.reconcileFile !== 'function'
+      ) {
+        emitInvalid(payload);
+        return;
+      }
+
+      await enqueueRecovery({
+        id: payload.id,
+        filePath: payload.filePath,
+        snapshot: payload.snapshot,
+        context: payload.context
+      });
       return;
     }
 

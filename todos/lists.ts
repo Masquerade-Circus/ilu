@@ -231,24 +231,19 @@ let Lists = {
         Lists.current();
     },
     async actions(_args: unknown, opts: CommandOptions) {
-        try {
-            switch (true) {
-                case !isUndefined(opts.add): await Lists.add(); break;
-                case !isUndefined(opts.edit): await Lists.edit(opts.edit); break;
-                case !isUndefined(opts.details): await Lists.details(opts.details); break;
-                case !isUndefined(opts.show): Lists.show(); break;
-                case !isUndefined(opts.use): await Lists.use(opts.use); break;
-                case !isUndefined(opts.remove): await Lists.remove(opts.remove); break;
-                case !isUndefined(opts.current): await Lists.current(); break;
-                case !isUndefined(opts.addLabel): await Lists.addLabel(); break;
-                case !isUndefined(opts.editLabel): await Lists.editLabel(opts.editLabel); break;
-                case !isUndefined(opts.removeLabel): Lists.removeLabel(opts.removeLabel); break;
-                default: Lists.show(); break;
-            }
-        } catch (error: unknown) {
-            console.log(error);
+        switch (true) {
+            case !isUndefined(opts.add): await Lists.add(); break;
+            case !isUndefined(opts.edit): await Lists.edit(opts.edit); break;
+            case !isUndefined(opts.details): await Lists.details(opts.details); break;
+            case !isUndefined(opts.show): Lists.show(); break;
+            case !isUndefined(opts.use): await Lists.use(opts.use); break;
+            case !isUndefined(opts.remove): await Lists.remove(opts.remove); break;
+            case !isUndefined(opts.current): await Lists.current(); break;
+            case !isUndefined(opts.addLabel): await Lists.addLabel(); break;
+            case !isUndefined(opts.editLabel): await Lists.editLabel(opts.editLabel); break;
+            case !isUndefined(opts.removeLabel): Lists.removeLabel(opts.removeLabel); break;
+            default: Lists.show(); break;
         }
-
     }
 };
 

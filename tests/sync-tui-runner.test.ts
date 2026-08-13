@@ -214,6 +214,225 @@ test('TUI sync runner flush waits for active and queued mutation before shutdown
   assert.equal(closed, true);
 });
 
+test('TUI sync runner waits for active and trailing mutations before file recovery', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const sent = [];
+  const first = deferred();
+  const second = deferred();
+  const calls = [];
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      sync(context) {
+        calls.push(['sync', context]);
+        return calls.length === 1 ? first.promise : second.promise;
+      },
+      async reconcileFile(input) {
+        calls.push(['reconcile', input]);
+        return {status: 'healthy', hasPendingRemote: false};
+      }
+    },
+    send: (message) => sent.push(message)
+  });
+
+  const active = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {action: 'active'}}});
+  await new Promise(resolve => setImmediate(resolve));
+  const trailing = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {action: 'trailing'}}});
+  const recovery = runner.handleMessage({
+    type: 'sync:reconcile',
+    payload: {id: 'r1', filePath: './tmp/todos.json', snapshot: '{}', context: {action: 'recover'}}
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+
+  first.resolve({status: 'healthy', hasPendingRemote: false});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 2);
+  second.resolve({status: 'healthy', hasPendingRemote: false});
+  await Promise.all([active, trailing, recovery]);
+
+  assert.deepEqual(calls.map(([kind]) => kind), ['sync', 'sync', 'reconcile']);
+  assert.equal(sent.some(message => message.type === 'sync:result' && message.payload.id === 'r1'), true);
+});
+
+test('TUI sync runner serializes recoveries for different files', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const sent = [];
+  let concurrent = 0;
+  let maximum = 0;
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      async sync() {
+        return {status: 'healthy', hasPendingRemote: false};
+      },
+      async reconcileFile() {
+        concurrent += 1;
+        maximum = Math.max(maximum, concurrent);
+        await new Promise(resolve => setImmediate(resolve));
+        concurrent -= 1;
+        return {status: 'healthy', hasPendingRemote: false};
+      }
+    },
+    send: (message) => sent.push(message)
+  });
+
+  await Promise.all([
+    runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}}),
+    runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r2', filePath: './tmp/b.json', snapshot: '{}', context: {domain: 'notes'}}})
+  ]);
+
+  assert.equal(maximum, 1);
+  assert.deepEqual(sent.filter(message => message.type === 'sync:result').map(message => message.payload.id), ['r1', 'r2']);
+});
+
+test('TUI sync runner shutdown waits for an active recovery response before close', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const recovery = deferred();
+  const order = [];
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      async sync() {
+        return {status: 'healthy', hasPendingRemote: false};
+      },
+      reconcileFile() {
+        return recovery.promise;
+      }
+    },
+    send: (message) => {
+      if (message.type === 'sync:result' || message.type === 'sync:error') {
+        order.push(message.payload.id);
+      }
+    },
+    close: () => order.push('close')
+  });
+
+  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
+  await new Promise(resolve => setImmediate(resolve));
+  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, []);
+
+  recovery.resolve({status: 'healthy', hasPendingRemote: false});
+  await Promise.all([recoveryRequest, shutdown]);
+
+  assert.deepEqual(order, ['r1', 'shutdown-1', 'close']);
+});
+
+test('TUI sync runner shutdown waits for recovery and its deferred mutation before close', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const recovery = deferred();
+  const mutation = deferred();
+  const order = [];
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      sync() {
+        order.push('sync-start');
+        return mutation.promise;
+      },
+      reconcileFile() {
+        return recovery.promise;
+      }
+    },
+    send: (message) => {
+      if (message.type === 'sync:result' || message.type === 'sync:error') {
+        order.push(message.payload.id);
+      }
+    },
+    close: () => order.push('close')
+  });
+
+  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
+  await new Promise(resolve => setImmediate(resolve));
+  const mutationRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'notes'}}});
+  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
+
+  recovery.resolve({status: 'healthy', hasPendingRemote: false});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, ['r1', 'sync-start']);
+
+  mutation.resolve({status: 'healthy', hasPendingRemote: false});
+  await Promise.all([recoveryRequest, mutationRequest, shutdown]);
+
+  assert.deepEqual(order, ['r1', 'sync-start', 'm1', 'shutdown-1', 'close']);
+});
+
+test('TUI sync runner shutdown waits for deferred mutation after recovery failure', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const recovery = deferred();
+  const mutation = deferred();
+  const order = [];
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      sync() {
+        order.push('sync-start');
+        return mutation.promise;
+      },
+      reconcileFile() {
+        return recovery.promise;
+      }
+    },
+    send: (message) => {
+      if (message.type === 'sync:result' || message.type === 'sync:error') {
+        order.push(message.payload.id);
+      }
+    },
+    close: () => order.push('close')
+  });
+
+  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
+  await new Promise(resolve => setImmediate(resolve));
+  const mutationRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'notes'}}});
+  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
+
+  recovery.reject(new Error('recovery failed'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, ['r1', 'sync-start']);
+
+  mutation.resolve({status: 'healthy', hasPendingRemote: false});
+  await Promise.all([recoveryRequest, mutationRequest, shutdown]);
+
+  assert.deepEqual(order, ['r1', 'sync-start', 'm1', 'shutdown-1', 'close']);
+});
+
+test('TUI sync runner emits queued recovery responses before shutdown response and close', async () => {
+  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
+  const first = deferred();
+  const second = deferred();
+  const order = [];
+  let recoveryCalls = 0;
+  const runner = createTuiSyncRunner({
+    syncIndex: {
+      async sync() {
+        return {status: 'healthy', hasPendingRemote: false};
+      },
+      reconcileFile() {
+        recoveryCalls += 1;
+        return recoveryCalls === 1 ? first.promise : second.promise;
+      }
+    },
+    send: (message) => {
+      if (message.type === 'sync:result' || message.type === 'sync:error') {
+        order.push(message.payload.id);
+      }
+    },
+    close: () => order.push('close')
+  });
+
+  const firstRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
+  const secondRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r2', filePath: './tmp/b.json', snapshot: '{}', context: {domain: 'notes'}}});
+  await new Promise(resolve => setImmediate(resolve));
+  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
+
+  first.resolve({status: 'healthy', hasPendingRemote: false});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, ['r1']);
+  assert.equal(recoveryCalls, 2);
+
+  second.resolve({status: 'healthy', hasPendingRemote: false});
+  await Promise.all([firstRequest, secondRequest, shutdown]);
+
+  assert.deepEqual(order, ['r1', 'r2', 'shutdown-1', 'close']);
+});
+
 test('TUI sync runner closes after shutdown flush even when close throws', async () => {
   const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
   const sent = [];

@@ -12,6 +12,7 @@ type SyncExecutor = {
     onEvent?: (listener: SyncListener) => () => void;
     hasPendingWork?: () => boolean;
     flush?: () => Promise<unknown>;
+    reconcileFile?: (input: {filePath: string; snapshot: string; context: SyncContext}) => Promise<unknown>;
 };
 type PendingDebouncedSync = {context: SyncContext; timer: ReturnType<typeof setTimeout>};
 type SyncRunResult = {
@@ -151,6 +152,10 @@ function activeSyncExecutor(syncIndex: SyncExecutor | null = defaultSyncIndex): 
     }
 
     return syncIndex || defaultSyncIndex;
+}
+
+function getActiveSyncExecutor(): SyncExecutor {
+    return activeSyncExecutor(defaultSyncIndex);
 }
 
 function executorShouldLog(executor: SyncExecutor) {
@@ -294,5 +299,5 @@ notifySync.flushPending = flushPending;
 notifySync.configureSyncRunner = configureSyncRunner;
 notifySync.configureSyncExecutor = configureSyncExecutor;
 
-export { notifySync, onSyncStatus, flushPending, configureSyncRunner, configureSyncExecutor };
+export { notifySync, onSyncStatus, flushPending, configureSyncRunner, configureSyncExecutor, getActiveSyncExecutor };
 export default notifySync;

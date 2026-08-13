@@ -14,6 +14,7 @@ function clearRuntimeCaches() {
   [
     path.join(repoRoot, 'sync', 'commands.ts'),
     path.join(repoRoot, 'sync', 'index.ts'),
+    path.join(repoRoot, 'sync', 'iludb-recovery.ts'),
     path.join(repoRoot, 'sync', 'ilu-adapter.ts'),
     path.join(repoRoot, 'sync', 'ilu-hooks.ts'),
     path.join(repoRoot, 'sync', 'state-store.ts'),
@@ -165,6 +166,59 @@ test('auto-sync after mutation pushes to local bare remote', async () => {
     assert.equal(status.status, 'healthy', JSON.stringify(status));
     assert.equal(status.hasPendingRemote, false);
   }, {prefix: 'ilu-sync-home-'});
+
+  remote.cleanup();
+});
+
+test('iludb recovery integrates the current external snapshot before the user repeats a stale mutation', async () => {
+  const remote = createTempGitRemote();
+
+  await withTempHome(async tempHome => {
+    clearRuntimeCaches();
+    const TodosModel = require(path.join(repoRoot, 'todos', 'model.ts'));
+    const SyncCommands = require(path.join(repoRoot, 'sync', 'commands.ts'));
+    const localPaths = require(path.join(repoRoot, 'utils', 'local-paths.ts'));
+    const loadDb = require(path.join(repoRoot, 'utils', 'load-db.ts')).default;
+    const recovery = require(path.join(repoRoot, 'sync', 'iludb-recovery.ts'));
+
+    TodosModel.add({title: 'Inbox', description: ''});
+    await SyncCommands.init([], {remote: remote.remotePath});
+
+    const external = loadDb('todos');
+    const externalTodos = external.getCollection('todos');
+    const current = externalTodos.findOne({current: true});
+    externalTodos.update({...current, description: 'External revision'});
+    const currentSnapshot = fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8');
+
+    const externalClone = path.join(tempHome, 'external-writer');
+    git(['clone', remote.remotePath, externalClone], {cwd: repoRoot});
+    fs.writeFileSync(path.join(externalClone, 'todos.json'), currentSnapshot);
+    git(['-C', externalClone, 'add', 'todos.json'], {cwd: repoRoot});
+    git(['-C', externalClone, 'commit', '-m', 'external writer revision'], {cwd: repoRoot});
+    git(['-C', externalClone, 'push', 'origin', 'main'], {cwd: repoRoot});
+
+    let conflict = null;
+    try {
+      TodosModel.tasks.add({title: 'Repeat after recovery'});
+    } catch (error) {
+      conflict = error;
+    }
+
+    assert.ok(conflict instanceof recovery.DataConflictError);
+    assert.equal((await conflict.reconciliation).status, 'reconciled');
+    assert.equal(TodosModel.getCurrent().description, 'External revision');
+    assert.deepEqual(TodosModel.getCurrent().tasks, []);
+
+    TodosModel.tasks.add({title: 'Repeat after recovery'});
+    await waitForCondition(() => {
+      const status = git(['--git-dir', remote.remotePath, 'show', 'main:todos.json']);
+      return status.includes('External revision') && status.includes('Repeat after recovery');
+    });
+
+    const persisted = JSON.parse(fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8'));
+    assert.equal(persisted.collections.todos.data[0].description, 'External revision');
+    assert.equal(persisted.collections.todos.data[0].tasks[0].title, 'Repeat after recovery');
+  }, {prefix: 'ilu-sync-recovery-'});
 
   remote.cleanup();
 });

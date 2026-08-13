@@ -1,4 +1,6 @@
 import { createSyncRuntime as createCoreSyncRuntime } from 'sync-core';
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import type { NormalizedSyncState, SyncBackend, SyncMutationContext, SyncRuntime, SyncRuntimeOptions } from 'sync-core';
 import adapter from './ilu-adapter.ts';
 import { createGitBackend } from './git-cli-backend.ts';
@@ -22,6 +24,64 @@ let enableBarrier: Promise<void> = Promise.resolve();
 const activeSyncs = new Set<Promise<NormalizedSyncState>>();
 const activeBackendInvocations = new Set<Promise<void>>();
 const runtimeGenerations = new WeakMap<SyncRuntime, number>();
+let operationQueue: Promise<void> = Promise.resolve();
+
+function serializeOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = operationQueue.then(operation);
+  operationQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+type FileSnapshot = {serialized: string; revision: number; hash: string; mode: number};
+
+function readFileSnapshot(filePath: string): FileSnapshot {
+  const stats = fs.lstatSync(filePath);
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new Error('Data recovery path is not a regular file');
+  }
+
+  const serialized = fs.readFileSync(filePath, 'utf8');
+  const parsed = JSON.parse(serialized) as Record<string, unknown>;
+  const revision = parsed.revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+    throw new Error('Data recovery snapshot has an invalid revision');
+  }
+
+  return {
+    serialized,
+    revision: revision as number,
+    hash: createHash('sha256').update(serialized).digest('hex'),
+    mode: stats.mode & 0o777
+  };
+}
+
+function writeFileSnapshot(filePath: string, snapshot: FileSnapshot): void {
+  const temporary = `${filePath}.recovery-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(temporary, snapshot.serialized, {flag: 'wx', mode: snapshot.mode});
+    fs.renameSync(temporary, filePath);
+  } catch (error: unknown) {
+    try {
+      fs.rmSync(temporary, {force: true});
+    } catch (_cleanupError: unknown) {
+      void _cleanupError;
+    }
+    throw error;
+  }
+}
+
+function restoreFileSnapshot(filePath: string, snapshot: FileSnapshot): void {
+  try {
+    const current = readFileSnapshot(filePath);
+    if (current.hash === snapshot.hash) {
+      return;
+    }
+  } catch (_error: unknown) {
+    void _error;
+  }
+
+  writeFileSnapshot(filePath, snapshot);
+}
 
 function disabledState(): IluSyncState {
   const pending = loadPendingMarker() !== null;
@@ -173,7 +233,7 @@ async function runCoreSync(core: SyncRuntime, context: SyncMutationContext = {})
 function wrapRuntime(core: SyncRuntime): IluSyncRuntime {
   return {
     async sync(context = {}) {
-      return enabledState(await runCoreSync(core, context));
+      return serializeOperation(async () => enabledState(await runCoreSync(core, context)));
     },
     getSyncStatus() {
       return enabledState(core.getSyncStatus());
@@ -196,11 +256,13 @@ async function createSyncRuntime(overrides: SyncRuntimeOverrides = {}) {
   if (getSyncConfig().enabled !== true) {
     return disabledRuntime();
   }
-  await enableBarrier;
-  if (Object.keys(overrides).length === 0 && runtime !== null) {
-    return wrapRuntime(runtime);
-  }
-  return wrapRuntime(await startRuntime(overrides));
+  return serializeOperation(async () => {
+    await enableBarrier;
+    if (Object.keys(overrides).length === 0 && runtime !== null) {
+      return wrapRuntime(runtime);
+    }
+    return wrapRuntime(await startRuntime(overrides));
+  });
 }
 
 async function ensureRuntime(): Promise<SyncRuntime> {
@@ -228,7 +290,31 @@ async function sync(context: SyncMutationContext = {}) {
     savePendingMarker(lastContext);
     return pendingState();
   }
-  return enabledState(await runCoreSync(await ensureRuntime(), context));
+  return serializeOperation(async () => enabledState(await runCoreSync(await ensureRuntime(), context)));
+}
+
+async function reconcileFile(input: {filePath: string; snapshot: string; context: SyncMutationContext}) {
+  return serializeOperation(async () => {
+    const captured = JSON.parse(input.snapshot) as Record<string, unknown>;
+    if (!Number.isSafeInteger(captured.revision) || (captured.revision as number) < 0) {
+      throw new Error('Captured recovery snapshot has an invalid revision');
+    }
+    const capturedHash = createHash('sha256').update(input.snapshot).digest('hex');
+    const before = readFileSnapshot(input.filePath);
+    const advanced = before.revision !== captured.revision || before.hash !== capturedHash;
+    const context = {...input.context, recoveryBase: advanced ? 'current' : 'captured'};
+
+    try {
+      const state = enabledState(await runCoreSync(await ensureRuntime(), context));
+      if (state.status !== 'healthy' || state.hasPendingRemote === true) {
+        restoreFileSnapshot(input.filePath, before);
+      }
+      return state;
+    } catch (error: unknown) {
+      restoreFileSnapshot(input.filePath, before);
+      throw error;
+    }
+  });
 }
 
 async function getSyncStatus() {
@@ -238,14 +324,14 @@ async function getSyncStatus() {
   if (loadPendingMarker() !== null && runtime === null) {
     return pendingState();
   }
-  return enabledState((await ensureRuntime()).getSyncStatus());
+  return serializeOperation(async () => enabledState((await ensureRuntime()).getSyncStatus()));
 }
 
 async function retry(context: SyncMutationContext = {}) {
   if (getSyncConfig().enabled !== true) {
     return disabledState();
   }
-  return enabledState(await runCoreSync(await ensureRuntime(), context));
+  return serializeOperation(async () => enabledState(await runCoreSync(await ensureRuntime(), context)));
 }
 
 async function disable() {
@@ -269,12 +355,14 @@ async function disable() {
 }
 
 async function enable(overrides: SyncRuntimeOverrides = {}) {
-  await enableBarrier;
-  const core = Object.keys(overrides).length > 0 ? await startRuntime(overrides) : await ensureRuntime();
-  if (loadPendingMarker() !== null || core.getSyncStatus().hasPendingRemote) {
-    return enabledState(await runCoreSync(core, {reason: 'enable'}));
-  }
-  return enabledState(core.getSyncStatus());
+  return serializeOperation(async () => {
+    await enableBarrier;
+    const core = Object.keys(overrides).length > 0 ? await startRuntime(overrides) : await ensureRuntime();
+    if (loadPendingMarker() !== null || core.getSyncStatus().hasPendingRemote) {
+      return enabledState(await runCoreSync(core, {reason: 'enable'}));
+    }
+    return enabledState(core.getSyncStatus());
+  });
 }
 
 export {
@@ -284,6 +372,7 @@ export {
   createBootstrapBackend,
   createSyncRuntime,
   sync,
+  reconcileFile,
   getSyncStatus,
   retry,
   disable,
@@ -296,6 +385,7 @@ export default {
   createBootstrapBackend,
   createSyncRuntime,
   sync,
+  reconcileFile,
   getSyncStatus,
   retry,
   disable,

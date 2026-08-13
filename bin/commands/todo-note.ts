@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import type { ActionHandler } from './adapters.ts';
+import { runActionWithRecovery } from './adapters.ts';
 
 type CommandOptions = Record<string, unknown>;
 type CommandLike = { opts: () => CommandOptions };
@@ -12,32 +13,34 @@ function createTodoActionAdapter(Todos: TodoDeps['Todos']) {
     const command = actionArgs[actionArgs.length - 1] as CommandLike;
     const opts = command.opts();
 
-    if (opts.lists) {
-      await Todos.Lists.actions([], {show: true});
-      return;
-    }
+    await runActionWithRecovery(async () => {
+      if (opts.lists) {
+        await Todos.Lists.actions([], {show: true});
+        return;
+      }
 
-    if (opts.useList) {
-      await Todos.Lists.actions([], {use: true});
-      return;
-    }
+      if (opts.useList) {
+        await Todos.Lists.actions([], {use: true});
+        return;
+      }
 
-    if (opts.addList) {
-      await Todos.Lists.actions([], {add: true});
-      return;
-    }
+      if (opts.addList) {
+        await Todos.Lists.actions([], {add: true});
+        return;
+      }
 
-    if (opts.editList) {
-      await Todos.Lists.actions([], {edit: true});
-      return;
-    }
+      if (opts.editList) {
+        await Todos.Lists.actions([], {edit: true});
+        return;
+      }
 
-    if (opts.removeList) {
-      await Todos.Lists.actions([], {remove: true});
-      return;
-    }
+      if (opts.removeList) {
+        await Todos.Lists.actions([], {remove: true});
+        return;
+      }
 
-    await Todos.Tasks.actions([], opts);
+      await Todos.Tasks.actions([], opts);
+    });
   };
 }
 
@@ -46,32 +49,34 @@ function createNoteActionAdapter(Notes: NoteDeps['Notes']) {
     const command = actionArgs[actionArgs.length - 1] as CommandLike;
     const opts = command.opts();
 
-    if (opts.lists) {
-      await Notes.Lists.actions([], {show: true});
-      return;
-    }
+    await runActionWithRecovery(async () => {
+      if (opts.lists) {
+        await Notes.Lists.actions([], {show: true});
+        return;
+      }
 
-    if (opts.useList) {
-      await Notes.Lists.actions([], {use: true});
-      return;
-    }
+      if (opts.useList) {
+        await Notes.Lists.actions([], {use: true});
+        return;
+      }
 
-    if (opts.addList) {
-      await Notes.Lists.actions([], {add: true});
-      return;
-    }
+      if (opts.addList) {
+        await Notes.Lists.actions([], {add: true});
+        return;
+      }
 
-    if (opts.editList) {
-      await Notes.Lists.actions([], {edit: true});
-      return;
-    }
+      if (opts.editList) {
+        await Notes.Lists.actions([], {edit: true});
+        return;
+      }
 
-    if (opts.removeList) {
-      await Notes.Lists.actions([], {remove: true});
-      return;
-    }
+      if (opts.removeList) {
+        await Notes.Lists.actions([], {remove: true});
+        return;
+      }
 
-    await Notes.Notes.actions([], opts);
+      await Notes.Notes.actions([], opts);
+    });
   };
 }
 

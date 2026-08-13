@@ -48,27 +48,3 @@ declare module 'cli-table' {
   }
   export default Table;
 }
-
-declare module 'iludb' {
-  type IluCollection = {
-    get: (...args: unknown[]) => unknown;
-    find: (...args: unknown[]) => unknown[];
-    findOne: (...args: unknown[]) => unknown;
-    add: (...args: unknown[]) => unknown;
-    update: (...args: unknown[]) => unknown;
-    remove: (...args: unknown[]) => void;
-    count: () => number;
-  };
-  type IluDatabase = { getCollection: (name: string) => IluCollection };
-  type IluDbFactory = {
-    (filePath: string): IluDatabase;
-    use: (plugin: unknown) => void;
-  };
-  const iluDb: IluDbFactory;
-  export default iluDb;
-}
-
-declare module 'iludb/plugins/iludb-node-json-plugin.js' {
-  const plugin: unknown;
-  export default plugin;
-}

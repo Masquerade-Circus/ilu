@@ -1,4 +1,5 @@
 import type { UiActionResult } from "./action-contracts";
+import { DataConflictError } from '../sync/iludb-recovery.ts';
 
 const DEFAULT_ERROR_MESSAGE = 'Something went wrong. Try again.';
 
@@ -28,7 +29,11 @@ function safeErrorMessage(value: unknown, fallback: unknown = DEFAULT_ERROR_MESS
   return DEFAULT_ERROR_MESSAGE;
 }
 
-function createUiErrorResult(_error: unknown, fallback: unknown = DEFAULT_ERROR_MESSAGE): UiActionResult {
+function createUiErrorResult(error: unknown, fallback: unknown = DEFAULT_ERROR_MESSAGE): UiActionResult {
+  if (error instanceof DataConflictError) {
+    void error.reconciliation.catch(() => undefined);
+    return {ok: false, error: 'Data changed elsewhere. Ilu is recovering it. Try the action again after recovery finishes.'};
+  }
   return {ok: false, error: safeErrorMessage(null, fallback)};
 }
 
