@@ -9,9 +9,6 @@
     "url": "git+ssh://git@github.com/Masquerade-Circus/ilu.git"
   },
   "license": "Apache-2.0",
-  "workspaces": [
-    "sync-core"
-  ],
   "files": [
     "bin/",
     "clocks/",
@@ -51,7 +48,7 @@
     "iludb": "2.0.0",
     "lodash": "^4.17.11",
     "openai": "^6.34.0",
-    "sync-core": "^1.0.0",
+    "sync-core": "1.0.0",
     "tsx": "^4.22.4",
     "valyrian.js": "^9.1.13",
     "x-robot": "^1.1.0"
@@ -73,8 +70,5 @@
   "bugs": {
     "url": "https://github.com/Masquerade-Circus/ilu/issues"
   },
-  "homepage": "https://github.com/Masquerade-Circus/ilu#readme",
-  "bundleDependencies": [
-    "sync-core"
-  ]
+  "homepage": "https://github.com/Masquerade-Circus/ilu#readme"
 }

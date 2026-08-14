@@ -60,3 +60,6 @@ typings/
 
 # Local planning docs
 docs/plans/
+
+# Independent local checkout
+/sync-core/
