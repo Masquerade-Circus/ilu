@@ -1,6 +1,6 @@
 {
   "name": "ilu",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "type": "module",
   "description": "Cli tools for productivity, notes, todo-lists, etc...",
   "author": "Masquerade <christian@masquerade-circus.net>",
@@ -36,7 +36,8 @@
     "lint": "eslint .",
     "test": "node --import tsx --import ./support/test-home-guard.ts --test tests/*.test.ts tests/test-helpers/*.test.ts translate/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts"
+    "sync:diagram": "node --import tsx ./sync/generate-diagrams.ts",
+    "release": "release-it"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
@@ -59,10 +60,10 @@
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "prettier": "^3.9.6",
+    "release-it": "^19.0.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0"
   },
-  "main": "index.js",
   "directories": {
     "doc": "docs",
     "test": "tests"
@@ -71,5 +72,22 @@
   "bugs": {
     "url": "https://github.com/Masquerade-Circus/ilu/issues"
   },
-  "homepage": "https://github.com/Masquerade-Circus/ilu#readme"
+  "homepage": "https://github.com/Masquerade-Circus/ilu#readme",
+  "release-it": {
+    "plugins": {},
+    "git": {
+      "requireCleanWorkingDir": false
+    },
+    "github": {
+      "release": true
+    },
+    "npm": {
+      "publish": true
+    },
+    "hooks": {
+      "before:init": [],
+      "after:bump": [],
+      "after:@release-it/conventional-changelog": []
+    }
+  }
 }
