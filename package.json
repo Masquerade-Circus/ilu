@@ -1,6 +1,6 @@
 {
   "name": "ilu",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "description": "Cli tools for productivity, notes, todo-lists, etc...",
   "author": "Masquerade <christian@masquerade-circus.net>",
