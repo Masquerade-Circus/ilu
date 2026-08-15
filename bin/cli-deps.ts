@@ -3,6 +3,7 @@ import type * as ClocksModule from '../clocks/index.ts';
 import type * as NotesModule from '../notes/index.ts';
 import type * as ScrumbanModule from '../scrumban/index.ts';
 import type * as SyncCommandsModule from '../sync/commands.ts';
+import type * as SyncModule from '../sync/index.ts';
 import type * as TodosModule from '../todos/index.ts';
 import type * as TtsModule from '../tts/index.ts';
 import type * as UiAppModule from '../ui/app.tsx';
@@ -49,6 +50,7 @@ function createCliDeps(pkg: PackageInfo) {
       }
     },
     Sync: {
+      startup: lazyAction(() => import('../sync/index.ts'), (module: typeof SyncModule) => module.startup),
       init: lazyAction(() => import('../sync/commands.ts'), (module: typeof SyncCommandsModule) => module.init),
       status: lazyAction(() => import('../sync/commands.ts'), (module: typeof SyncCommandsModule) => module.status),
       retry: lazyAction(() => import('../sync/commands.ts'), (module: typeof SyncCommandsModule) => module.retry),

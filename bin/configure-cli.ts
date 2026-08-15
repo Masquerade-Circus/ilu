@@ -17,7 +17,9 @@ type ConfigureDeps = {
   Todos: { Lists: { actions: ActionHandler }; Tasks: { actions: ActionHandler } };
   Notes: { Lists: { actions: ActionHandler }; Notes: { actions: ActionHandler } };
   Scrumban?: { Board: { actions: ActionHandler }; BoardLists: { actions: ActionHandler } };
-  Sync?: Record<'init' | 'status' | 'retry' | 'enable' | 'disable', ActionHandler>;
+  Sync?: {
+    startup: () => unknown | Promise<unknown>;
+  } & Record<'init' | 'status' | 'retry' | 'enable' | 'disable', ActionHandler>;
   Translate: { osLang: string; validate: (text: unknown) => unknown; action: ActionHandler };
   Clocks: { actions: ActionHandler };
   Tts?: { action: ActionHandler; voiceAction: ActionHandler };
@@ -35,6 +37,7 @@ function configureProgram(program: Command, deps: ConfigureDeps) {
       BoardLists: {actions: async () => {}}
     },
     Sync = {
+      startup: async () => {},
       init: async () => {},
       status: async () => {},
       retry: async () => {},
@@ -59,6 +62,22 @@ function configureProgram(program: Command, deps: ConfigureDeps) {
   wrapBoardParseAliases(program);
 
   const version = typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  const afterStartupSync = (action: ActionHandler): ActionHandler => async (...args) => {
+    await Sync.startup();
+    return action(...args);
+  };
+  const syncedTodos = {
+    Tasks: {actions: afterStartupSync(Todos.Tasks.actions)},
+    Lists: {actions: afterStartupSync(Todos.Lists.actions)}
+  };
+  const syncedNotes = {
+    Notes: {actions: afterStartupSync(Notes.Notes.actions)},
+    Lists: {actions: afterStartupSync(Notes.Lists.actions)}
+  };
+  const syncedScrumban = {
+    Board: {actions: afterStartupSync(Scrumban.Board.actions)},
+    BoardLists: {actions: afterStartupSync(Scrumban.BoardLists.actions)}
+  };
 
   program
     .name('ilu')
@@ -66,11 +85,15 @@ function configureProgram(program: Command, deps: ConfigureDeps) {
     .description('Cli tools for productivity');
 
   registerUiCommand(program, {Ui});
-  registerTodoCommands(program, {Todos});
-  registerNoteCommands(program, {Notes});
-  registerBoardCommands(program, {Scrumban});
+  registerTodoCommands(program, {Todos: syncedTodos});
+  registerNoteCommands(program, {Notes: syncedNotes});
+  registerBoardCommands(program, {Scrumban: syncedScrumban});
   registerSyncCommands(program, {Sync});
-  registerUtilityCommands(program, {Translate, Clocks, Tts});
+  registerUtilityCommands(program, {
+    Translate,
+    Clocks: {actions: afterStartupSync(Clocks.actions)},
+    Tts
+  });
 
   return program;
 }

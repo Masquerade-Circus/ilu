@@ -102,7 +102,7 @@ function disabledState(): IluSyncState {
 }
 
 function enabledState(state: NormalizedSyncState): IluSyncState {
-  if (loadPendingMarker() !== null) {
+  if (loadPendingMarker() !== null && state.status === 'healthy') {
     return {...state, enabled: true, status: 'pending_remote', hasPendingRemote: true};
   }
   return {...state, enabled: true};
@@ -293,6 +293,25 @@ async function sync(context: SyncMutationContext = {}) {
   return serializeOperation(async () => enabledState(await runCoreSync(await ensureRuntime(), context)));
 }
 
+async function startup(): Promise<IluSyncState | null> {
+  const config = getSyncConfig();
+  if (
+    config.enabled !== true
+    || config.autoSync === false
+    || config.autoPull === false
+    || typeof config.remoteUrl !== 'string'
+    || config.remoteUrl.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const state = await sync({reason: 'startup'});
+  if (state.status === 'conflict') {
+    throw new Error('Sync conflict must be resolved before changing local data');
+  }
+  return state;
+}
+
 async function reconcileFile(input: {filePath: string; snapshot: string; context: SyncMutationContext}) {
   return serializeOperation(async () => {
     const captured = JSON.parse(input.snapshot) as Record<string, unknown>;
@@ -371,6 +390,7 @@ export {
   getRuntimeOptions,
   createBootstrapBackend,
   createSyncRuntime,
+  startup,
   sync,
   reconcileFile,
   getSyncStatus,
@@ -384,6 +404,7 @@ export default {
   getRuntimeOptions,
   createBootstrapBackend,
   createSyncRuntime,
+  startup,
   sync,
   reconcileFile,
   getSyncStatus,

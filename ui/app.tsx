@@ -39,7 +39,7 @@ import {
 } from "./module-registry";
 import { createAppSyncLifecycle } from "./app-sync";
 
-const { createTuiSyncRunnerCleanup, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook: notifySyncHook as NotifySyncHook, createTuiSyncClient, syncIndex });
+const { prepareTuiSyncRunner, enableSyncStatusUpdates } = createAppSyncLifecycle({ notifySyncHook: notifySyncHook as NotifySyncHook, createTuiSyncClient, syncIndex });
 // Runtime import is intentional: tests and direct render helpers can load the
 // terminal package through a different module entry before a headless session
 // starts. Keeping the mounted runtime on the async entry prevents split module
@@ -491,6 +491,10 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   const state = createInitialState(options.state);
   let session: TerminalSession | null = null;
   const stdout = options.stdout || process.stdout;
+  const preparedSyncRunner = await prepareTuiSyncRunner();
+  if (preparedSyncRunner !== null) {
+    state.syncStatus = preparedSyncRunner.state;
+  }
   const snapshotRef = createSnapshotRef(options);
   const requestRender = () => {
     if (session) {
@@ -536,7 +540,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     theme: createTerminalTheme(runtime.terminal)
   });
   sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
-  const cleanupSyncRunner = createTuiSyncRunnerCleanup();
+  const cleanupSyncRunner = preparedSyncRunner?.activate();
   session = enableSyncStatusUpdates(session, state, cleanupSyncRunner);
   let recoveryActive = true;
   const unsubscribeRecovery = defaultOnDataRecovery((event) => {

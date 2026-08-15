@@ -10,6 +10,11 @@ type AppSyncLifecycleDeps = {
   } | null;
 };
 
+type PreparedTuiSyncRunner = {
+  state: AppRuntimeState["syncStatus"];
+  activate: () => () => void | Promise<unknown>;
+};
+
 function applySyncStatus(state: AppRuntimeState, event: SyncStatusEvent): boolean {
   const nextStatus = normalizeSyncStatus(event.state);
 
@@ -124,6 +129,7 @@ function shouldUseTuiSyncRunner(syncIndex: AppSyncLifecycleDeps["syncIndex"]): b
       configRecord
         && configRecord.enabled === true
         && configRecord.autoSync !== false
+        && configRecord.autoPull !== false
         && typeof configRecord.remoteUrl === "string"
         && configRecord.remoteUrl.trim().length > 0
     );
@@ -133,19 +139,8 @@ function shouldUseTuiSyncRunner(syncIndex: AppSyncLifecycleDeps["syncIndex"]): b
   }
 }
 
-function createTuiSyncRunnerCleanup(deps: AppSyncLifecycleDeps): () => void | Promise<unknown> {
-  const { createTuiSyncClient, notifySyncHook, syncIndex } = deps;
-
-  if (typeof notifySyncHook.configureSyncRunner !== "function" || !shouldUseTuiSyncRunner(syncIndex)) {
-    return () => {};
-  }
-
-  const client = createTuiSyncClient();
-  const restoreRunner = notifySyncHook.configureSyncRunner(client);
-
+function cleanupTuiSyncClient(client: TuiSyncRunnerClient): () => void | Promise<unknown> {
   return () => {
-    restoreRunner();
-
     if (typeof client.shutdown === "function") {
       return client.shutdown().catch(() => {
         if (typeof client.dispose === "function") {
@@ -160,12 +155,62 @@ function createTuiSyncRunnerCleanup(deps: AppSyncLifecycleDeps): () => void | Pr
   };
 }
 
+function syncStateFromResult(result: unknown): AppRuntimeState["syncStatus"] {
+  const record = result && typeof result === "object" ? result as Record<string, unknown> : null;
+  if (record?.status === "healthy" && record.hasPendingRemote !== true) {
+    return "synced";
+  }
+  if (record?.status === "pending_remote") {
+    return "pending";
+  }
+  if (record?.status === "misconfigured") {
+    return "setup";
+  }
+  return "failed";
+}
+
+async function prepareTuiSyncRunner(deps: AppSyncLifecycleDeps): Promise<PreparedTuiSyncRunner | null> {
+  const { createTuiSyncClient, notifySyncHook, syncIndex } = deps;
+
+  if (typeof notifySyncHook.configureSyncRunner !== "function" || !shouldUseTuiSyncRunner(syncIndex)) {
+    return null;
+  }
+
+  const client = createTuiSyncClient();
+  const cleanupClient = cleanupTuiSyncClient(client);
+  let result: unknown;
+
+  try {
+    result = await client.sync({reason: "startup"});
+  } catch (error: unknown) {
+    await cleanupClient();
+    throw error;
+  }
+
+  const record = result && typeof result === "object" ? result as Record<string, unknown> : null;
+  if (record?.status === "conflict" || record?.lastErrorKind === "conflict") {
+    await cleanupClient();
+    throw new Error("Sync conflict must be resolved before opening the workspace");
+  }
+
+  return {
+    state: syncStateFromResult(result),
+    activate() {
+      const restoreRunner = notifySyncHook.configureSyncRunner!(client);
+      return () => {
+        restoreRunner();
+        return cleanupClient();
+      };
+    }
+  };
+}
+
 export function createAppSyncLifecycle(deps: AppSyncLifecycleDeps): {
-  createTuiSyncRunnerCleanup: () => () => void | Promise<unknown>;
+  prepareTuiSyncRunner: () => Promise<PreparedTuiSyncRunner | null>;
   enableSyncStatusUpdates: (session: TerminalSession, state: AppRuntimeState, cleanupSyncRunner?: () => void | Promise<unknown>) => TerminalSession;
 } {
   return {
-    createTuiSyncRunnerCleanup: () => createTuiSyncRunnerCleanup(deps),
+    prepareTuiSyncRunner: () => prepareTuiSyncRunner(deps),
     enableSyncStatusUpdates: (session, state, cleanupSyncRunner) => enableSyncStatusUpdates(deps.notifySyncHook, session, state, cleanupSyncRunner)
   };
 }

@@ -4,6 +4,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 const repoRoot = path.resolve(import.meta.dirname, '..');
+const packageVersion = (
+  JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {version: string}
+).version;
 
 function runHelp(entrypoint) {
   return spawnSync(process.execPath, [entrypoint, '--help'], {
@@ -30,7 +33,7 @@ test('node bin/cli.js --version imprime la versión del paquete', () => {
   const result = runCli(path.join(repoRoot, 'bin/cli.js'), '--version');
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.stdout.trim(), '1.0.4');
+  assert.equal(result.stdout.trim(), packageVersion);
 });
 
 test('node bin/cli.js resuelve tsx desde un layout instalado con dependencias hoisted', () => {
@@ -58,7 +61,7 @@ test('node bin/cli.js resuelve tsx desde un layout instalado con dependencias ho
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(result.stdout.trim(), '1.0.4');
+    assert.equal(result.stdout.trim(), packageVersion);
   } finally {
     fs.rmSync(installRoot, {recursive: true, force: true});
   }

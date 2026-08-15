@@ -412,6 +412,158 @@ test('configureProgram registra ui y ejecuta Ui.action', async () => {
   assert.deepEqual(calls, [{args: [], opts: {}}]);
 });
 
+test('configureProgram bloquea una mutación de dominio cuando startup sync detecta conflicto', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath).default;
+  const events = [];
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {
+      Tasks: {actions: async () => events.push('todo-action')},
+      Lists: {actions: async () => events.push('todo-lists-action')}
+    },
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {Board: {actions: async () => {}}, BoardLists: {actions: async () => {}}},
+    Sync: {
+      startup: async () => {
+        events.push('startup-sync');
+        throw new Error('Sync conflict must be resolved before changing local data');
+      },
+      init: async () => {},
+      status: async () => {},
+      retry: async () => {},
+      enable: async () => {},
+      disable: async () => {}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}},
+    Tts: {action: async () => {}, voiceAction: async () => {}},
+    Ui: {action: async () => {}}
+  });
+
+  await assert.rejects(
+    program.parseAsync(['node', 'ilu', 'todo', '--add']),
+    /Sync conflict must be resolved/
+  );
+  assert.deepEqual(events, ['startup-sync']);
+});
+
+test('configureProgram continúa con datos locales cuando startup sync queda degradado por red', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath).default;
+  const events = [];
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {
+      Tasks: {actions: async () => events.push('todo-action')},
+      Lists: {actions: async () => events.push('todo-lists-action')}
+    },
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {Board: {actions: async () => {}}, BoardLists: {actions: async () => {}}},
+    Sync: {
+      startup: async () => {
+        events.push('startup-sync');
+        return {status: 'degraded_network', hasPendingRemote: true};
+      },
+      init: async () => {},
+      status: async () => {},
+      retry: async () => {},
+      enable: async () => {},
+      disable: async () => {}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+    Clocks: {actions: async () => {}},
+    Tts: {action: async () => {}, voiceAction: async () => {}},
+    Ui: {action: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'todo']);
+
+  assert.deepEqual(events, ['startup-sync', 'todo-action']);
+});
+
+test('configureProgram ejecuta startup sync una vez antes de cada comando CLI que carga datos', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath).default;
+  const cases = [
+    {argv: ['todo'], action: 'todo'},
+    {argv: ['note'], action: 'note'},
+    {argv: ['board'], action: 'board'},
+    {argv: ['clock'], action: 'clock'}
+  ];
+
+  for (const current of cases) {
+    const events = [];
+    const action = async () => events.push(current.action);
+    const program = new Command();
+    program.exitOverride();
+
+    configureProgram(program, {
+      pkg: {version: '0.0.0'},
+      Todos: {Tasks: {actions: action}, Lists: {actions: action}},
+      Notes: {Notes: {actions: action}, Lists: {actions: action}},
+      Scrumban: {Board: {actions: action}, BoardLists: {actions: action}},
+      Sync: {
+        startup: async () => events.push('startup-sync'),
+        init: async () => {},
+        status: async () => {},
+        retry: async () => {},
+        enable: async () => {},
+        disable: async () => {}
+      },
+      Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => {}},
+      Clocks: {actions: action},
+      Tts: {action: async () => {}, voiceAction: async () => {}},
+      Ui: {action: async () => {}}
+    });
+
+    await program.parseAsync(['node', 'ilu', ...current.argv]);
+
+    assert.deepEqual(events, ['startup-sync', current.action], current.action);
+  }
+});
+
+test('configureProgram omite startup sync en comandos que no cargan datos de usuario', async () => {
+  delete require.cache[require.resolve(configureCliModulePath)];
+
+  const configureProgram = require(configureCliModulePath).default;
+  const events = [];
+  const program = new Command();
+  program.exitOverride();
+
+  configureProgram(program, {
+    pkg: {version: '0.0.0'},
+    Todos: {Tasks: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Notes: {Notes: {actions: async () => {}}, Lists: {actions: async () => {}}},
+    Scrumban: {Board: {actions: async () => {}}, BoardLists: {actions: async () => {}}},
+    Sync: {
+      startup: async () => events.push('startup-sync'),
+      init: async () => {},
+      status: async () => events.push('sync-status'),
+      retry: async () => {},
+      enable: async () => {},
+      disable: async () => {}
+    },
+    Translate: {osLang: 'es', validate: value => value.join(' '), action: async () => events.push('babel')},
+    Clocks: {actions: async () => {}},
+    Tts: {action: async () => {}, voiceAction: async () => {}},
+    Ui: {action: async () => {}}
+  });
+
+  await program.parseAsync(['node', 'ilu', 'sync', 'status']);
+
+  assert.deepEqual(events, ['sync-status']);
+});
+
 test('bin/cli.js usa el tsconfig del paquete para ejecutar la TUI', async () => {
   const tmpDir = path.join(repoRoot, 'tmp', 'cli-bootstrap');
   const hostileTsconfigPath = path.join(tmpDir, 'react-jsx-tsconfig.json');
