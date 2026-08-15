@@ -58,8 +58,12 @@ typings/
 # dotenv environment variables file
 .env
 
-# Local planning docs
-docs/plans/
+# Local planning and issue drafts
+/docs/plans/
+/docs/issues/
+
+# Local orchestration artifacts
+/.tmp/
 
 # Independent local checkout
 /sync-core/

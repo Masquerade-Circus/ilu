@@ -1,74 +1,122 @@
 # ilu
 
-`ilu` es una CLI de productividad personal para trabajar desde la terminal. Permite administrar tareas, notas, tableros, relojes guardados, traducciones, texto a voz y sincronización local con un remoto Git.
+**Run your personal workflow from one terminal workspace.**
 
-## Instalación
+`ilu` brings tasks, notes, boards, world clocks, translation, text-to-speech, and optional Git sync into a single CLI and integrated TUI. Your productivity data stays in readable files under `~/.ilu/`, so you can work locally, inspect what you own, and add remote sync when you want it.
 
-Desde este repositorio:
+```bash
+ilu ui
+```
+
+![The ilu Board view showing the Release docs board with Backlog, Ready, In Progress, and Done columns, visible card selection, board actions, navigation tabs, and world clocks.](docs/assets/ilu-board.png)
+
+_Plan work across four Board columns, then move between tools without leaving the terminal. [Watch the Todo → Board → Todo workflow](docs/assets/ilu-workflow.gif) or [open the WebM version](docs/assets/ilu-workflow.webm)._
+
+## Why ilu
+
+- **One terminal workspace:** move between Todo, Notes, Board, Clocks, Sync, Translate, and Speech without assembling separate tools.
+- **Local-first data:** Todos, Notes, Boards, and Clocks are written to files under your home directory before optional remote sync runs.
+- **Two ways to work:** use focused CLI commands for quick actions or open the TUI for a persistent interactive workspace.
+- **Optional Git sync:** connect your data directory to a Git remote, with automatic retry and durable recovery for pending work.
+- **Safe external-change handling:** revision conflicts preserve the current file, reload or reconcile it, and ask you to repeat the interrupted action.
+- **Compatible upgrades:** existing Todo, Notes, and Board data remains readable, and legacy sync state is migrated into the current private runtime state.
+
+## What you can manage
+
+| Area           | What it gives you                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| Todo           | Multiple task lists, completion state, details, editing, removal, and priority ordering                |
+| Notes          | Multiple note lists with inline multiline editing, details, and ordering                               |
+| Board          | Multiple boards built from columns and cards, with movement, priority, default columns, and WIP limits |
+| Clocks         | A prioritized list of named clocks backed by IANA time zones                                           |
+| Sync           | Optional Git-backed sync with status, retry, enable, and disable controls                              |
+| Translate      | Source detection, target-language selection, terminal output, and clipboard copy                       |
+| Text-to-Speech | Audio generation from `.txt` and `.md` files, voice selection, chunking, and resumable generation      |
+
+## Install from this repository
+
+### Requirements
+
+- Node.js `>=20.11.0`
+- npm
+- An interactive terminal for commands that prompt for input or selection
+- Git and access to a Git remote if you enable sync
+- An OpenAI API key and network access if you use text-to-speech
+
+Install the dependencies from an existing checkout:
 
 ```bash
 npm install
+```
+
+Run `ilu` directly from the repository:
+
+```bash
 node bin/cli.js --help
 ```
 
-Para exponer el comando `ilu` globalmente desde el repo:
-
-```bash
-npm install -g .
-```
-
-También puedes usar:
+Expose the `ilu` command globally from this checkout with either option:
 
 ```bash
 npm link
 ```
 
-Verifica la instalación con:
+```bash
+npm install -g .
+```
+
+Confirm the installed command:
 
 ```bash
 ilu --version
 ilu --help
 ```
 
-## Uso rápido
+This README documents installation from the repository. It does not assume that the `ilu` package is published to npm.
 
-```bash
-ilu <command> [options]
-```
+## Quick start
 
-Comandos principales:
-
-| Comando | Alias | Para qué sirve |
-| --- | --- | --- |
-| `ui` | | Abre el workspace interactivo en terminal |
-| `todo` | `t` | Administra tareas y listas de tareas |
-| `note` | `n` | Administra notas y listas de notas |
-| `board` | `bd` | Administra tableros, columnas y cards |
-| `clock` | `c` | Administra relojes guardados |
-| `sync` | | Sincroniza datos locales con un remoto Git |
-| `babel` | `b` | Traduce texto y copia el resultado al portapapeles |
-| `tts` | | Convierte archivos `.txt` o `.md` a audio |
-
-Los comandos de listas, notas, tareas, boards y relojes muestran el contenido actual cuando se ejecutan sin opciones.
-
-## Workspace interactivo
+Open the full workspace:
 
 ```bash
 ilu ui
 ```
 
-El workspace abre una interfaz de terminal para trabajar con Todo, Notes, Board, Clocks, Sync, Translate y Speech desde una misma sesión.
+Or create your first task from the CLI and display the active list:
 
-Atajos visibles en la interfaz:
+```bash
+ilu todo --add
+ilu todo
+```
 
-- Usa flechas para moverte en listas, notas, cards y relojes.
-- Usa `Enter` o `Space` para activar la acción principal cuando la vista lo indique.
-- Usa `Shift` más flechas para reordenar donde la vista lo indique.
-- Usa las acciones visibles en pantalla para crear, editar, mover, eliminar, traducir, copiar o convertir.
-- En overlays secundarios, `Esc` cierra la vista actual.
-- En campos de entrada, `Ctrl+C` copia cuando el campo lo permite. Fuera de entradas, `Ctrl+C` cancela o sale.
+Most create, edit, remove, and selection flows are interactive. Run them in a TTY and follow the prompts. Commands that only display current data can be used directly.
 
-## Tareas
+## The TUI workspace
+
+`ilu ui` keeps the seven tools in one session. Actions available for the current view remain visible on screen, while a compact global keymap makes switching tools predictable.
+
+### Essential keys
+
+| Key                       | Action                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `Ctrl+1` through `Ctrl+7` | Open Todo, Notes, Board, Clocks, Sync, Translate, or Speech                      |
+| `Ctrl+K`                  | Toggle help for the current view                                                 |
+| `Esc`                     | Close the current overlay                                                        |
+| `Ctrl+C`                  | Copy inside a supported input; close a module or utility overlay; otherwise exit |
+| Arrow keys                | Navigate focused lists and controls                                              |
+
+View-specific keys:
+
+- **Todo:** use `Enter` or `Space` to complete or reopen a task. Use `Shift+Up` and `Shift+Down` to change its priority.
+- **Notes:** use `Enter` to open a note. Use `Shift+Up` and `Shift+Down` to reorder notes.
+- **Board:** use `Enter` or `Space` to select a card, `O` to open card or column details, `Left` and `Right` to move cards or columns, and `Shift+Up` or `Shift+Down` to change card priority.
+- **Clocks:** use `Up` and `Down` to select a clock, then use the visible actions to manage it.
+
+The help overlay remains the source of truth for actions available in each TUI view.
+
+## Todo
+
+Capture work in separate lists, switch the active list, and keep priority visible without leaving the terminal.
 
 ```bash
 ilu todo
@@ -79,7 +127,7 @@ ilu todo --edit
 ilu todo --remove
 ```
 
-También puedes administrar listas de tareas:
+Manage task lists:
 
 ```bash
 ilu todo --lists
@@ -89,15 +137,11 @@ ilu todo --edit-list
 ilu todo --remove-list
 ```
 
-Cómo se usa:
+`ilu todo` displays tasks from the active list. The other commands open interactive prompts for the requested action.
 
-- `ilu todo` muestra las tareas de la lista activa.
-- `--add` pide título y descripción.
-- `--check` permite marcar o desmarcar tareas terminadas.
-- `--details`, `--edit` y `--remove` abren una selección interactiva.
-- Las selecciones muestran posiciones numéricas junto al título para que identifiques cada elemento.
+## Notes
 
-## Notas
+Keep lightweight notes beside your tasks while separating subjects into independent lists.
 
 ```bash
 ilu note
@@ -107,7 +151,7 @@ ilu note --edit
 ilu note --remove
 ```
 
-También puedes administrar listas de notas:
+Manage note lists:
 
 ```bash
 ilu note --lists
@@ -117,14 +161,11 @@ ilu note --edit-list
 ilu note --remove-list
 ```
 
-Cómo se usa:
+When you add note content in the CLI editor, `Enter` saves, `Ctrl+N` inserts a new line, and `Esc` cancels.
 
-- `ilu note` muestra las notas de la lista activa.
-- `--add` pide el título y luego abre un prompt inline para escribir el contenido.
-- En el prompt inline de contenido, `Enter` confirma, `Ctrl+N` agrega una nueva línea y `Esc` cancela.
-- `--details`, `--edit` y `--remove` abren una selección interactiva.
+## Board
 
-## Boards
+Organize cards across boards and columns when a linear task list is too narrow. Board cards remain cards throughout the workflow and do not have Todo completion state.
 
 ```bash
 ilu board
@@ -137,7 +178,7 @@ ilu board --remove
 ilu board --columns
 ```
 
-También puedes administrar tableros:
+Manage boards:
 
 ```bash
 ilu board --list-boards
@@ -147,20 +188,11 @@ ilu board --edit-board
 ilu board --remove-board
 ```
 
-Los atajos `-ab`, `-eb` y `-rb` también funcionan para agregar, editar y eliminar tableros.
+The short forms `-ab`, `-eb`, and `-rb` add, edit, and remove boards. New boards use `Backlog`, `Ready`, `In Progress`, and `Done` unless you choose custom columns. Column management also supports renaming, ordering, WIP limits, selecting the default column, and resetting empty columns to the default layout.
 
-Cómo se usa:
+## Clocks
 
-- `ilu board` muestra el tablero activo.
-- `--add` crea una card en la columna default del tablero.
-- `--move` permite seleccionar una o varias cards y elegir la columna destino.
-- `--priority` permite elegir una card dentro de una columna y moverla a otra posición numérica.
-- `--columns` permite agregar columnas, renombrarlas, moverlas, establecer WIP limit, cambiar la columna default o resetear columnas vacías al default simple.
-- Las cards se seleccionan con búsqueda o selección múltiple según la acción.
-
-Los boards nuevos usan estas columnas iniciales cuando no se eligen columnas personalizadas: `Backlog`, `Ready`, `In Progress` y `Done`.
-
-## Relojes
+Keep the time zones you care about in a named, prioritized list.
 
 ```bash
 ilu clock
@@ -170,106 +202,136 @@ ilu clock --remove
 ilu clock --remove 2
 ```
 
-Cómo se usa:
+Each clock uses an IANA time zone such as `America/Mexico_City` or `Etc/UTC`. Pass a position to `--remove` for one clock, or omit it to open interactive selection.
 
-- `ilu clock` muestra los relojes guardados.
-- `--add` abre una búsqueda de zonas horarias y después pide un nombre.
-- `--priority` permite elegir un reloj y moverlo a otra posición numérica.
-- `--remove <position>` elimina el reloj de esa posición.
-- `--remove` sin posición abre una selección múltiple.
+## Optional Git sync
 
-Cada reloj usa una zona horaria IANA, por ejemplo `America/Mexico_City` o `Etc/UTC`.
+Sync is opt-in. Local data is saved first, then `ilu` coordinates remote work through the public `sync-core@1.0.0` dependency and its Git backend. Retryable failures use automatic retry, while pending state is persisted so recovery can continue after a restart. A remote failure does not remove the local data already written to disk.
 
-## Sincronización
+Initialize sync against a Git remote you can access:
 
 ```bash
-ilu sync init --remote <url> [--branch main]
-ilu sync status
-ilu sync retry
-ilu sync enable
-ilu sync disable
+ilu sync init --remote <url>
 ```
 
-Cómo se usa:
+The default branch is `main`. Choose another branch explicitly when needed:
 
-- `sync init` configura la sincronización con un remoto Git y usa `main` como branch por default.
-- `sync status` muestra el estado actual.
-- `sync retry` reintenta trabajo pendiente.
-- `sync enable` y `sync disable` activan o desactivan la sincronización local.
+```bash
+ilu sync init --remote <url> --branch <name>
+```
 
-La sincronización es local-first: los datos locales se guardan antes del trabajo remoto. Si la sincronización remota falla, los datos locales permanecen en disco.
+Inspect and control sync:
 
-`ilu` sincroniza estos archivos de datos bajo `~/.ilu/`:
+```bash
+ilu sync status
+ilu sync retry
+ilu sync disable
+ilu sync enable
+```
+
+Initialization adopts remote history when local data is empty and publishes local data when the remote has no history. If both sides already contain data, initialization stops rather than choosing a side and risking an overwrite.
+
+Sync considers regular files under `~/.ilu/`. The current application data includes:
 
 - `todos.json`
 - `notes.json`
 - `boards.json`
 - `clocks.json`
 
-La carpeta `~/.ilu/.config/` guarda configuración local. El estado privado del runtime vive en `~/.ilu/.sync-core/state.json`. Ninguna de las dos carpetas forma parte de los datos sincronizados.
+Configuration under `~/.ilu/.config/` and private runtime state under `~/.ilu/.sync-core/` are excluded. Other files placed directly under `~/.ilu/` may also be synchronized, so keep unrelated or sensitive files outside this directory. Existing legacy sync state at `~/.ilu/.config/sync-state.json` is migrated into the current private runtime state when needed.
 
-## Traducción
+## Translate
+
+Translate up to 5,000 characters, print the result, and copy it to the clipboard in one command.
 
 ```bash
-ilu babel <text...>
-ilu b <text...>
+ilu babel "Hello from the terminal"
+ilu babel --source en --target es "Ship the next release"
+ilu b --target fr "Good morning"
 ```
 
-Opciones:
+`--source` defaults to `auto`. `--target` defaults to the language reported by your system. Translation requires network access, and clipboard integration must be available in your environment.
 
-- `--source [source]`: idioma origen. El default es `auto`.
-- `--target [target]`: idioma destino. El default sale del idioma del sistema.
+## Text-to-Speech
 
-El resultado traducido se imprime en terminal y se copia al portapapeles.
-
-## Texto a voz
+Turn a text or Markdown file into audio:
 
 ```bash
-ilu tts <inputFile> <outputFile>
+ilu tts input.md output.mp3
+```
+
+Choose and persist the default voice:
+
+```bash
 ilu tts voice
 ```
 
-Cómo se usa:
+Text-to-speech accepts `.txt` and `.md` input files. When audio generation requires an OpenAI API key for the first time, `ilu` asks for it and stores the TTS configuration at `~/.ilu/.config/tts-config.json`. Long input is split into chunks and joined with the bundled ffmpeg binary. Generated chunks remain available after an interrupted API call, and the error includes a copyable retry command.
 
-- El archivo de entrada debe terminar en `.txt` o `.md`.
-- `ilu tts voice` abre un selector de voz y guarda la voz default.
-- Si no hay API key guardada, el comando la pide de forma interactiva.
-- Los textos largos se dividen en partes antes de generar el audio.
-- Si una generación se interrumpe, el mensaje de error incluye el comando de reintento.
+## Your data, durability, and conflicts
 
-La configuración de TTS se guarda en `~/.ilu/.config/tts-config.json`.
-
-## Datos locales
-
-`ilu` guarda datos y configuración bajo:
+All local data and configuration lives under:
 
 ```text
 ~/.ilu/
 ```
 
-Archivos de datos actuales:
+| Path                               | Purpose                                        |
+| ---------------------------------- | ---------------------------------------------- |
+| `~/.ilu/todos.json`                | Todo lists and tasks                           |
+| `~/.ilu/notes.json`                | Note lists and notes                           |
+| `~/.ilu/boards.json`               | Boards, columns, and cards                     |
+| `~/.ilu/clocks.json`               | Saved clocks in independent JSON storage       |
+| `~/.ilu/.config/sync-config.json`  | Sync configuration                             |
+| `~/.ilu/.config/sync-pending.json` | ilu's durable pending-work marker              |
+| `~/.ilu/.sync-core/state.json`     | Private state owned by the `sync-core` runtime |
+| `~/.ilu/.config/tts-config.json`   | TTS voice and API configuration                |
 
-- `~/.ilu/todos.json`
-- `~/.ilu/notes.json`
-- `~/.ilu/boards.json`
-- `~/.ilu/clocks.json`
+Todo, Notes, and Board persistence uses the public `iludb@2.0.0` dependency. Its revision checks detect when another process or tool changes a file after `ilu` has loaded it.
 
-Archivos de configuración y estado actuales:
+When a revision conflict occurs, `ilu` stops the attempted write and preserves the current file. With sync disabled, it reloads the current data from disk. With sync enabled, it first runs the reconciliation flow and then reloads the data. The CLI or TUI asks you to repeat the original action after recovery succeeds. This recovery does not promise an automatic domain-level merge.
 
-- `~/.ilu/.config/sync-config.json`
-- `~/.ilu/.sync-core/state.json`
-- `~/.ilu/.config/tts-config.json`
+If recovery cannot finish safely, `ilu` keeps the current file and reports that the operation was blocked.
 
-## Prompts interactivos
+## Command reference
 
-Los comandos que crean, editan o seleccionan datos necesitan una terminal interactiva. Si un comando interactivo se ejecuta sin TTY, `ilu` termina con un error claro en lugar de mostrar un stack trace del prompt.
+| Command                            | Alias    | Purpose                                |
+| ---------------------------------- | -------- | -------------------------------------- |
+| `ilu ui`                           |          | Open the integrated terminal workspace |
+| `ilu todo [options]`               | `ilu t`  | Manage task lists and tasks            |
+| `ilu note [options]`               | `ilu n`  | Manage note lists and notes            |
+| `ilu board [options]`              | `ilu bd` | Manage boards, columns, and cards      |
+| `ilu clock [options]`              | `ilu c`  | Manage saved clocks                    |
+| `ilu sync <command>`               |          | Configure and inspect Git sync         |
+| `ilu babel [options] <text...>`    | `ilu b`  | Translate text and copy the result     |
+| `ilu tts <inputFile> <outputFile>` |          | Generate audio from text or Markdown   |
+| `ilu tts voice`                    |          | Select the default TTS voice           |
 
-En prompts de selección:
+Use built-in help for the complete, current flags of any command:
 
-- Escribe para filtrar cuando la selección use búsqueda.
-- Usa la posición numérica visible para identificar elementos en acciones de prioridad.
-- En selecciones múltiples, elige al menos un elemento cuando el prompt lo pida.
+```bash
+ilu --help
+ilu todo --help
+ilu board --help
+ilu sync init --help
+```
 
-## Para contribuir
+## Development and contributing
 
-La documentación interna vive en [`docs/internal-architecture.md`](docs/internal-architecture.md) y la guía práctica de contribución vive en [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Install dependencies and run the available repository checks:
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run lint
+```
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contribution workflow and [`docs/internal-architecture.md`](docs/internal-architecture.md) for runtime entrypoints, module boundaries, persistence, sync integration, and TUI internals.
+
+Ready to try the workflow? Link the checkout and open the workspace:
+
+```bash
+npm link
+ilu ui
+```

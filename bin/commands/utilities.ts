@@ -38,7 +38,7 @@ function registerUtilityCommands(program: Command, deps: UtilityDeps) {
     .option('-a, --add', 'Add a new clock')
     .option('-s, --show', 'Show all saved clocks')
     .option('-p, --priority', 'Reorder saved clocks interactively')
-    .option('-r, --remove [position]', 'Remove the clock at [position], if no position, remove all clocks', optionalInt)
+    .option('-r, --remove [position]', 'Remove one clock by position, or choose interactively', optionalInt)
     .action(createActionAdapter(deps.Clocks.actions));
 
   const ttsCommand = program
