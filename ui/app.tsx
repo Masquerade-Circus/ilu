@@ -180,6 +180,7 @@ function createApp(
         content={[
           <Text>Tab moves focus.</Text>,
           <Text>Enter activates.</Text>,
+          ...TABS.map((tab, index) => <Text>{`Ctrl+${index + 1}: ${tab}`}</Text>),
           ...helpLines.map((line: string) => <Text>{line}</Text>),
           <Text>Esc closes Help.</Text>
         ]}
@@ -195,7 +196,9 @@ function createApp(
     const activeUtilityOverlay = isUtilityTab(state.activeTab)
       ? createActiveUtilityOverlay({ state, actions, layout: { width: currentWidth(), rows: currentRows() }, requestRender })
       : null;
-    const footerControlMode = activeUtilityOverlay !== null ? "overlay" : "global";
+    const footerControlMode = actions.isTextEntryFocused?.() === true
+      ? "copy"
+      : state.overlay !== "help" && hasActiveOverlay(state) ? "overlay" : "global";
 
     return createAppShell({
       activePanelNodes: activeView.activePanelNodes,
@@ -342,6 +345,14 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
       applyPendingFocus(session, state);
     }
   }, (command: TerminalCommand, context: TerminalCommandContext) => {
+    if (command.id === "ilu.focus-context") {
+      if (typeof context.focusedId === "string") {
+        trackedFocusIds.set(state, context.focusedId);
+      } else {
+        trackedFocusIds.delete(state);
+      }
+      return true;
+    }
     return handleModuleCommand(command, state, context, sessionActions, snapshotRef);
   });
 
@@ -354,6 +365,7 @@ async function createHeadlessSession(options: AppOptions = {}): Promise<Headless
     theme: createTerminalTheme(runtime.terminal)
   });
   sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
+  enableContextualFooter(session, sessionActions, state);
   session = enableClockFooterTicker(session, snapshotRef);
   applyPendingFocus(session, state);
   const activeSession = session;
@@ -455,6 +467,23 @@ function hasActiveOverlay(state: AppRuntimeState): boolean {
   );
 }
 
+function enableContextualFooter(session: TerminalSession, actions: SessionActions, state: AppRuntimeState): void {
+  actions.isTextEntryFocused = () => findNodeById(session.tree(), trackedFocusIds.get(state))?.tag === "terminal-input";
+  const dispatch = session.dispatchKey.bind(session);
+  // tree() intentionally hides focus internals. Ask the public keymap context
+  // after input settles, for both real input and programmatic focus changes.
+  for (const key of ["focus", "focusAt", "focusNext", "focusPrev", "dispatchKey", "click", "clickAt"] as const) {
+    const original = session[key].bind(session);
+    Object.assign(session, {
+      [key]: (...args: unknown[]) => {
+        const result = Reflect.apply(original, session, args);
+        dispatch("ILU_FOCUS_CONTEXT");
+        return typeof result === "string" ? session.output() : result;
+      }
+    });
+  }
+}
+
 function handleHeadlessChromeClick(id: string, state: AppRuntimeState): boolean {
   const tabMatch = id.match(/^tab-(todo|notes|board|clocks|sync|translate|speech)$/);
 
@@ -527,6 +556,14 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
       applyPendingFocus(session, state);
     }
   }, (command: TerminalCommand, context: TerminalCommandContext) => {
+    if (command.id === "ilu.focus-context") {
+      if (typeof context.focusedId === "string") {
+        trackedFocusIds.set(state, context.focusedId);
+      } else {
+        trackedFocusIds.delete(state);
+      }
+      return true;
+    }
     return handleModuleCommand(command, state, context, sessionActions, snapshotRef);
   });
 
@@ -540,6 +577,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
     theme: createTerminalTheme(runtime.terminal)
   });
   sessionActions.copyTextToClipboard = (text: string) => copyTextWithSessionClipboard(session, text);
+  enableContextualFooter(session, sessionActions, state);
   const cleanupSyncRunner = preparedSyncRunner?.activate();
   session = enableSyncStatusUpdates(session, state, cleanupSyncRunner);
   let recoveryActive = true;

@@ -645,9 +645,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     return Math.max(1, width - horizontalMargin);
   }
 
-  function boardOverlayEditorHeight(): number {
-    return Math.max(4, boardOverlayContentHeight() - 5);
-  }
 
 
   function addCardOverlay(): JSX.Element | null {
@@ -671,7 +668,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorId="board-add-description"
         editorValue={form.description}
         editorPlaceholder="Optional description"
-        editorHeight={boardOverlayEditorHeight()}
         editorStyle="editor.base"
         editorFocusStyle="editor.focus"
         primaryActionId="board-add-save"
@@ -798,7 +794,6 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
         editorId="board-edit-description"
         editorValue={form.description}
         editorPlaceholder="Optional description"
-        editorHeight={boardOverlayEditorHeight()}
         editorStyle="editor.base"
         editorFocusStyle="editor.focus"
         primaryActionId="board-edit-save"
@@ -965,7 +960,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
               id="board-add-board-description"
               value={form.description}
               placeholder="Optional description"
-              height={boardOverlayEditorHeight()}
+              fill={true}
               style="editor.base"
               styles={{ focus: "editor.focus" }}
               oninput={(event: TerminalEditorChangeEventPayload) => {
@@ -1017,7 +1012,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
               id="board-rename-board-description"
               value={form.description}
               placeholder="Optional description"
-              height={boardOverlayEditorHeight()}
+              fill={true}
               style="editor.base"
               styles={{ focus: "editor.focus" }}
               oninput={(event: TerminalEditorChangeEventPayload) => {

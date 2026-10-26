@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import { withTempHome } from '../support/home-sandbox.ts';
+import { dbFilePath } from '../utils/local-paths.ts';
+import loadDb from '../utils/load-db.ts';
+import { createBoardActions } from '../ui/modules/board/actions.ts';
+import { buildReadSnapshotDomain } from '../ui/read-model.ts';
 import {
   repoRoot,
   uiModulePath,
@@ -28,8 +34,78 @@ import {
   loadUiWithSyncHook,
   boardSnapshotModels,
   orderedTextIndex,
+  exerciseEditorHeight,
 } from './test-helpers/ui-app.ts';
 const require = createRequire(import.meta.url);
+
+for (const form of ['add-card', 'edit-card', 'add-board', 'rename-board']) {
+  test(`Board ${form} editor uses available height across resize without losing cancel or save`, async () => {
+    await withTempHome(async () => {
+      // The Board model owns a DB at import time. Reload the real module in this sandbox.
+      const modelPath = require.resolve('../scrumban/model.ts');
+      const cachedModel = require.cache[modelPath];
+      delete require.cache[modelPath];
+      try {
+        const model = require(modelPath).default;
+        const original = model.add({title: 'Seed board', description: '', current: true});
+        model.cards.add({title: 'Seed card', description: ''});
+        const Ui = require(uiModulePath);
+        const stdin = new FakeStdin();
+        const stdout = new FakeStdout();
+        stdout.columns = 100;
+        const session = await Ui.mountInteractiveSession({
+          stdin, stdout,
+          state: {activeTab: 'Board'},
+          buildSnapshot: () => baseSnapshot(buildReadSnapshotDomain('board', {models: {boards: model}})),
+          boardActions: createBoardActions({model})
+        });
+        const isBoard = form.endsWith('board');
+        const idPrefix = `board-${isBoard ? form : form === 'add-card' ? 'add' : 'edit'}`;
+
+        try {
+          for (const outcome of ['cancel', 'save']) {
+            if (form === 'edit-card') {
+              doublePressVisibleText(stdin, session, 'Seed card');
+              session.click('board-card-edit');
+            } else if (form === 'rename-board') {
+              doublePressVisibleText(stdin, session, 'Seed board');
+              session.click('board-rename-board');
+            } else {
+              session.click(`board-${form}`);
+            }
+            const before = fs.readFileSync(dbFilePath('boards'), 'utf8');
+            assert.equal(session.focus(`${idPrefix}-title`), true);
+            session.dispatchKey('CTRL_A');
+            stdin.send('\x1b[200~Draft title\x1b[201~');
+            const text = await exerciseEditorHeight({
+              session, stdin, stdout,
+              editorId: `${idPrefix}-description`,
+              followingControl: /Cancel/,
+              requiredText: [/Draft title/, /Save/, /Cancel/]
+            });
+            clickVisibleText(session, outcome === 'cancel' ? 'Cancel' : 'Save');
+
+            if (outcome === 'cancel') {
+              assert.equal(fs.readFileSync(dbFilePath('boards'), 'utf8'), before, 'cancel after resize must not persist drafts');
+            } else {
+              const boards = loadDb('boards').getCollection('boards').find();
+              const saved = isBoard ? boards.find(board => board.title === 'Draft title') : boards.find(board => board.$id === original.$id).columns.flatMap(column => column.cards).find(card => card.title === 'Draft title');
+              assert.ok(saved, 'save after resize must persist the edited target');
+              assert.equal(saved.description, text);
+            }
+          }
+        } finally {
+          await session.destroy();
+        }
+      } finally {
+        delete require.cache[modelPath];
+        if (cachedModel) {
+          require.cache[modelPath] = cachedModel;
+        }
+      }
+    });
+  });
+}
 
 test('Board doublepress del mismo card vuelve a abrir despues de cerrar overlay sin supresor local', async () => {
   const Ui = require(uiModulePath);
@@ -389,10 +465,11 @@ ${lines.join('\n')}`);
   session.destroy();
 });
 
-test('Board Add card modal stays inside 80x24 with margin', async () => {
+test('Board Add card modal stays inside 80x24 with margin', async (t) => {
   const Ui = require(uiModulePath);
 
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: richSnapshot()});
+  t.after(() => session.destroy());
 
   session.click('board-add-card');
   const lines = visibleLines(session.output());
@@ -402,9 +479,8 @@ test('Board Add card modal stays inside 80x24 with margin', async () => {
   assert.ok(lines.length <= 24, `expected at most 24 lines, got ${lines.length}`);
   assert.equal(overlayTop, 2);
   assert.equal(overlayBottom, 21);
-  assert.match(lines.at(-1), /Ctrl\+C: Exit/);
+  assert.match(lines.at(-1), /Ctrl\+C:[^\n]*copy/i);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
 });
 
 test('Board Enter delegates focused card list press and selects without details', async () => {

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import localPaths from '../utils/local-paths.ts';
 import * as __cjsImport13 from '../utils/persistence-sync.ts';
 const { createPersistenceNotifier } = __cjsImport13;
@@ -33,9 +34,34 @@ function read(): Clock[] {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as Clock[];
 }
 
-function write(clocks: Clock[]) {
+function mutate(update: (clocks: Clock[]) => Clock[]) {
     ensureStorageDir();
-    fs.writeFileSync(getFilePath(), JSON.stringify(clocks, null, 2), 'utf8');
+    const privateDir = localPaths.syncDirPath();
+    fs.mkdirSync(privateDir, {recursive: true});
+    const lockPath = path.join(privateDir, 'clocks-write.lock');
+    let lock: number;
+    try {
+        lock = fs.openSync(lockPath, 'wx', 0o600);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new Error('Clocks are being updated by another process. Try again. If the previous process stopped unexpectedly, remove .ilu/.config/clocks-write.lock after confirming no clock writer is active.');
+        }
+        throw error;
+    }
+    const pendingFile = path.join(privateDir, `clocks-${randomUUID()}.json`);
+    let clocks: Clock[];
+    try {
+        clocks = update(read());
+        fs.writeFileSync(pendingFile, JSON.stringify(clocks, null, 2), 'utf8');
+        fs.renameSync(pendingFile, getFilePath());
+    } finally {
+        try {
+            fs.rmSync(pendingFile, {force: true});
+        } finally {
+            fs.closeSync(lock);
+            fs.unlinkSync(lockPath);
+        }
+    }
     afterPersist('save');
     return clocks;
 }
@@ -48,46 +74,41 @@ const __defaultExport = {
         return read()[index - 1];
     },
     add(clock: Clock) {
-        let clocks = read();
-        clocks.push({
-            name: clock.name.trim(),
-            timezone: clock.timezone.trim()
+        return mutate((clocks) => {
+            clocks.push({name: clock.name.trim(), timezone: clock.timezone.trim()});
+            return clocks;
         });
-        return write(clocks);
     },
     remove(index: number | Array<number | string> | unknown) {
         if (typeof index === 'number') {
-            let clocks = read();
-            clocks.splice(index - 1, 1);
-            return write(clocks);
+            return mutate((clocks) => {
+                clocks.splice(index - 1, 1);
+                return clocks;
+            });
         }
 
         if (Array.isArray(index)) {
-            let clocks = read();
             let indexes = [...new Set(index)]
                 .map((value) => parseInt(String(value), 10))
                 .filter((value) => Number.isInteger(value) && value > 0)
                 .sort((left, right) => right - left);
 
-            indexes.forEach((position) => {
-                clocks.splice(position - 1, 1);
+            return mutate((clocks) => {
+                indexes.forEach((position) => clocks.splice(position - 1, 1));
+                return clocks;
             });
-
-            return write(clocks);
         }
 
-        return write([]);
+        return mutate(() => []);
     },
     move({fromPosition, toPosition}: ClockMove) {
-        let clocks = read();
-        let [clock] = clocks.splice(fromPosition - 1, 1);
-
-        if (!clock) {
+        return mutate((clocks) => {
+            let [clock] = clocks.splice(fromPosition - 1, 1);
+            if (clock) {
+                clocks.splice(toPosition - 1, 0, clock);
+            }
             return clocks;
-        }
-
-        clocks.splice(toPosition - 1, 0, clock);
-        return write(clocks);
+        });
     }
 };
 export default __defaultExport;

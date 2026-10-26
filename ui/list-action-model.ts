@@ -1,4 +1,26 @@
-import type { UiEntityId } from "./types";
+import type { ItemRemovalTarget, ListItem, ListPanel, UiEntityId } from "./types";
+
+export function unchangedRemovalTarget({
+  target,
+  panel,
+  item
+}: {
+  target: ItemRemovalTarget | null;
+  panel: ListPanel;
+  item: ListItem | null;
+}): boolean {
+  return (
+    target !== null &&
+    item !== null &&
+    target.listId === (panel.currentListId ?? null) &&
+    target.item.id === item.id &&
+    target.item.position === item.position &&
+    target.item.text === item.text &&
+    target.item.description === item.description &&
+    target.item.done === item.done &&
+    JSON.stringify(target.item.labels) === JSON.stringify(item.labels)
+  );
+}
 
 type ListActionItem = {
   $id?: unknown;

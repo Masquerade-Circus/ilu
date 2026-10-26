@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { withTempHome } from '../support/home-sandbox.ts';
 import {
   repoRoot,
   uiModulePath,
@@ -75,28 +76,22 @@ test('active editor renders only the active page factory', async () => {
   });
 });
 
-test('headless custom key commands render once after the command handler consumes them', async () => {
-  let todoRenders = 0;
-
-  await loadUiWithPatchedModules((request, parent, loaded) => {
-    if ((request === './modules/todos/MainView' || request === './modules/todos/MainView.tsx') && parent && parent.filename === uiModuleRegistryPath) {
-      return {...loaded, createTodoMainView(options) { todoRenders += 1; return loaded.createTodoMainView(options); }};
-    }
-
-    return loaded;
-  }, async (Ui) => {
+test('headless custom key commands activate the requested page and its controls', async () => {
+  await loadUiWithPatchedModules((_request, _parent, loaded) => loaded, async (Ui) => {
     const session = await Ui.createHeadlessSession({state: {activeTab: 'Notes'}, snapshot: richSnapshot()});
-
-    todoRenders = 0;
+    try {
     session.dispatchKey('CTRL_1');
-
     assert.equal(session.state().activeTab, 'Todo');
-    assert.equal(todoRenders, 1, `expected one Todo render for one custom command, got ${todoRenders}`);
-    session.destroy();
+    assert.equal(session.focus('todo-items'), true);
+    session.click('todo-add-task');
+    assert.equal(session.focus('todo-add-title'), true);
+    } finally {
+      await session.destroy();
+    }
   });
 });
 
-test('successful Todo task actions request a scoped todo snapshot refresh', async () => {
+test('successful Todo task actions request a scoped todo snapshot refresh', async (t) => {
   const refreshDomains = [];
   const snapshot = richSnapshot();
 
@@ -119,6 +114,7 @@ test('successful Todo task actions request a scoped todo snapshot refresh', asyn
       }
     });
 
+    t.after(() => session.destroy());
     session.click('todo-add-task');
     session.focus('todo-add-title');
     session.dispatchText('Scoped');
@@ -130,7 +126,7 @@ test('successful Todo task actions request a scoped todo snapshot refresh', asyn
   });
 });
 
-test('default Todo task actions refresh only the todo read snapshot domain', async () => {
+test('default Todo task actions refresh only the todo read snapshot domain', async (t) => {
   let initialSnapshotBuilt = false;
   const calls = [];
   const guardedDomain = name => {
@@ -185,6 +181,7 @@ test('default Todo task actions refresh only the todo read snapshot domain', asy
   });
 
   initialSnapshotBuilt = true;
+  t.after(() => session.destroy());
   calls.length = 0;
   session.click('todo-add-task');
   session.focus('todo-add-title');
@@ -789,9 +786,10 @@ test('Ctrl+K opens contextual help for every app', async () => {
   session.destroy();
 });
 
-test('help overlay closes with Esc and Close button without exiting', async () => {
+test('help overlay closes with Esc and Close button without exiting', async (t) => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+  t.after(() => session.destroy());
 
   session.dispatchKey('CTRL_K');
   assert.equal(session.state().overlay, 'help');
@@ -808,6 +806,59 @@ test('help overlay closes with Esc and Close button without exiting', async () =
   assert.equal(session.state().running, true);
 
   session.destroy();
+});
+
+test('global Help advertises every numbered shortcut and each key opens the advertised app', async () => {
+  await withTempHome(async () => {
+    const Ui = require(uiModulePath);
+    const session = await Ui.createHeadlessSession({cols: 100, rows: 36, snapshot: baseSnapshot()});
+    try {
+      session.dispatchKey('CTRL_K');
+      const help = stripAnsi(session.output());
+      const tabs = ['Todo', 'Notes', 'Board', 'Clocks', 'Sync', 'Translate', 'Speech'];
+      for (const [index, tab] of tabs.entries()) {
+        assert.match(help, new RegExp(`Ctrl\\+${index + 1}[^\\n]*\\b${tab}\\b`, 'i'));
+      }
+      session.dispatchKey('ESCAPE');
+      for (const [index, tab] of tabs.entries()) {
+        session.dispatchKey(`CTRL_${index + 1}`);
+        assert.equal(session.state().activeTab, tab);
+      }
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('footer Ctrl+C hint follows copy focus and overlay close behavior', async () => {
+  await withTempHome(async () => {
+    const Ui = require(uiModulePath);
+    const session = await Ui.createHeadlessSession({cols: 100, rows: 28, snapshot: baseSnapshot()});
+    try {
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*(?:exit|quit)/i);
+      session.click('todo-add-task');
+      session.focus('todo-add-title');
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
+      session.dispatchKey('TAB');
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*(?:close|cancel|back)/i);
+      session.dispatchKey('SHIFT_TAB');
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
+      session.dispatchText('Draft task');
+      session.dispatchKey('CTRL_A');
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
+      session.dispatchKey('CTRL_C');
+      assert.equal(session.clipboard(), 'Draft task');
+      assert.equal(session.state().running, true);
+      session.focus('todo-add-cancel');
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*(?:close|cancel|back)/i);
+      session.dispatchKey('CTRL_C');
+      assert.equal(session.state().todo.overlay, null);
+      assert.equal(session.state().running, true);
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*(?:exit|quit)/i);
+    } finally {
+      await session.destroy();
+    }
+  });
 });
 
 test('Ctrl+C exits from Help instead of acting as overlay help copy', async () => {

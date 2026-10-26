@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import childProcess from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import OpenAI from 'openai';
 import localPaths from '../utils/local-paths';
@@ -8,7 +9,10 @@ import configStore from '../utils/config-store';
 import prompts from '../utils/prompts';
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
 const DEFAULT_VOICE = 'alloy';
-const DEFAULT_MAX_CHUNK_LENGTH = 50000;
+// Speech accepts 4096 characters; gpt-4o-mini-tts also caps input at 2000 tokens.
+// A UTF-8 byte budget bounds byte-level BPE tokens without a tokenizer dependency.
+const DEFAULT_MAX_CHUNK_LENGTH = 2000;
+const MAX_CHUNK_BYTES = 2000;
 const SUPPORTED_INPUT_EXTENSIONS = new Set(['.txt', '.md']);
 const VOICE_CATALOG = [
     'alloy',
@@ -25,7 +29,7 @@ const VOICE_CATALOG = [
 const SUPPORTED_VOICES = VOICE_CATALOG.slice();
 
 type SupportedVoice = (typeof VOICE_CATALOG)[number];
-type TtsFileSystem = Pick<typeof fs, 'mkdirSync' | 'writeFileSync' | 'rmSync' | 'rmdirSync' | 'existsSync' | 'readFileSync'> & {
+type TtsFileSystem = Pick<typeof fs, 'mkdirSync' | 'writeFileSync' | 'rmSync' | 'rmdirSync' | 'existsSync' | 'readFileSync' | 'renameSync'> & {
     realpathSync?: (filePath: string) => string;
 };
 type LocalPaths = typeof localPaths;
@@ -267,50 +271,51 @@ function validateOutputFile(inputFile: string, outputFile: string, {fs: fileSyst
 }
 
 function splitByParagraphs(input: unknown) {
-    return `${input || ''}`
-        .split(/\n\s*\n+/)
-        .map((chunk) => chunk.trim())
-        .filter(Boolean);
+    return `${input || ''}`.match(/[\s\S]+?(?:\n\s*\n+|$)/g) || [];
 }
 
 function splitBySentences(input: unknown) {
-    let matches = `${input || ''}`.match(/[^.!?]+[.!?]+|[^.!?]+$/g);
-
-    return (matches || [])
-        .map((chunk) => chunk.trim())
-        .filter(Boolean);
+    return `${input || ''}`.match(/[^.!?]*[.!?]+\s*|[^.!?]+$/g) || [];
 }
 
 function splitByLength(input: unknown, maxChunkLength: number) {
     let value = `${input || ''}`;
     let chunks: string[] = [];
-    let index = 0;
-
-    while (index < value.length) {
-        chunks.push(value.slice(index, index + maxChunkLength));
-        index += maxChunkLength;
+    let current = '';
+    let bytes = 0;
+    for (const character of value) {
+        const length = Buffer.byteLength(character, 'utf8');
+        if (current.length > 0 && (current.length + character.length > maxChunkLength || bytes + length > MAX_CHUNK_BYTES)) {
+            chunks.push(current);
+            current = '';
+            bytes = 0;
+        }
+        current += character;
+        bytes += length;
+    }
+    if (current.length > 0) {
+        chunks.push(current);
     }
 
     return chunks;
 }
 
 function chunkText(input: unknown, maxChunkLength: number = DEFAULT_MAX_CHUNK_LENGTH) {
+    if (!Number.isInteger(maxChunkLength) || maxChunkLength < 1) {
+        throw new Error('Chunk length must be a positive integer');
+    }
     let value = `${input || ''}`;
-
-    if (!value || value.length <= maxChunkLength) {
+    if (!value || (value.length <= maxChunkLength && Buffer.byteLength(value, 'utf8') <= MAX_CHUNK_BYTES)) {
         return [value];
     }
-
     return splitByParagraphs(value).flatMap((paragraph) => {
-        if (paragraph.length <= maxChunkLength) {
+        if (paragraph.length <= maxChunkLength && Buffer.byteLength(paragraph, 'utf8') <= MAX_CHUNK_BYTES) {
             return [paragraph];
         }
-
         return splitBySentences(paragraph).flatMap((sentence) => {
-            if (sentence.length <= maxChunkLength) {
+            if (sentence.length <= maxChunkLength && Buffer.byteLength(sentence, 'utf8') <= MAX_CHUNK_BYTES) {
                 return [sentence];
             }
-
             return splitByLength(sentence, maxChunkLength);
         });
     });
@@ -327,6 +332,9 @@ function createTtsService({
     defaultVoice = DEFAULT_VOICE,
     maxChunkLength = DEFAULT_MAX_CHUNK_LENGTH
 }: TtsServiceOptions = {}) {
+    if (!Number.isInteger(maxChunkLength) || maxChunkLength < 1) {
+        throw new Error('Chunk length must be a positive integer');
+    }
     return {
         async action(args: TtsActionArgs) {
             let inputFile = args.inputFile;
@@ -345,7 +353,26 @@ function createTtsService({
             let chunkFiles = chunks.map((_chunk, index) => getChunkFilePath(outputFile, index));
 
             ensureParentDir(outputFile);
+            const identity = createHash('sha256').update(JSON.stringify({model, voice, chunks, maxChunkLength, maxChunkBytes: MAX_CHUNK_BYTES})).digest('hex');
+            const manifest = path.join(chunkDir, 'job.json');
+            let previousIdentity: unknown = null;
+            if (fileSystem.existsSync(manifest)) {
+                try {
+                    const stored: unknown = JSON.parse(fileSystem.readFileSync(manifest, 'utf8'));
+                    if (typeof stored === 'object' && stored !== null && 'identity' in stored) {
+                        previousIdentity = stored.identity;
+                    }
+                } catch (error) {
+                    if (!(error instanceof SyntaxError)) {
+                        throw error;
+                    }
+                }
+            }
+            if (fileSystem.existsSync(chunkDir) && previousIdentity !== identity) {
+                fileSystem.renameSync(chunkDir, `${chunkDir}.previous-${randomUUID()}`);
+            }
             fileSystem.mkdirSync(chunkDir, {recursive: true});
+            fileSystem.writeFileSync(manifest, JSON.stringify({identity}), 'utf8');
 
             try {
                 for (let index = 0; index < chunks.length; index += 1) {
@@ -359,7 +386,9 @@ function createTtsService({
                         input: chunks[index]
                     });
 
-                    fileSystem.writeFileSync(chunkFiles[index], Buffer.from(await response.arrayBuffer()));
+                    const pendingChunk = `${chunkFiles[index]}.pending`;
+                    fileSystem.writeFileSync(pendingChunk, Buffer.from(await response.arrayBuffer()));
+                    fileSystem.renameSync(pendingChunk, chunkFiles[index]);
                 }
             } catch (error: unknown) {
                 let message = error instanceof Error ? error.message : String(error);
@@ -367,6 +396,7 @@ function createTtsService({
             }
 
             await mergeChunks({chunkFiles, outputFile, ffmpegPath});
+            fileSystem.rmSync(manifest, {force: true});
             cleanupChunkFiles(chunkFiles, {fs: fileSystem});
             return {outputFile};
         },

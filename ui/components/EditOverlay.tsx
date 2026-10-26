@@ -18,7 +18,6 @@ export type EditOverlayProps = {
   editorId: string;
   editorValue: string;
   editorPlaceholder?: string;
-  editorHeight: number;
   width?: number;
   height?: number;
   inputStyle?: TerminalStyleValue;
@@ -47,7 +46,6 @@ export function EditOverlay(props: EditOverlayProps): JSX.Element {
     editorId,
     editorValue,
     editorPlaceholder,
-    editorHeight,
     width,
     height,
     inputStyle,
@@ -87,7 +85,7 @@ export function EditOverlay(props: EditOverlayProps): JSX.Element {
           id={editorId}
           value={editorValue}
           placeholder={editorPlaceholder}
-          height={editorHeight}
+          fill={true}
           style={editorStyle}
           styles={editorStyles}
           oninput={(event: TerminalEditorChangeEventPayload) => onEditorInput(event.value)}

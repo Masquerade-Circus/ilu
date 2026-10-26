@@ -148,8 +148,14 @@ export function closeUtilityOverlay(state: UtilityAppState): boolean {
 
 export function closeRegisteredOverlays(state: AppRuntimeState): void {
   state.todo.overlay = null;
+  state.todo.removalTarget = null;
+  state.todo.removalList = null;
+  state.todo.managedListId = null;
   state.todo.actionError = "";
   state.notesState.overlay = null;
+  state.notesState.removalTarget = null;
+  state.notesState.removalList = null;
+  state.notesState.managedListId = null;
   state.notesState.actionError = "";
   state.clocksState.overlay = null;
   state.clocksState.actionError = "";

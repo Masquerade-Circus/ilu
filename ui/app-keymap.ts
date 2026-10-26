@@ -70,6 +70,7 @@ export function createKeymap(
 ): TerminalKeymapOptions {
   const bindings: TerminalKeyBinding[] = [
     ...createModuleKeyBindings(),
+    { key: "ILU_FOCUS_CONTEXT", command: { id: "ilu.focus-context" }, scope: "global" },
     { key: "CTRL_1", command: { id: "ilu.tab", text: "Todo" }, scope: "global" },
     { key: "CTRL_2", command: { id: "ilu.tab", text: "Notes" }, scope: "global" },
     { key: "CTRL_3", command: { id: "ilu.tab", text: "Board" }, scope: "global" },
@@ -87,6 +88,10 @@ export function createKeymap(
     bindings,
     onCommand(command: TerminalCommand, context: TerminalCommandContext) {
       const handled = typeof handleLocalCommand === "function" && handleLocalCommand(command, context) ? true : handleCommand(command, state);
+
+      if (command.id === "ilu.focus-context") {
+        return handled;
+      }
 
       if (handled && typeof afterCommand === "function") {
         afterCommand(command, state);

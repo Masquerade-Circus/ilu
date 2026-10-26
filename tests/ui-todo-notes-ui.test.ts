@@ -6,6 +6,15 @@ const { EventEmitter } = __cjsImport104;
 const repoRoot = path.resolve(import.meta.dirname, '..');
 import 'tsx/cjs';
 import Ui from '../ui/app.tsx';
+import fs from 'node:fs';
+import { withTempHome } from '../support/home-sandbox.ts';
+import createListModel from '../utils/create-list-model.ts';
+import loadDb from '../utils/load-db.ts';
+import { dbFilePath } from '../utils/local-paths.ts';
+import { createTodoActions } from '../ui/modules/todos/actions.ts';
+import { createNoteActions } from '../ui/modules/notes/actions.ts';
+import { FakeStdin, FakeStdout, exerciseEditorHeight } from './test-helpers/ui-app.ts';
+import ClockModel from '../clocks/model.ts';
 import * as __cjsImport105 from '../ui/read-model';
 const { buildReadSnapshot } = __cjsImport105;
 import * as __cjsImport106 from '../ui/modules/notes/MainView.tsx';
@@ -182,7 +191,7 @@ test('Todo Enter toggles selected task instead of opening details', async () => 
   session.dispatchKey('ENTER');
 
   assert.deepEqual(calls, [{position: 1}]);
-  assert.doesNotMatch(visible(session.output()), /Task details/);
+  assert.equal(session.state().todo.overlay, null);
   session.destroy();
 });
 
@@ -841,3 +850,314 @@ test('Todo and Notes list selectors delegate long labels to Valyrian without man
   assert.ok(visibleLines(notesSession.output()).every((line) => line.length <= 80));
   notesSession.destroy();
 });
+
+for (const domain of [
+  { tab: 'Todo', db: 'todos', key: 'tasks', prefix: 'todo', stateKey: 'todo' },
+  { tab: 'Notes', db: 'notes', key: 'notes', prefix: 'note', stateKey: 'notesState' }
+]) {
+  test(`${domain.tab} rename through the TUI preserves stored list details`, async () => {
+    await withTempHome(async () => {
+      const model = createListModel({dbName: domain.db, collectionName: domain.db, itemKey: domain.key, itemHasCheck: domain.tab === 'Todo'});
+      const original = model.add({title: 'Project', description: 'Keep these details\nSecond line'});
+      const session = await Ui.createHeadlessSession({
+        state: {activeTab: domain.tab},
+        buildSnapshot: () => buildReadSnapshot({models: {...realListModels(), [domain.db]: model}}),
+        ...domainActions(domain, model)
+      });
+
+      try {
+        session.click(`${domain.prefix}-manage-lists`);
+        session.click(`${domain.prefix}-rename-list`);
+        session.focus(`${domain.prefix}-rename-list-title`);
+        session.dispatchKey('CTRL_A');
+        session.dispatchText('Renamed project');
+        session.click(`${domain.prefix}-rename-list-save`);
+
+        const saved = loadDb(domain.db).getCollection(domain.db).get(original.$id);
+        assert.equal(saved.title, 'Renamed project');
+        assert.equal(saved.description, 'Keep these details\nSecond line');
+      } finally {
+        await session.destroy();
+      }
+    });
+  });
+
+  test(`${domain.tab} browsing list manager does not change the active list`, async () => {
+    await withTempHome(async () => {
+      const model = createListModel({dbName: domain.db, collectionName: domain.db, itemKey: domain.key});
+      const first = model.add({title: 'First list', description: 'First details'});
+      const second = model.add({title: 'Second list', description: 'Second details'});
+      model.use(first.$id);
+      const session = await Ui.createHeadlessSession({
+        state: {activeTab: domain.tab},
+        buildSnapshot: () => buildReadSnapshot({models: {...realListModels(), [domain.db]: model}}),
+        ...domainActions(domain, model)
+      });
+
+      try {
+        session.click(`${domain.prefix}-manage-lists`);
+        session.focus(`${domain.prefix}-lists`);
+        session.dispatchKey('DOWN');
+        session.dispatchKey('ESCAPE');
+
+        assert.equal(model.getCurrent().$id, first.$id);
+        assert.equal(session.state()[domain.stateKey].selectedListId, first.$id);
+
+        session.click(`${domain.prefix}-manage-lists`);
+        session.focus(`${domain.prefix}-lists`);
+        session.dispatchKey('HOME');
+        session.dispatchKey('DOWN');
+        session.click(`${domain.prefix}-rename-list`);
+        session.focus(`${domain.prefix}-rename-list-title`);
+        session.dispatchKey('CTRL_A');
+        session.dispatchText('Second renamed');
+        session.click(`${domain.prefix}-rename-list-save`);
+
+        assert.equal(model.get(second.$id).title, 'Second renamed');
+        assert.equal(model.get(first.$id).title, 'First list');
+        assert.equal(model.getCurrent().$id, first.$id);
+      } finally {
+        await session.destroy();
+      }
+    });
+  });
+
+  for (const target of ['item', 'list', 'changed-item', 'vanished-list']) {
+    test(`${domain.tab} failed ${target} removal stays identified and can retry or cancel`, async () => {
+      await withTempHome(async () => {
+        const model = createListModel({dbName: domain.db, collectionName: domain.db, itemKey: domain.key, itemHasCheck: domain.tab === 'Todo'});
+        const list = model.add({title: 'Keep list', description: 'Original'});
+        model[domain.key].add({title: 'Keep item', description: 'Task details', content: 'Note body'});
+        if (target === 'vanished-list') {
+          model.add({title: 'Other list', description: 'Must survive'});
+          model.use(list.$id);
+        }
+        const stdin = createInput();
+        const session = await Ui.mountInteractiveSession({
+          stdin,
+          stdout: {columns: 100, rows: 28, write() {}},
+          state: {activeTab: domain.tab},
+          buildSnapshot: () => buildReadSnapshot({models: {...realListModels(), [domain.db]: model}}),
+          ...domainActions(domain, model)
+        });
+
+        try {
+          if (target.endsWith('list')) {
+            session.click(`${domain.prefix}-manage-lists`);
+            session.click(`${domain.prefix}-delete-list`);
+          } else {
+            // Use the existing pointer path. The keyboard-details regression is separate.
+            pressVisibleText(stdin, session, 'Keep item');
+            pressVisibleText(stdin, session, 'Keep item');
+            session.click(`${domain.prefix}-remove-${domain.tab === 'Todo' ? 'task' : 'note'}`);
+          }
+
+          const external = loadDb(domain.db).getCollection(domain.db);
+          const externalList = external.get(list.$id);
+          if (target === 'vanished-list') {
+            external.remove(externalList);
+          } else {
+            external.update({...externalList, description: 'External edit', ...(target === 'changed-item' ? {
+              [domain.key]: [{title: 'Different item', description: 'Different', content: 'Different', done: false, labels: []}, ...externalList[domain.key]]
+            } : {})});
+          }
+          const before = fs.readFileSync(dbFilePath(domain.db), 'utf8');
+          const confirmId = `${domain.prefix}-remove-${target.endsWith('list') ? 'list-' : ''}confirm`;
+          const cancelId = `${domain.prefix}-remove-${target.endsWith('list') ? 'list-' : ''}cancel`;
+          session.click(confirmId);
+
+          if (target === 'vanished-list') {
+            await new Promise(resolve => setImmediate(resolve));
+            assert.ok(visible(session.output()).includes('Keep list'), 'the original target must remain visible after recovery');
+            assert.match(visible(session.output()), /no longer|unavailable|removed/i);
+            assert.equal(session.focus(cancelId), true, 'cancel must remain available');
+            session.click(confirmId);
+            assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before, 'retry must not delete the surviving list');
+            session.click(cancelId);
+            assert.equal(session.focus(cancelId), false);
+            assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before);
+            assert.equal(loadDb(domain.db).getCollection(domain.db).find()[0].title, 'Other list');
+            return;
+          }
+
+          assert.match(visible(session.output()), /(?:recover|changed elsewhere|failed|could not|try again)/i);
+          assert.ok(visible(session.output()).includes(target === 'list' ? 'Keep list' : 'Keep item'));
+          assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before);
+          if (target === 'changed-item') {
+            await new Promise(resolve => setImmediate(resolve));
+            session.click(confirmId);
+            assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before, 'a retry must not remove a different item after recovery');
+          }
+          session.click(cancelId);
+          assert.equal(session.focus(confirmId), false);
+          assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before);
+          if (target === 'changed-item') {
+            return;
+          }
+
+          // Recovery reloads the real model. Retry through the same visible flow.
+          await new Promise(resolve => setImmediate(resolve));
+          if (target === 'list') {
+            session.click(`${domain.prefix}-manage-lists`);
+            session.click(`${domain.prefix}-delete-list`);
+          } else {
+            pressVisibleText(stdin, session, 'Keep item');
+            pressVisibleText(stdin, session, 'Keep item');
+            session.click(`${domain.prefix}-remove-${domain.tab === 'Todo' ? 'task' : 'note'}`);
+          }
+          session.click(confirmId);
+          const persisted = loadDb(domain.db).getCollection(domain.db);
+          if (target === 'list') {
+            assert.equal(persisted.find().length, 0);
+          } else {
+            assert.equal(persisted.get(list.$id)[domain.key].length, 0);
+          }
+        } finally {
+          await session.destroy();
+        }
+      });
+    });
+  }
+}
+
+function realListModels() {
+  return {
+    todos: createListModel({dbName: 'todos', collectionName: 'todos', itemKey: 'tasks', itemHasCheck: true}),
+    notes: createListModel({dbName: 'notes', collectionName: 'notes', itemKey: 'notes'}),
+    boards: createListModel({dbName: 'boards', collectionName: 'boards', itemKey: 'columns'}),
+    clocks: ClockModel
+  };
+}
+
+function domainActions(domain, model) {
+  return domain.tab === 'Todo'
+    ? {todoActions: createTodoActions({model})}
+    : {noteActions: createNoteActions({model})};
+}
+
+for (const domain of [
+  {tab: 'Todo', db: 'todos', key: 'tasks', prefix: 'todo', item: 'task'},
+  {tab: 'Notes', db: 'notes', key: 'notes', prefix: 'note', item: 'note'}
+]) {
+  for (const form of ['add-item', 'edit-item', 'add-list', 'rename-list']) {
+    test(`${domain.tab} ${form} editor uses available height across resize without losing cancel or save`, async () => {
+      await withTempHome(async () => {
+        const model = createListModel({dbName: domain.db, collectionName: domain.db, itemKey: domain.key, itemHasCheck: domain.tab === 'Todo'});
+        const original = model.add({title: 'Seed list', description: ''});
+        model[domain.key].add({title: 'Seed item', description: '', content: ''});
+        const before = fs.readFileSync(dbFilePath(domain.db), 'utf8');
+        const models = {...realListModels(), [domain.db]: model};
+        const stdin = new FakeStdin();
+        const stdout = new FakeStdout();
+        stdout.columns = 100;
+        const session = await Ui.mountInteractiveSession({
+          stdin, stdout,
+          state: {activeTab: domain.tab},
+          buildSnapshot: () => buildReadSnapshot({models}),
+          ...domainActions(domain, model)
+        });
+        const isList = form.endsWith('list');
+        const idPrefix = `${domain.prefix}-${isList ? form : form.startsWith('add') ? 'add' : 'edit'}`;
+
+        try {
+          for (const outcome of ['cancel', 'save']) {
+            if (isList) {
+              session.click(`${domain.prefix}-manage-lists`);
+              session.click(`${domain.prefix}-${form}`);
+            } else if (form === 'add-item') {
+              session.click(`${domain.prefix}-add-${domain.item}`);
+            } else {
+              pressVisibleText(stdin, session, 'Seed item');
+              pressVisibleText(stdin, session, 'Seed item');
+              session.click(`${domain.prefix}-edit-${domain.item}`);
+            }
+            assert.equal(session.focus(`${idPrefix}-title`), true);
+            session.dispatchKey('CTRL_A');
+            stdin.send('\x1b[200~Draft title\x1b[201~');
+            const text = await exerciseEditorHeight({
+              session, stdin, stdout,
+              editorId: `${idPrefix}-${!isList && domain.tab === 'Notes' ? 'content' : 'description'}`,
+              followingControl: /Cancel/,
+              requiredText: [/Draft title/, /Cancel/, isList ? form === 'add-list' ? /Add list/ : /Rename list/ : /Save/]
+            });
+
+            // Click the visible action, so a clipped but focusable control cannot pass.
+            const actionText = outcome === 'cancel' ? 'Cancel' : isList ? form === 'add-list' ? 'Add list' : 'Rename list' : 'Save';
+            const lines = visibleLines(session.output());
+            const actionRow = lines.findIndex(line => line.includes('Cancel') && line.includes(actionText));
+            assert.ok(actionRow >= 0, 'the form actions must remain visible after resize');
+            session.clickAt(lines[actionRow].indexOf(actionText) + 1, actionRow + 1);
+            if (outcome === 'cancel') {
+              assert.equal(fs.readFileSync(dbFilePath(domain.db), 'utf8'), before, 'cancel after resize must not persist drafts');
+            } else {
+              const lists = loadDb(domain.db).getCollection(domain.db).find();
+              const saved = isList ? lists.find(list => list.title === 'Draft title') : lists.find(list => list.$id === original.$id)[domain.key].find(item => item.title === 'Draft title');
+              assert.ok(saved, 'save after resize must persist the edited target');
+              assert.equal(isList || domain.tab === 'Todo' ? saved.description : saved.content, text);
+            }
+          }
+        } finally {
+          await session.destroy();
+        }
+      });
+    });
+  }
+}
+
+test('Todo keyboard details preserves completion until Enter or Space toggles it', async () => {
+  await withTempHome(async () => {
+    const model = createListModel({dbName: 'todos', collectionName: 'todos', itemKey: 'tasks', itemHasCheck: true});
+    model.add({title: 'Work'});
+    model.tasks.add({title: 'Release', description: 'Release checklist', done: false});
+    const session = await Ui.createHeadlessSession({
+      buildSnapshot: () => buildReadSnapshot({models: {...realListModels(), todos: model}}),
+      todoActions: createTodoActions({model})
+    });
+    try {
+      session.focus('todo-items');
+      // Follow the advertised contextual key instead of fixing a new shortcut in the test.
+      session.dispatchKey('CTRL_K');
+      const help = visible(session.output());
+      const detailsHint = help.split('\n').find(line => /\b(?:open|show|view)\b[^\n]*\bdetails\b/i.test(line));
+      const key = detailsHint?.match(/\b((?:(?:Ctrl|Shift|Alt)\+)*[A-Z0-9])\b/);
+      assert.ok(key, 'help must advertise a keyboard action for task details');
+      session.dispatchKey('ESCAPE');
+      session.focus('todo-items');
+      session.dispatchKey(key[1].replace(/\+/g, '_').toUpperCase());
+      assert.ok(visible(session.output()).includes('Release checklist'));
+      assert.equal(model.getCurrent().tasks[0].done, false);
+      session.dispatchKey('ESCAPE');
+      session.focus('todo-items');
+      session.dispatchKey('ENTER');
+      assert.equal(model.getCurrent().tasks[0].done, true);
+      session.dispatchKey('SPACE');
+      assert.equal(model.getCurrent().tasks[0].done, false);
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+for (const tab of ['Todo', 'Notes']) {
+  test(`${tab} tall terminal shows more list entries without hiding actions`, async () => {
+    const data = snapshot();
+    const panel = tab === 'Todo' ? data.todo : data.notes;
+    panel.items = Array.from({length: 24}, (_, index) => ({
+      id: index + 1, position: index + 1, text: `Entry-${index + 1}-end`, description: '', done: false, labels: []
+    }));
+    const small = await Ui.createHeadlessSession({cols: 100, rows: 24, state: {activeTab: tab}, snapshot: data});
+    const large = await Ui.createHeadlessSession({cols: 100, rows: 40, state: {activeTab: tab}, snapshot: data});
+    try {
+      const count = session => (visible(session.output()).match(/Entry-\d+-end/g) || []).length;
+      assert.ok(count(large) > count(small), 'additional height must expose additional entries');
+      for (const session of [small, large]) {
+        assert.ok(session.focus(tab === 'Todo' ? 'todo-manage-lists' : 'note-manage-lists'));
+        session.dispatchKey('ENTER');
+        assert.ok(session.focus(tab === 'Todo' ? 'todo-lists-close' : 'note-lists-close'));
+      }
+    } finally {
+      await small.destroy();
+      await large.destroy();
+    }
+  });
+}

@@ -226,6 +226,7 @@ function listSummaries(model: ReadModel<ReadList>, currentList: ReadList | null)
       return {
         id,
         title: safeText(list && list.title, 'Untitled list'),
+        description: typeof list?.description === 'string' ? list.description : '',
         current: list === currentList || sameEntityId(id, currentId) || Boolean(list && list.current === true)
       };
     })

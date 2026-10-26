@@ -161,10 +161,12 @@ export function setTtsVoice(state: UtilityAppState, ttsActions: TtsActions, voic
 export function createTtsActionBar(state: UtilityAppState, ttsActions: TtsActions, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
-      createButton("tts-start", "Start conversion", () => runTtsConversion(state, ttsActions, onComplete)),
+      createButton("tts-start", state.tts.operation === "create-audio" ? "Creating audio..." : "Start conversion", () => runTtsConversion(state, ttsActions, onComplete), state.tts.operation !== null ? "loading" : undefined),
       createButton("tts-choose-voice", "Choose voice", () => {
-        prepareTtsVoiceOverlay(state, ttsActions);
-      })
+        if (state.tts.operation === null) {
+          prepareTtsVoiceOverlay(state, ttsActions);
+        }
+      }, state.tts.operation !== null ? "disabled" : undefined)
     ]
   });
 }

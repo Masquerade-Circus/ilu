@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { withTempHome } from '../support/home-sandbox.ts';
+import { createBabelActions } from '../ui/modules/babel/actions.ts';
+import { FakeStdin, FakeStdout, findNodeById, exerciseEditorHeight } from './test-helpers/ui-app.ts';
+import fs from 'node:fs';
+import { createTtsService } from '../tts/index.ts';
+import { createTtsActions } from '../ui/modules/tts/actions.ts';
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 import 'tsx/cjs';
@@ -57,8 +63,48 @@ function createSyncActions() {
   };
 }
 
+test('Translate editor uses available height across resize and keeps language fields and actions usable', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    const stdin = new FakeStdin();
+    const stdout = new FakeStdout();
+    stdout.columns = 100;
+    const session = await Ui.mountInteractiveSession({stdin, stdout, state: {activeTab: 'Translate'}, snapshot: baseSnapshot()});
+
+    try {
+      await exerciseEditorHeight({
+        session, stdin, stdout,
+        editorId: 'translate-text',
+        followingControl: /Language codes/,
+        requiredText: [/From/, /To/, /Dictionary/, /Copy result/]
+      });
+      assert.equal(session.focus('translate-from'), true);
+      session.dispatchKey('CTRL_A');
+      stdin.send('\x1b[200~en\x1b[201~');
+      assert.equal(session.focus('translate-to'), true);
+      session.dispatchKey('CTRL_A');
+      stdin.send('\x1b[200~es\x1b[201~');
+      assert.match(session.output(), /From.*en/);
+      assert.match(session.output(), /To.*es/);
+      session.focus('translate-text');
+      session.dispatchKey('END');
+      stdin.send('!');
+      assert.match(session.output(), /EditorRow-64!/, 'editing must still work after shrinking');
+      session.dispatchKey('CTRL_1');
+      session.dispatchKey('CTRL_6');
+      session.focus('translate-text');
+      for (let line = 0; line < 64; line += 1) {
+        session.dispatchKey('DOWN');
+      }
+      assert.match(session.output(), /EditorRow-64!/, 'navigation must preserve the resized editor draft');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
 test('Translate app opens from top nav and renders approved copy', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions()});
 
   session.click('tab-translate');
@@ -77,7 +123,7 @@ test('Translate app opens from top nav and renders approved copy', async () => {
   assert.match(output, /To/);
   assert.match(output, /Copy result/);
   assert.match(output, /Dictionary/);
-  assert.match(output, /No dictionary entries found\./);
+  assert.doesNotMatch(output, /no (?:dictionary )?(?:entries|results).*found/i);
   assert.equal(lines.filter(line => line.length > 80).length, 0);
   session.destroy();
 });
@@ -85,7 +131,7 @@ test('Translate app opens from top nav and renders approved copy', async () => {
 
 
 test('Translate utility renders actions in the bottom action area', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions()});
 
   try {
@@ -105,7 +151,7 @@ ${lines.join('\n')}`);
 });
 
 test('Translate utility clears stale translation when inputs change or translation fails', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const babelActions = {
     async translate(values) {
@@ -162,7 +208,7 @@ test('Translate utility clears stale translation when inputs change or translati
 });
 
 test('Translate utility validates required fields before calling the action', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const babelActions = {
     async translate(values) {
@@ -187,7 +233,7 @@ test('Translate utility validates required fields before calling the action', as
 
 
 test('Translate utility ignores stale in-flight translation after input changes', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   let resolveTranslation;
   const translationPromise = new Promise(resolve => {
@@ -245,7 +291,7 @@ test('Translate utility ignores stale in-flight translation after input changes'
 });
 
 test('Translate utility performs translation, displays dictionary, and copies through Valyrian clipboard', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const babelActions = {
     async translate(values) {
@@ -281,7 +327,7 @@ test('Translate utility performs translation, displays dictionary, and copies th
 });
 
 test('TTS utility handles missing credentials without API-key input and uses approved copy', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const ttsActions = {
     voices: ['alloy', 'nova'],
@@ -321,7 +367,7 @@ test('TTS utility handles missing credentials without API-key input and uses app
 
 
 test('TTS utility renders actions in the bottom action area', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const ttsActions = {
     voices: ['alloy', 'nova'],
     getDefaultVoice: () => 'alloy',
@@ -351,7 +397,7 @@ ${lines.join('\n')}`);
 });
 
 test('TTS voice overlay pins Cancel to the overlay bottom', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const ttsActions = {
     voices: ['alloy', 'nova'],
     getDefaultVoice: () => 'alloy',
@@ -378,7 +424,7 @@ test('TTS voice overlay pins Cancel to the overlay bottom', async () => {
 
 
 test('TTS voice overlay keeps Cancel visible with the default voice set', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const expectedVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
   const ttsActions = {
     getDefaultVoice: () => 'alloy',
@@ -443,7 +489,7 @@ test('TTS voice overlay render does not refresh or rewrite voice state', async (
 
 
 test('TTS utility can choose default voice and display audio progress/result through injected adapter', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const ttsActions = {
     voices: ['alloy', 'nova'],
@@ -482,7 +528,7 @@ test('TTS utility can choose default voice and display audio progress/result thr
 
 
 test('TTS utility initializes from persisted default voice before creating audio', async () => {
-  const Ui = require(uiModulePath);
+  const Ui = await import('../ui/app.tsx');
   const calls = [];
   const ttsActions = {
     voices: ['alloy', 'nova'],
@@ -511,4 +557,153 @@ test('TTS utility initializes from persisted default voice before creating audio
 
   assert.deepEqual(calls[0], ['createAudio', {inputFile: './tmp/ui-tts-actions/ready.txt', outputFile: './tmp/ui-tts-actions/default-voice.mp3', voice: 'nova'}]);
   session.destroy();
+});
+
+test('Translate TUI rejects missing segments without enabling copy', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(),
+      state: {activeTab: 'Translate', utilities: {babel: {text: 'Example'}}},
+      babelActions: createBabelActions({provider: async () => ({sentences: [{trans: 23}]})})
+    });
+    try {
+      session.click('translate-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(session.state().utilities.babel.translation, '');
+      assert.ok(session.state().utilities.babel.error.length > 0);
+      session.click('translate-copy');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(session.clipboard(), '');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('Translate TUI displays and copies every provider segment in order', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(),
+      state: {activeTab: 'Translate', utilities: {babel: {text: 'First. Second.'}}},
+      babelActions: createBabelActions({provider: async () => ({sentences: [{trans: 'Primero. '}, {trans: 'Segundo.'}], src: 'en'})})
+    });
+    try {
+      session.click('translate-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(session.state().utilities.babel.translation, 'Primero. Segundo.', JSON.stringify(session.state().utilities.babel) + '\n' + session.output());
+      assert.ok(stripAnsi(session.output()).includes('Primero. Segundo.'));
+      session.click('translate-copy');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(session.clipboard(), 'Primero. Segundo.');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('Translate TUI communicates unavailable copy and pending translation at the controls', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    let finish;
+    let requests = 0;
+    const response = new Promise(resolve => { finish = resolve; });
+    const session = await Ui.mountInteractiveSession({
+      stdin: new FakeStdin(), stdout: new FakeStdout(), snapshot: baseSnapshot(),
+      state: {activeTab: 'Translate', utilities: {babel: {text: 'Example'}}},
+      babelActions: createBabelActions({provider: async () => { requests += 1; return response; }})
+    });
+    try {
+      const copy = findNodeById(session.tree(), 'translate-copy');
+      assert.ok(copy === null || [copy.props.state].flat().includes('disabled'), 'copy without a result must communicate unavailability');
+      session.click('translate-start');
+      const start = findNodeById(session.tree(), 'translate-start');
+      assert.ok([start?.props.state].flat().some(state => state === 'disabled' || state === 'loading'));
+      session.click('translate-start');
+      assert.equal(requests, 1);
+      finish({sentences: [{trans: 'Ejemplo'}], src: 'en'});
+      await new Promise(resolve => setImmediate(resolve));
+      assert.ok(stripAnsi(session.output()).includes('Ejemplo'));
+      const readyCopy = findNodeById(session.tree(), 'translate-copy');
+      assert.ok(![readyCopy?.props.state].flat().includes('disabled'));
+    } finally {
+      finish({sentences: []});
+      await session.destroy();
+    }
+  });
+});
+
+test('Translate first-use guidance distinguishes unqueried and no dictionary results', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    let requests = 0;
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(), state: {activeTab: 'Translate'},
+      babelActions: createBabelActions({provider: async () => { requests += 1; return {sentences: [{trans: 'Ejemplo'}], dict: []}; }})
+    });
+    try {
+      const initial = stripAnsi(session.output());
+      assert.match(initial, /5[,.]?000/);
+      assert.match(initial, /\b(?:en|es|fr)\b/);
+      assert.doesNotMatch(initial, /no (?:dictionary )?(?:entries|results).*found/i);
+      session.focus('translate-text');
+      session.dispatchText('Example');
+      session.click('translate-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(requests, 1);
+      assert.match(stripAnsi(session.output()), /(?:no|without|not available)[^\n]*(?:dictionary|entries)|dictionary[^\n]*(?:no|empty)/i);
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('Speech TUI marks pending actions unavailable and restores retry after SDK failure', async () => {
+  await withTempHome(async home => {
+    const Ui = await import('../ui/app.tsx');
+    const inputFile = path.join(home, 'input.txt');
+    const outputFile = path.join(home, 'output.mp3');
+    const configFile = path.join(home, '.ilu', '.config', 'tts-config.json');
+    fs.mkdirSync(path.dirname(configFile), {recursive: true});
+    fs.writeFileSync(configFile, JSON.stringify({apiKey: 'synthetic-test-key', voice: 'alloy'}));
+    fs.writeFileSync(inputFile, 'Synthetic audio text');
+    let fail;
+    let requests = 0;
+    const pending = new Promise((_resolve, reject) => { fail = reject; });
+    const service = createTtsService({createOpenAI: () => ({audio: {speech: {async create() {
+      requests += 1;
+      await pending;
+      throw new Error('Controlled failure');
+    }}}})});
+    const session = await Ui.mountInteractiveSession({
+      stdin: new FakeStdin(), stdout: new FakeStdout(), snapshot: baseSnapshot(),
+      state: {activeTab: 'Speech', utilities: {tts: {inputFile, outputFile}}},
+      ttsActions: createTtsActions({service})
+    });
+    try {
+      session.click('tts-start');
+      await new Promise(resolve => setImmediate(resolve));
+      for (const id of ['tts-start', 'tts-choose-voice']) {
+        const control = findNodeById(session.tree(), id);
+        assert.ok(control === null || [control.props.state].flat().some(state => state === 'disabled' || state === 'loading'), id);
+        session.click(id);
+      }
+      assert.equal(requests, 1);
+      assert.equal(session.focus('tts-voice-list'), false);
+      assert.equal(fs.existsSync(outputFile), false);
+      fail(new Error('Controlled SDK failure'));
+      await new Promise(resolve => setImmediate(resolve));
+      const retry = findNodeById(session.tree(), 'tts-start');
+      assert.ok(retry);
+      assert.ok(![retry.props.state].flat().includes('disabled'));
+      session.click('tts-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(requests, 2);
+      assert.equal(fs.existsSync(outputFile), false);
+    } finally {
+      fail(new Error('Controlled SDK cleanup'));
+      await session.destroy();
+    }
+  });
 });

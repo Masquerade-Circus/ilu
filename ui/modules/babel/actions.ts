@@ -1,4 +1,5 @@
 import type { BabelActionFactoryOptions, BabelActions } from "../../action-contracts";
+import { translationText } from '../../../translate/translation-text.ts';
 
 import * as __cjsImport129 from '../../../translate/google-translate-provider';
 
@@ -70,10 +71,9 @@ function createBabelActions({provider = null, fetchImpl, log}: BabelActionFactor
 
       try {
         const response = await translateProvider({text, source, target}) as TranslationResponse;
-        const sentence = response && Array.isArray(response.sentences) ? response.sentences[0] as {trans?: unknown} : null;
-        const translation = cleanString(sentence && sentence.trans).trim();
+        const translation = translationText(response);
 
-        if (translation.length === 0) {
+        if (translation === null) {
           return {ok: false, error: 'No translation was returned.'};
         }
 

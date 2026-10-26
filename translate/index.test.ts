@@ -26,7 +26,7 @@ test('createTranslator usa el proveedor inyectado y evita red real al traducir',
       });
 
       return {
-        sentences: [{ trans: 'Hola mundo', orig: 'hello world' }],
+        sentences: [{ trans: 'Hola ', orig: 'hello ' }, { trans: 'mundo', orig: 'world' }],
         dict: [{ entry: [{ word: 'Hola', reverse_translation: ['Hello'] }] }],
         src: 'en'
       };
@@ -109,4 +109,27 @@ test('createTranslator valida texto antes de llamar al proveedor', async () => {
   );
 
   assert.equal(providerCalls, 0);
+});
+
+test('CLI translation does not copy malformed or empty provider results', async () => {
+  const {createTranslator} = loadTranslatorModule();
+  for (const response of [null, {}, {sentences: null}, {sentences: [null]}, {sentences: [{trans: 23}]}, {sentences: [{trans: '   '}]}]) {
+    const copied = [];
+    const warnings = [];
+    const translator = createTranslator({
+      provider: async () => response,
+      clipboard: {async write(value) { copied.push(value); }},
+      log: Object.assign(() => {}, {warning(message) { warnings.push(message); }}),
+      osLang: 'es'
+    });
+    let rejected = false;
+    try {
+      await translator.action({text: 'Example'}, {source: 'en', target: 'es'});
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      rejected = true;
+    }
+    assert.equal(copied.length, 0, JSON.stringify(response));
+    assert.ok(rejected || warnings.length > 0, 'invalid results must surface a failure');
+  }
 });

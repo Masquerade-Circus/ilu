@@ -154,8 +154,12 @@ export function copyTranslation(state: UtilityAppState, copyText: CopyText, onCo
 export function createTranslateActionBar(state: UtilityAppState, babelActions: BabelActions, copyText: CopyText, onComplete?: RequestRender): OptionalTerminalChild {
   return createActionBar({
     actions: [
-      createButton("translate-start", "Translate", () => runTranslate(state, babelActions, onComplete)),
-      createButton("translate-copy", "Copy result", () => copyTranslation(state, copyText, onComplete))
+      createButton("translate-start", state.babel.operation === "translate" ? "Translating..." : "Translate", () => runTranslate(state, babelActions, onComplete), state.babel.operation !== null ? "loading" : undefined),
+      createButton("translate-copy", "Copy result", () => {
+        if (state.babel.translation.trim().length > 0) {
+          copyTranslation(state, copyText, onComplete);
+        }
+      }, state.babel.operation !== null || state.babel.translation.trim().length === 0 ? "disabled" : undefined)
     ]
   });
 }
@@ -169,19 +173,21 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
       {busy ? <Spinner frame={1} label="Translation in progress" /> : <Text></Text>}
       {state.babel.error ? <Text>{state.babel.error}</Text> : <Text></Text>}
       {state.babel.message ? <Text>{state.babel.message}</Text> : <Text></Text>}
-      <Text>Text to translate</Text>
+      <Text>Text to translate (up to 5,000 characters)</Text>
       <Editor
         id="translate-text"
         value={state.babel.text}
-        height={3}
+        fill={true}
         placeholder="Text to translate"
         onchange={(event: TerminalEditorChangeEventPayload) => {
           state.babel.text = event.value;
           invalidateBabelInput(state.babel);
         }}
       />
-      <View direction="row" gap={1}>
+      <Text>Language codes: en (English), es (Spanish), fr (French), auto (detect).</Text>
+      <View direction="row" gap={1} height="content">
         <Text>From</Text>
+        <View width={10} height="content">
         <Input
           id="translate-from"
           value={state.babel.source}
@@ -191,7 +197,9 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
             invalidateBabelInput(state.babel);
           }}
         />
+        </View>
         <Text>To</Text>
+        <View width={10} height="content">
         <Input
           id="translate-to"
           value={state.babel.target}
@@ -201,6 +209,7 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
             invalidateBabelInput(state.babel);
           }}
         />
+        </View>
       </View>
       <ScrollView id="translate-result-scroll" height={6}>
         <Text>Translation</Text>
@@ -208,7 +217,7 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
         <Text>Dictionary</Text>
         {state.babel.dictionaryEntries.length > 0
           ? state.babel.dictionaryEntries.map((entry: string) => <Text>{entry}</Text>)
-          : <Text>No dictionary entries found.</Text>}
+           : <Text>{state.babel.translation.length > 0 ? "No dictionary entries found." : "Translate text to see dictionary entries."}</Text>}
       </ScrollView>
     </FocusScope>
   ];

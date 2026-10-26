@@ -57,7 +57,7 @@ function formatClockLines(clocks: ClockSnapshot, options: { compact?: boolean } 
 }
 
 type ClockEntry = FooterSegment & { length: number };
-type FooterControlMode = "global" | "overlay";
+type FooterControlMode = "global" | "overlay" | "copy";
 
 function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): ClockEntry[] {
   if (!positiveWidth(width)) {
@@ -100,7 +100,10 @@ function compactClockEntriesForWidth(clocks: ClockSnapshot, width: number): Cloc
 
 function footerHints(_activeTab: string, _syncStatus: SyncStatusState = "idle", controlMode: FooterControlMode = "global"): string[] {
   if (controlMode === "overlay") {
-    return ["Ctrl+K: Help", "Esc: Close"];
+    return ["Ctrl+K: Help", "Ctrl+C: Close", "Esc: Close"];
+  }
+  if (controlMode === "copy") {
+    return ["Ctrl+K: Help", "Ctrl+C: Copy"];
   }
 
   return ["Ctrl+K: Help", "Ctrl+C: Exit"];

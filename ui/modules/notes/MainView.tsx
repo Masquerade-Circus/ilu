@@ -32,6 +32,7 @@ import { createButton } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
+import { unchangedRemovalTarget } from "../../list-action-model";
 
 const NOTE_OVERLAY_STATES = Object.freeze([
   "add-note",
@@ -107,7 +108,10 @@ function normalizePosition(value: unknown): number | null {
 
 export function createInitialNotesState(source: Record<string, unknown> = {}): NotesRuntimeState {
   return {
+    removalList: null,
+    removalTarget: null,
     selectedNotePosition: normalizePosition(source.selectedNotePosition),
+    managedListId: normalizeEntityId(source.managedListId),
     selectedListId: normalizeEntityId(source.selectedListId),
     addNote: normalizeForm(source.addNote),
     editNote: normalizeForm(source.editNote),
@@ -171,7 +175,7 @@ function selectedItem(panel: ListPanel, state: NotesRuntimeState): ListItem | nu
 
 function selectedList(panel: ListPanel, state: NotesRuntimeState): ListSummary | null {
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
-  const selectedId = normalizeEntityId(state.selectedListId) ?? normalizeEntityId(panel.currentListId) ?? (lists[0] ? lists[0].id : null);
+  const selectedId = normalizeEntityId(state.managedListId) ?? normalizeEntityId(panel.currentListId) ?? normalizeEntityId(state.selectedListId) ?? (lists[0] ? lists[0].id : null);
 
   if (selectedId === null) {
     return null;
@@ -224,6 +228,9 @@ function closeNotesOverlay(state: NotesRuntimeState): boolean {
   }
 
   state.overlay = null;
+  state.removalTarget = null;
+  state.removalList = null;
+  state.managedListId = null;
   state.actionError = "";
   return true;
 }
@@ -314,7 +321,6 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
   const activeItem = selectedItem(panel, state);
   const activeList = selectedList(panel, state);
-  const selectedListId = activeList ? activeList.id : null;
 
   function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
@@ -324,6 +330,9 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
 
   function close(): void {
     state.overlay = null;
+    state.removalTarget = null;
+    state.removalList = null;
+    state.managedListId = null;
     state.actionError = "";
   }
 
@@ -362,6 +371,10 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
       return;
     }
 
+    state.removalTarget = {
+      listId: panel.currentListId ?? null,
+      item: { ...activeItem, labels: activeItem.labels?.slice() }
+    };
     state.actionError = "";
     state.overlay = "remove-note-confirm";
   }
@@ -375,7 +388,17 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   }
 
   function confirmRemoveNote(): void {
-    applyResult(noteActions.removeNote?.({ position: state.selectedNotePosition }), null, refreshSnapshot, close, "Note could not be removed. Try again.");
+    if (!unchangedRemovalTarget({ target: state.removalTarget, panel, item: activeItem })) {
+      state.actionError = "This note changed. Cancel and select it again before removing it.";
+      return;
+    }
+    const result = noteActions.removeNote?.({ position: state.selectedNotePosition });
+    if (result?.ok !== true) {
+      state.actionError = result?.error || "Note could not be removed. Try again.";
+      return;
+    }
+    refreshSnapshot("notes");
+    close();
   }
 
   function openAddList(): void {
@@ -389,11 +412,12 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
       return;
     }
 
-    resetForm(state.renameList, activeList.title, "");
+    resetForm(state.renameList, activeList.title, activeList.description ?? "");
     state.overlay = "rename-list";
   }
 
   function openManageLists(): void {
+    state.managedListId = panel.currentListId ?? state.selectedListId;
     state.actionError = "";
     state.overlay = "manage-lists";
   }
@@ -404,6 +428,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
       return;
     }
 
+    state.removalList = { ...activeList };
     state.actionError = "";
     state.overlay = "remove-list-confirm";
   }
@@ -413,11 +438,22 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   }
 
   function saveRenameList(): void {
-    applyResult(noteActions.renameList?.({ listId: state.selectedListId, title: state.renameList.title, description: state.renameList.description }), state.renameList, refreshSnapshot, close, "List could not be renamed. Try again.");
+    applyResult(noteActions.renameList?.({ listId: activeList?.id ?? null, title: state.renameList.title, description: state.renameList.description }), state.renameList, refreshSnapshot, close, "List could not be renamed. Try again.");
   }
 
   function confirmRemoveList(): void {
-    applyResult(noteActions.removeList?.({ listId: state.selectedListId }), null, refreshSnapshot, close, "List could not be removed. Try again.");
+    const target = state.removalList;
+    if (!target || !lists.some((list) => list.id === target.id)) {
+      state.actionError = "This list is no longer available. Cancel to return to your lists.";
+      return;
+    }
+    const result = noteActions.removeList?.({ listId: target.id });
+    if (result?.ok !== true) {
+      state.actionError = result?.error || "List could not be removed. Try again.";
+      return;
+    }
+    refreshSnapshot("notes");
+    close();
   }
 
   function noteRows(): JSX.Element[] {
@@ -436,7 +472,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
         itemKey={(item: ListItem, index: number) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
-        height={4}
+        fill={true}
         onactive={(event: TerminalListActiveEventPayload<ListItem>) => {
           state.selectedNotePosition = itemPosition(event.value, event.index);
         }}
@@ -461,11 +497,10 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
     }
 
     return [
-      <View direction="row" gap={1}>
-        <Text>Lists</Text>
+      <View direction="row" gap={1} height="content">
         {lists.map((list, index) => {
           const listId = normalizeEntityId(list.id);
-          const isSelected = list.current === true || list.id === selectedListId;
+          const isSelected = list.id === (state.selectedListId ?? panel.currentListId) || (state.selectedListId === null && panel.currentListId == null && list.current === true);
           const label = safeText(list.title, "Untitled list");
 
           return createButton(
@@ -504,10 +539,10 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
                 virtualized={true}
                 height={8}
                 onactive={(event: TerminalListActiveEventPayload<ListSummary>) => {
-                  state.selectedListId = event.value.id;
+                  state.managedListId = event.value.id;
                 }}
                 onpress={(event: TerminalListPressEventPayload<ListSummary>) => {
-                  state.selectedListId = event.value.id;
+                  state.managedListId = event.value.id;
                 }}
                 wrap={true}
               >
@@ -541,7 +576,6 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
         editorId={`${idPrefix}-content`}
         editorValue={form.description}
         editorPlaceholder="Write your note..."
-        editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
         onTitleInput={(value: string) => {
@@ -576,7 +610,7 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
             <Editor
               id={`${idPrefix}-description`}
               value={form.description}
-              height={10}
+              fill={true}
               onchange={(event: TerminalEditorChangeEventPayload) => {
                 form.description = event.value;
                 form.error = "";
@@ -628,14 +662,16 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   }
 
   function removeNoteOverlay(): JSX.Element | null {
-    if (state.overlay !== "remove-note-confirm" || !activeItem) {
+    const target = state.removalTarget?.item ?? activeItem;
+    if (state.overlay !== "remove-note-confirm" || !target) {
       return null;
     }
 
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            <Text>{`Remove “${activeItem.text}”? This cannot be undone.`}</Text>
+            <Text>{`Remove “${target.text}”? This cannot be undone.`}</Text>
+            {state.actionError ? <Text>{state.actionError}</Text> : null}
           </FocusScope>
         
         ]}
@@ -650,14 +686,17 @@ export function createNotesMainView(options: NotesMainViewOptions): NotesMainVie
   }
 
   function removeListOverlay(): JSX.Element | null {
-    if (state.overlay !== "remove-list-confirm" || !activeList) {
+    const target = state.removalList;
+    if (state.overlay !== "remove-list-confirm" || !target) {
       return null;
     }
 
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            <Text>{`Remove “${activeList.title}”? This cannot be undone.`}</Text>
+            <Text>{`Remove “${target.title}”? This cannot be undone.`}</Text>
+            {!lists.some((list) => list.id === target.id) ? <Text>This list is no longer available. Cancel to return to your lists.</Text> : null}
+            {state.actionError ? <Text>{state.actionError}</Text> : null}
           </FocusScope>
         
         ]}

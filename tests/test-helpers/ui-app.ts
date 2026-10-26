@@ -316,6 +316,38 @@ function orderedTextIndex(output, labels) {
   return labels.map(label => text.indexOf(label));
 }
 
+async function exerciseEditorHeight({session, stdin, stdout, editorId, followingControl, requiredText}) {
+  const text = Array.from({length: 64}, (_, index) => `EditorRow-${String(index + 1).padStart(2, '0')}`).join('\n');
+  assert.equal(session.focus(editorId), true, `expected editable field ${editorId}`);
+  stdin.send(`\x1b[200~${text}\x1b[201~`);
+  const counts = [];
+
+  for (const {cols, rows} of [{cols: 80, rows: 24}, {cols: 100, rows: 40}, {cols: 80, rows: 24}]) {
+    stdout.columns = cols;
+    stdout.rows = rows;
+    stdout.emit('resize');
+    await new Promise<void>(resolve => queueMicrotask(resolve));
+
+    const lines = visibleLines(session.output());
+    const diagnostic = `${editorId} at ${stdout.columns}x${rows}:\n${lines.join('\n')}`;
+    const editorRows = lines.flatMap((line, index) => /EditorRow-\d{2}/.test(line) ? [index] : []);
+    const followingRow = lines.findIndex(line => followingControl.test(line));
+    assert.ok(editorRows.length > 0, `expected visible editor content: ${diagnostic}`);
+    assert.ok(followingRow > editorRows.at(-1), `editor must not cover the following controls: ${diagnostic}`);
+    // A long document must consume the available area, not leave unused rows before controls.
+    assert.ok(followingRow - editorRows.at(-1) <= 2, `editor leaves unused height: ${diagnostic}`);
+    assert.ok(lines.length <= rows && lines.every(line => line.length <= stdout.columns), diagnostic);
+    for (const target of requiredText) {
+      assert.ok(lines.some(line => target.test(line)), `missing usable field/action ${target}: ${diagnostic}`);
+    }
+    counts.push(editorRows.length);
+  }
+
+  assert.ok(counts[1] > counts[0], `${editorId} must expose more document lines when the terminal grows: ${counts}`);
+  assert.equal(counts[2], counts[0], `${editorId} must release height when the terminal shrinks`);
+  return text;
+}
+
 const __defaultExport = {
   repoRoot,
   uiModulePath,
@@ -343,6 +375,7 @@ const __defaultExport = {
   loadUiWithSyncHook,
   boardSnapshotModels,
   orderedTextIndex,
+  exerciseEditorHeight,
 };
 export {
   repoRoot,
@@ -371,5 +404,6 @@ export {
   loadUiWithSyncHook,
   boardSnapshotModels,
   orderedTextIndex,
+  exerciseEditorHeight,
 };
 export default __defaultExport;

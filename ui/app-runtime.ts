@@ -84,6 +84,7 @@ export type SessionActions = {
   syncTerminalTitle?: () => void;
   copyTextToClipboard?: (text: string) => BabelActionResult;
   currentLayout?: () => Partial<RuntimeLayout>;
+  isTextEntryFocused?: () => boolean;
 };
 
 export type HeadlessSession = {
@@ -105,6 +106,7 @@ export const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Objec
   Todo: Object.freeze([
     "Use ↑/↓ to choose a task. Use Enter/Space to toggle it.",
     "Use Shift+↑/↓ to reorder.",
+    "O: Open task details.",
     "Use Actions to manage tasks."
   ]),
   Notes: Object.freeze([

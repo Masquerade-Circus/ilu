@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
+import { fork } from 'node:child_process';
+import { withTempHome } from '../support/home-sandbox.ts';
+import { dbFilePath } from '../utils/local-paths.ts';
 const repoRoot = path.resolve(import.meta.dirname, '..');
 import 'tsx/cjs';
 import Ui from '../ui/app.tsx';
@@ -37,6 +41,111 @@ test('Clocks UI exposes approved empty state and direct action bar controls', as
   assert.doesNotMatch(output, /Reorder clocks/);
   assert.doesNotMatch(output, /clocks command|adapter|snapshot|runtime|criteria/i);
   session.destroy();
+});
+
+test('Clocks tall terminal shows more clocks while preserving management controls', async () => {
+  const clocks = Array.from({length: 30}, (_, index) => ({name: `Clock-${index + 1}-end`, timezone: 'Etc/UTC', time: '12:00', position: index + 1}));
+  const sessions = [];
+  try {
+    for (const rows of [24, 40]) {
+      sessions.push(await Ui.createHeadlessSession({cols: 100, rows, state: {activeTab: 'Clocks'}, snapshot: snapshot(clocks)}));
+    }
+    // Page rows include the zone. Footer clocks do not, so they cannot inflate this count.
+    const count = session => visibleLines(session.output()).filter(line => /Clock-\d+-end/.test(line) && /Etc\/UTC/.test(line)).length;
+    assert.ok(count(sessions[1]) > count(sessions[0]));
+    for (const session of sessions) {
+      assert.ok(session.focus('clock-add-open'));
+      session.dispatchKey('ENTER');
+      assert.ok(session.focus('clock-add-cancel'));
+    }
+  } finally {
+    for (const session of sessions) {
+      await session.destroy();
+    }
+  }
+});
+
+test('Clocks concurrent TUI writers preserve every accepted addition in legacy JSON storage', async () => {
+  await withTempHome(async home => {
+    const file = dbFilePath('clocks');
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    fs.writeFileSync(file, JSON.stringify([{name: 'Legacy clock', timezone: 'Etc/UTC'}]));
+    const writers = [];
+    const ready = [];
+    const accepted = ['Legacy clock'];
+    const nextMessage = child => new Promise((resolve, reject) => {
+      const onMessage = message => {
+        child.removeListener('exit', onExit);
+        child.removeListener('error', onError);
+        if (message.type === 'error') {
+          reject(new Error(message.message));
+        } else {
+          resolve(message);
+        }
+      };
+      const onExit = code => {
+        child.removeListener('message', onMessage);
+        child.removeListener('error', onError);
+        reject(new Error(`Clock writer exited before its response: ${code}`));
+      };
+      const onError = error => {
+        child.removeListener('message', onMessage);
+        child.removeListener('exit', onExit);
+        reject(error);
+      };
+      child.once('message', onMessage);
+      child.once('exit', onExit);
+      child.once('error', onError);
+    });
+    try {
+      for (let index = 0; index < 4; index += 1) {
+        const child = fork(path.join(repoRoot, 'tests/test-helpers/run-clock-writer.ts'), [], {
+          cwd: repoRoot,
+          execArgv: ['--import', 'tsx', '--import', './support/test-home-guard.ts'],
+          env: {...process.env, HOME: home},
+          stdio: ['ignore', 'ignore', 'inherit', 'ipc']
+        });
+        writers.push(child);
+        ready.push(nextMessage(child));
+      }
+      await Promise.all(ready);
+      for (let round = 0; round < 8; round += 1) {
+        const names = writers.map((_writer, index) => `Writer ${index} round ${round}`);
+        await Promise.all(writers.map((writer, index) => {
+          const prepared = nextMessage(writer);
+          writer.send({type: 'prepare', name: names[index]});
+          return prepared;
+        }));
+        const outcomes = await Promise.all(writers.map(writer => {
+          const saved = nextMessage(writer);
+          writer.send({type: 'save'});
+          return saved;
+        }));
+        for (const [index, outcome] of outcomes.entries()) {
+          if (outcome.accepted) {
+            accepted.push(names[index]);
+          } else {
+            assert.ok(outcome.error.length > 0, 'a rejected write must expose an error');
+          }
+        }
+        const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+        assert.ok(Array.isArray(persisted), 'existing clocks must retain their readable array format');
+        assert.deepEqual(persisted.map(clock => clock.name).sort(), [...accepted].sort());
+      }
+      assert.ok(accepted.length > 1, 'concurrent writers must make progress');
+    } finally {
+      await Promise.all(writers.map(writer => new Promise(resolve => {
+        if (writer.exitCode !== null || writer.signalCode !== null) {
+          resolve();
+          return;
+        }
+        writer.once('exit', resolve);
+        if (writer.connected) {
+          writer.send({type: 'close'});
+        }
+      })));
+    }
+  }, {prefix: 'ilu-clocks-concurrent-'});
 });
 
 test('Clocks UI shows names and timezones in the page and names with seconds in the footer', async () => {

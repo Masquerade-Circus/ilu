@@ -16,7 +16,7 @@ export function createActionBar(options: ActionBarOptions): OptionalTerminalChil
   return (
     <>
       <Text></Text>
-      <View direction="row" gap={1}>
+      <View direction="row" gap={1} height="content">
         {actions}
       </View>
     </>

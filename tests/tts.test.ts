@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { withTempHome } from '../support/home-sandbox.ts';
 import * as __cjsImport71 from '../support/home-sandbox';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -401,12 +404,50 @@ test('tts ignora config anterior y sync-config, cae a alloy y pide API key nueva
   }
 });
 
-test('tts expone límite default de chunk en 50000 caracteres', () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const {DEFAULT_MAX_CHUNK_LENGTH} = require(ttsModulePath);
-
-  assert.equal(DEFAULT_MAX_CHUNK_LENGTH, 50000);
+test('TTS CLI bounds multilingual requests conservatively and preserves all text with real audio merge', async () => {
+  const inputs = [
+    'こんにちは🙂'.repeat(500),
+    '... ' + 'Hello world. '.repeat(180),
+    ' \t\n' + ['First paragraph.  ', 'Second paragraph?!\t'].join('\r\n\r\n').repeat(100) + '\n  ',
+    '...!? '.repeat(400)
+  ];
+  for (const input of inputs) {
+    await withTempHome(async (home) => {
+      const { createTtsService } = require(ttsModulePath);
+      const inputFile = path.join(home, "source.txt");
+      const outputFile = path.join(home, "result.mp3");
+      fs.writeFileSync(inputFile, input);
+      const audio = spawnSync(ffmpegInstaller.path, [
+        "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.12", "-f", "mp3", "pipe:1"
+      ]);
+      assert.equal(audio.status, 0, String(audio.stderr));
+      const requests = [];
+      const service = createTtsService({
+        prompt: async () => ({ apiKey: "synthetic-key" }),
+        createOpenAI: () => ({
+          audio: {
+            speech: {
+              async create(payload) {
+                assert.ok(
+                  Buffer.byteLength(payload.input, "utf8") <= 2000,
+                  "each request must respect the selected UTF-8 byte budget"
+                );
+                requests.push(payload.input);
+                return { async arrayBuffer() { return audio.stdout; } };
+              }
+            }
+          }
+        })
+      });
+      await service.action({ inputFile, outputFile });
+      assert.equal(requests.join(""), input);
+      const decoded = spawnSync(ffmpegInstaller.path, [
+        "-v", "error", "-i", outputFile, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"
+      ]);
+      assert.equal(decoded.status, 0, String(decoded.stderr));
+      assert.ok(decoded.stdout.length > 0);
+    }, { prefix: "ilu-tts-input-limit-" });
+  }
 });
 
 test('tts con texto corto hace un solo request, genera chunk numerado y mergea al final', async () => {
@@ -551,13 +592,13 @@ test('tts con varios párrafos largos hace múltiples requests en orden, mergea 
 
     assert.deepEqual(seenPayloads, [
       {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primer párrafo largo.'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segundo párrafo largo.'},
+      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primer párrafo largo.\n\n'},
+      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segundo párrafo largo.\n\n'},
       {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercer párrafo largo.'}
     ]);
     assert.equal(
       fs.readFileSync(outputFile, 'utf8'),
-      '[Primer párrafo largo.][Segundo párrafo largo.][Tercer párrafo largo.]'
+      '[Primer párrafo largo.\n\n][Segundo párrafo largo.\n\n][Tercer párrafo largo.]'
     );
     assert.equal(mergeCalls.length, 1);
     assert.deepEqual(
@@ -597,7 +638,7 @@ test('tts preserva carpeta temporal y chunks si el merge falla', async () => {
     assert.equal(fs.existsSync(chunkDir), true);
     assert.deepEqual(
       fs.readdirSync(chunkDir).filter(name => /^chapter-\d{4}\.mp3$/.test(name)),
-      ['chapter-0001.mp3', 'chapter-0002.mp3']
+      ['chapter-0001.mp3', 'chapter-0002.mp3', 'chapter-0003.mp3']
     );
     assert.equal(fs.existsSync(outputFile), false);
   } finally {
@@ -632,13 +673,13 @@ test('tts divide un párrafo demasiado largo por oraciones antes de cortar por l
 
     assert.deepEqual(seenPayloads, [
       {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primera oración.'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segunda oración.'},
+      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primera oración. '},
+      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segunda oración. '},
       {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercera oración.'}
     ]);
     assert.equal(
       fs.readFileSync(outputFile, 'utf8'),
-      '[Primera oración.][Segunda oración.][Tercera oración.]'
+      '[Primera oración. ][Segunda oración. ][Tercera oración.]'
     );
   } finally {
     restoreHome();
@@ -746,8 +787,8 @@ test('tts reintenta con el mismo comando, omite chunks existentes y continúa de
       }
     );
 
-    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 0), 'utf8'), '[Primer párrafo largo.]');
-    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 1), 'utf8'), '[Segundo párrafo largo.]');
+    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 0), 'utf8'), '[Primer párrafo largo.\n\n]');
+    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 1), 'utf8'), '[Segundo párrafo largo.\n\n]');
     assert.equal(fs.existsSync(getChunkFilePath(outputFile, 2)), false);
     assert.equal(fs.existsSync(outputFile), false);
     assert.equal(mergeCalls.length, 0);
@@ -762,7 +803,7 @@ test('tts reintenta con el mismo comando, omite chunks existentes y continúa de
       {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercer párrafo largo.'}
     ]);
     assert.equal(mergeCalls.length, 1);
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), '[Primer párrafo largo.][Segundo párrafo largo.][Tercer párrafo largo.]');
+    assert.equal(fs.readFileSync(outputFile, 'utf8'), '[Primer párrafo largo.\n\n][Segundo párrafo largo.\n\n][Tercer párrafo largo.]');
     assert.equal(fs.existsSync(chunkDir), false);
   } finally {
     restoreHome();
@@ -770,3 +811,58 @@ test('tts reintenta con el mismo comando, omite chunks existentes y continúa de
     delete require.cache[require.resolve(ttsModulePath)];
   }
 });
+
+for (const change of ['text', 'voice', 'model', 'chunk-size', 'legacy', 'none']) {
+  test(`TTS CLI resumes only the same audio job after ${change} change with real merge`, async () => {
+    await withTempHome(async home => {
+      const {createTtsService, getChunkFilePath} = require(ttsModulePath);
+      const inputFile = path.join(home, 'source.txt');
+      const outputFile = path.join(home, 'result.mp3');
+      const configFile = path.join(home, '.ilu', '.config', 'tts-config.json');
+      fs.mkdirSync(path.dirname(configFile), {recursive: true});
+      fs.writeFileSync(configFile, JSON.stringify({apiKey: 'synthetic-test-key', voice: 'alloy'}));
+      fs.writeFileSync(inputFile, 'abcdefgh');
+      const audio = spawnSync(ffmpegInstaller.path, [
+        '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.12', '-f', 'mp3', 'pipe:1'
+      ]);
+      assert.equal(audio.status, 0, String(audio.stderr));
+      assert.ok(audio.stdout.length > 0);
+      const payloads = [];
+      let interrupted = true;
+      const createOpenAI = () => ({audio: {speech: {async create(payload) {
+        payloads.push(payload);
+        if (interrupted && payloads.length === 2) {
+          throw new Error('Controlled interruption');
+        }
+        return {async arrayBuffer() { return audio.stdout; }};
+      }}}});
+      const first = createTtsService({createOpenAI, maxChunkLength: 4});
+      if (change === 'legacy') {
+        const unverifiedChunk = getChunkFilePath(outputFile, 0);
+        fs.mkdirSync(path.dirname(unverifiedChunk), {recursive: true});
+        fs.writeFileSync(unverifiedChunk, audio.stdout);
+      } else {
+        await assert.rejects(first.action({inputFile, outputFile, voice: 'alloy'}));
+      }
+      assert.equal(fs.existsSync(outputFile), false);
+
+      interrupted = false;
+      payloads.length = 0;
+      const nextText = change === 'text' ? 'ijklmnop' : 'abcdefgh';
+      fs.writeFileSync(inputFile, nextText);
+      const retry = createTtsService({
+        createOpenAI,
+        maxChunkLength: change === 'chunk-size' ? 3 : 4,
+        model: change === 'model' ? 'tts-1' : 'gpt-4o-mini-tts'
+      });
+      await retry.action({inputFile, outputFile, voice: change === 'voice' ? 'nova' : 'alloy'});
+
+      assert.equal(payloads.map(payload => payload.input).join(''), change === 'none' ? 'efgh' : nextText);
+      assert.ok(payloads.every(payload => payload.voice === (change === 'voice' ? 'nova' : 'alloy')));
+      assert.ok(payloads.every(payload => payload.model === (change === 'model' ? 'tts-1' : 'gpt-4o-mini-tts')));
+      const decoded = spawnSync(ffmpegInstaller.path, ['-v', 'error', '-i', outputFile, '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1']);
+      assert.equal(decoded.status, 0, String(decoded.stderr));
+      assert.ok(decoded.stdout.length > 3000, 'the final playable audio must contain multiple chunks');
+    }, {prefix: 'ilu-tts-job-regression-'});
+  });
+}

@@ -385,7 +385,7 @@ export function createClocksMainView(options: ClockMainViewOptions): ClockMainVi
         itemKey={(clock: ClockItem, index: number) => String(clockPosition(clock, index))}
         showActive={true}
         virtualized={true}
-        height={6}
+        fill={true}
         onactive={(event: TerminalListActiveEventPayload<ClockItem>) => {
           state.selectedClockPosition = clockPosition(event.value, event.index);
         }}

@@ -32,6 +32,7 @@ import { createButton } from "../../components/Button";
 import { EditOverlay } from "../../components/EditOverlay";
 import { AppOverlay } from "../../components/Overlay";
 import { emptyStateText, errorStateText } from "../../components/StateText";
+import { unchangedRemovalTarget } from "../../list-action-model";
 
 const TODO_OVERLAY_STATES = Object.freeze([
   "add-task",
@@ -107,6 +108,9 @@ function normalizePosition(value: unknown): number | null {
 
 export function createInitialTodoState(source: Record<string, unknown> = {}): TodoRuntimeState {
   const state: TodoRuntimeState = {
+    removalList: null,
+    removalTarget: null,
+    managedListId: normalizeEntityId(source.managedListId),
     selectedTaskPosition: normalizePosition(source.selectedTaskPosition),
     selectedListId: normalizeEntityId(source.selectedListId),
     addTask: normalizeForm(source.addTask),
@@ -135,6 +139,18 @@ export function initialFocusForTodoOverlay(state: TodoRuntimeState): string | nu
 
 export function createTodoKeyBindings(): TerminalKeyBinding[] {
   return [
+    {
+      key: "O",
+      command: { id: "todo.open-details" },
+      scope: "list",
+      when: { focusedId: "todo-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
+    {
+      key: "o",
+      command: { id: "todo.open-details" },
+      scope: "list",
+      when: { focusedId: "todo-items", focusedTag: "terminal-list" }
+    } as TerminalKeyBinding,
     {
       key: "ENTER",
       command: { id: "todo.toggle-task" },
@@ -179,7 +195,7 @@ function selectedItem(panel: ListPanel, state: TodoRuntimeState): ListItem | nul
 
 function selectedList(panel: ListPanel, state: TodoRuntimeState): ListSummary | null {
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
-  const selectedId = normalizeEntityId(state.selectedListId) ?? normalizeEntityId(panel.currentListId) ?? (lists[0] ? lists[0].id : null);
+  const selectedId = normalizeEntityId(state.managedListId) ?? normalizeEntityId(panel.currentListId) ?? normalizeEntityId(state.selectedListId) ?? (lists[0] ? lists[0].id : null);
 
   if (selectedId === null) {
     return null;
@@ -233,6 +249,9 @@ function closeTodoOverlay(state: TodoRuntimeState): boolean {
   }
 
   state.overlay = null;
+  state.removalTarget = null;
+  state.removalList = null;
+  state.managedListId = null;
   state.actionError = "";
   return true;
 }
@@ -261,6 +280,14 @@ export function handleTodoCommand(
 
   if (command.id === "ilu.escape" || command.id === "ilu.cancel") {
     return closeTodoOverlay(state);
+  }
+
+  if (command.id === "todo.open-details" && context?.focusedId === "todo-items" && state.overlay === null) {
+    if (panel && selectedItem(panel, state)) {
+      state.actionError = "";
+      state.overlay = "task-details";
+    }
+    return true;
   }
 
   if (command.id === "todo.toggle-task" && context?.focusedId === "todo-items") {
@@ -336,7 +363,6 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   const lists = Array.isArray(panel.lists) ? panel.lists : [];
   const activeItem = selectedItem(panel, state);
   const activeList = selectedList(panel, state);
-  const selectedListId = activeList ? activeList.id : null;
 
   function resetForm(form: TextFormState, title = "", description = ""): void {
     form.title = title;
@@ -346,6 +372,9 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
 
   function close(): void {
     state.overlay = null;
+    state.removalTarget = null;
+    state.removalList = null;
+    state.managedListId = null;
     state.actionError = "";
   }
 
@@ -384,6 +413,10 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
       return;
     }
 
+    state.removalTarget = {
+      listId: panel.currentListId ?? null,
+      item: { ...activeItem, labels: activeItem.labels?.slice() }
+    };
     state.actionError = "";
     state.overlay = "remove-task-confirm";
   }
@@ -414,7 +447,17 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   }
 
   function confirmRemoveTask(): void {
-    applyResult(todoActions.removeTask?.({ position: state.selectedTaskPosition }), null, refreshSnapshot, close, "Task could not be removed. Try again.");
+    if (!unchangedRemovalTarget({ target: state.removalTarget, panel, item: activeItem })) {
+      state.actionError = "This task changed. Cancel and select it again before removing it.";
+      return;
+    }
+    const result = todoActions.removeTask?.({ position: state.selectedTaskPosition });
+    if (result?.ok !== true) {
+      state.actionError = result?.error || "Task could not be removed. Try again.";
+      return;
+    }
+    refreshSnapshot("todo");
+    close();
   }
 
   function openAddList(): void {
@@ -428,11 +471,12 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
       return;
     }
 
-    resetForm(state.renameList, activeList.title, "");
+    resetForm(state.renameList, activeList.title, activeList.description ?? "");
     state.overlay = "rename-list";
   }
 
   function openManageLists(): void {
+    state.managedListId = panel.currentListId ?? state.selectedListId;
     state.actionError = "";
     state.overlay = "manage-lists";
   }
@@ -443,6 +487,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
       return;
     }
 
+    state.removalList = { ...activeList };
     state.actionError = "";
     state.overlay = "remove-list-confirm";
   }
@@ -452,11 +497,22 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   }
 
   function saveRenameList(): void {
-    applyResult(todoActions.renameList?.({ listId: state.selectedListId, title: state.renameList.title, description: state.renameList.description }), state.renameList, refreshSnapshot, close, "List could not be renamed. Try again.");
+    applyResult(todoActions.renameList?.({ listId: activeList?.id ?? null, title: state.renameList.title, description: state.renameList.description }), state.renameList, refreshSnapshot, close, "List could not be renamed. Try again.");
   }
 
   function confirmRemoveList(): void {
-    applyResult(todoActions.removeList?.({ listId: state.selectedListId }), null, refreshSnapshot, close, "List could not be removed. Try again.");
+    const target = state.removalList;
+    if (!target || !lists.some((list) => list.id === target.id)) {
+      state.actionError = "This list is no longer available. Cancel to return to your lists.";
+      return;
+    }
+    const result = todoActions.removeList?.({ listId: target.id });
+    if (result?.ok !== true) {
+      state.actionError = result?.error || "List could not be removed. Try again.";
+      return;
+    }
+    refreshSnapshot("todo");
+    close();
   }
 
   function taskRows(): JSX.Element[] {
@@ -475,7 +531,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
         itemKey={(item: ListItem, index: number) => String(item.id ?? itemPosition(item, index))}
         showActive={true}
         virtualized={true}
-        height={4}
+        fill={true}
         onactive={(event: TerminalListActiveEventPayload<ListItem>) => {
           state.selectedTaskPosition = itemPosition(event.value, event.index);
         }}
@@ -500,11 +556,10 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
     }
 
     return [
-      <View direction="row" gap={1}>
-        <Text>Lists</Text>
+      <View direction="row" gap={1} height="content">
         {lists.map((list, index) => {
           const listId = normalizeEntityId(list.id);
-          const isSelected = list.current === true || list.id === selectedListId;
+          const isSelected = list.id === (state.selectedListId ?? panel.currentListId) || (state.selectedListId === null && panel.currentListId == null && list.current === true);
           const label = safeText(list.title, "Untitled list");
 
           return createButton(
@@ -543,10 +598,10 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
                 virtualized={true}
                 height={8}
                 onactive={(event: TerminalListActiveEventPayload<ListSummary>) => {
-                  state.selectedListId = event.value.id;
+                  state.managedListId = event.value.id;
                 }}
                 onpress={(event: TerminalListPressEventPayload<ListSummary>) => {
-                  state.selectedListId = event.value.id;
+                  state.managedListId = event.value.id;
                 }}
                 wrap={true}
               >
@@ -579,7 +634,6 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
         editorLabel="Task details"
         editorId={`${idPrefix}-description`}
         editorValue={form.description}
-        editorHeight={10}
         primaryActionId={`${idPrefix}-save`}
         cancelActionId={`${idPrefix}-cancel`}
         onTitleInput={(value: string) => {
@@ -614,7 +668,7 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
             <Editor
               id={`${idPrefix}-description`}
               value={form.description}
-              height={10}
+              fill={true}
               onchange={(event: TerminalEditorChangeEventPayload) => {
                 form.description = event.value;
                 form.error = "";
@@ -664,14 +718,16 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   }
 
   function removeTaskOverlay(): JSX.Element | null {
-    if (state.overlay !== "remove-task-confirm" || !activeItem) {
+    const target = state.removalTarget?.item ?? activeItem;
+    if (state.overlay !== "remove-task-confirm" || !target) {
       return null;
     }
 
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            <Text>{`Remove “${activeItem.text}”? This cannot be undone.`}</Text>
+            <Text>{`Remove “${target.text}”? This cannot be undone.`}</Text>
+            {state.actionError ? <Text>{state.actionError}</Text> : null}
           </FocusScope>
         
         ]}
@@ -686,14 +742,17 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
   }
 
   function removeListOverlay(): JSX.Element | null {
-    if (state.overlay !== "remove-list-confirm" || !activeList) {
+    const target = state.removalList;
+    if (state.overlay !== "remove-list-confirm" || !target) {
       return null;
     }
 
     return (
       <AppOverlay trapFocus={true} content={[
           <FocusScope>
-            <Text>{`Remove “${activeList.title}”? This cannot be undone.`}</Text>
+            <Text>{`Remove “${target.title}”? This cannot be undone.`}</Text>
+            {!lists.some((list) => list.id === target.id) ? <Text>This list is no longer available. Cancel to return to your lists.</Text> : null}
+            {state.actionError ? <Text>{state.actionError}</Text> : null}
           </FocusScope>
         
         ]}
@@ -711,6 +770,12 @@ export function createTodoMainView(options: TodoMainViewOptions): TodoMainViewRe
     isActive,
     actions: [
       createButton("todo-add-task", "Add task", openAddTask),
+      createButton("todo-open-details", "Task details (O)", () => {
+        if (activeItem) {
+          state.actionError = "";
+          state.overlay = "task-details";
+        }
+      }, activeItem ? undefined : "disabled"),
       createButton("todo-manage-lists", "Manage lists", openManageLists),
       ...utilityActions
     ]

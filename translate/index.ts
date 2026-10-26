@@ -1,4 +1,5 @@
 import 'colors';
+import { translationText } from './translation-text.ts';
 import * as __cjsImport118 from '../utils/index.ts';
 import * as __cjsImport119 from './google-translate-provider.ts';
 
@@ -142,19 +143,19 @@ function createTranslator({
                 target: opts.target
             });
 
-            let translation = (response.sentences || [])[0];
-            let interjection = (response.dict || [])[0];
+            let translation = translationText(response);
 
             if (!translation) {
                 logger.warning('No translation was found'.yellow, 'yellow');
                 return;
             }
 
-            await clipboard.write(translation.trans);
+            let interjection = (response.dict || [])[0];
+            await clipboard.write(translation);
 
             logger(
-                `${response.src.toUpperCase()} > ${opts.target.toUpperCase()}: `.gray
-                + translation.trans + ' (Copied to clipboard)'.gray
+                `${(typeof response.src === 'string' ? response.src : opts.source).toUpperCase()} > ${opts.target.toUpperCase()}: `.gray
+                + translation + ' (Copied to clipboard)'.gray
             );
 
             if (interjection) {

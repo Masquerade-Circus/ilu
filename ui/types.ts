@@ -28,6 +28,9 @@ export interface TextFormState {
 export type SyncStatusState = "idle" | "syncing" | "pending" | "synced" | "failed" | "setup";
 
 export interface TodoRuntimeState {
+  removalList: ListSummary | null;
+  removalTarget: ItemRemovalTarget | null;
+  managedListId: UiEntityId | null;
   selectedTaskPosition: number | null;
   selectedListId: UiEntityId | null;
   addTask: TextFormState;
@@ -39,6 +42,9 @@ export interface TodoRuntimeState {
 }
 
 export interface NotesRuntimeState {
+  removalList: ListSummary | null;
+  removalTarget: ItemRemovalTarget | null;
+  managedListId: UiEntityId | null;
   selectedNotePosition: number | null;
   selectedListId: UiEntityId | null;
   addNote: TextFormState;
@@ -146,6 +152,7 @@ export type UiEntityId = string | number;
 export interface ListSummary {
   id: UiEntityId | null;
   title: string;
+  description?: string;
   current?: boolean;
 }
 
@@ -156,6 +163,11 @@ export interface ListItem {
   text: string;
   description?: string;
   labels?: string[];
+}
+
+export interface ItemRemovalTarget {
+  listId: UiEntityId | null;
+  item: ListItem;
 }
 
 export interface ListPanel {
