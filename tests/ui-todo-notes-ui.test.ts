@@ -14,6 +14,7 @@ import { dbFilePath } from '../utils/local-paths.ts';
 import { createTodoActions } from '../ui/modules/todos/actions.ts';
 import { createNoteActions } from '../ui/modules/notes/actions.ts';
 import { FakeStdin, FakeStdout, exerciseEditorHeight } from './test-helpers/ui-app.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 import ClockModel from '../clocks/model.ts';
 import * as __cjsImport105 from '../ui/read-model';
 const { buildReadSnapshot } = __cjsImport105;
@@ -1033,6 +1034,22 @@ function domainActions(domain, model) {
   return domain.tab === 'Todo'
     ? {todoActions: createTodoActions({model})}
     : {noteActions: createNoteActions({model})};
+}
+
+test('physical capture Notes list, selector, manager and editor preserve real navigation and cancel', async context => {
+  const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+  const result = await captureIluScenario({scenario: 'notesFocus', command: captureCommand, viewport: {cols: 80, rows: 24}});
+  assert.equal(result.exitCode, 0);
+  assertCaptureArtifacts({result, checkpoints: ['notes-list', 'notes-selector-focus', 'notes-list-focus', 'notes-manager', 'notes-editor-focus'], diagnostic: message => context.diagnostic(message)});
+});
+
+for (const domain of ['Todo', 'Notes']) {
+  test(`physical capture ${domain} editor preserves resize, cancellation and multiline persistence`, async context => {
+    const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+    const result = await captureIluScenario({scenario: 'listEditor', input: {domain}, command: captureCommand, viewport: {cols: 80, rows: 24}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, checkpoints: ['editor-1', 'editor-2', 'editor-3', 'editor-edited', 'editor-saved'], diagnostic: message => context.diagnostic(message)});
+  });
 }
 
 for (const domain of [

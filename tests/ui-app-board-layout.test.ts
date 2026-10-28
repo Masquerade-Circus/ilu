@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import { withTempHome } from '../support/home-sandbox.ts';
+import { dbFilePath } from '../utils/local-paths.ts';
+import { createBoardActions } from '../ui/modules/board/actions.ts';
+import { buildReadSnapshotDomain } from '../ui/read-model.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 import {
   repoRoot,
   uiModulePath,
@@ -30,6 +36,154 @@ import {
   orderedTextIndex,
 } from './test-helpers/ui-app.ts';
 const require = createRequire(import.meta.url);
+
+test('physical capture Board keyboard, pointer and viewport resizing preserve real data and aligned columns', async context => {
+  const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+  const result = await captureIluScenario({scenario: 'boardLayout', command: captureCommand, viewport: {cols: 80, rows: 24}});
+  assert.equal(result.exitCode, 0);
+  assertCaptureArtifacts({result, checkpoints: ['board-before', 'board-keyboard', 'board-dragged', 'board-resized'], diagnostic: message => context.diagnostic(message)});
+});
+
+async function withResizableBoard(run) {
+  await withTempHome(async () => {
+    const modelPath = require.resolve('../scrumban/model.ts');
+    const cached = require.cache[modelPath];
+    delete require.cache[modelPath];
+    try {
+      const model = require(modelPath).default;
+      model.add({title: 'Layout board', description: '', current: true, columns: [{id: 'backlog', title: 'Backlog'}, {id: 'ready', title: 'Ready'}]});
+      const longTitle = `Long ${'x'.repeat(120)}`;
+      model.cards.add({title: longTitle, description: ''});
+      model.cards.add({title: 'Other', description: ''}, {columnIndex: 2});
+      const Ui = require(uiModulePath);
+      const stdin = new FakeStdin();
+      const stdout = new FakeStdout();
+      stdout.columns = 120;
+      stdout.rows = 28;
+      const session = await Ui.mountInteractiveSession({
+        stdin, stdout,
+        state: {activeTab: 'Board', board: {selectedColumnIndex: 1, selectedCard: {columnIndex: 1, position: 1}}},
+        buildSnapshot: () => baseSnapshot(buildReadSnapshotDomain('board', {models: {boards: model}})),
+        boardActions: createBoardActions({model})
+      });
+      try {
+        await run({session, stdin, stdout, model, longTitle});
+      } finally {
+        await session.destroy();
+      }
+    } finally {
+      delete require.cache[modelPath];
+      if (cached) {
+        require.cache[modelPath] = cached;
+      }
+    }
+  });
+}
+
+function enterBoardLayout(session) {
+  session.dispatchKey('CTRL_K');
+  const chord = /\b((?:(?:Ctrl|Alt|Shift)\+)+[A-Z0-9]+|F\d{1,2})\b/i;
+  const hints = visibleLines(session.output()).filter(line => /layout|resiz|adjust.*(?:column|width)/i.test(line));
+  const key = hints.map(line => line.match(chord)?.[1] ?? line.match(/^\s*[│ ]*([A-Z])\s*:/i)?.[1]).find(value => typeof value === 'string');
+  assert.ok(key, 'Board Help must advertise a keyboard action to adjust column widths');
+  session.dispatchKey('ESCAPE');
+  assert.equal(session.focus('board-card-list-1'), true, 'return to the selected card list after consulting Help');
+  session.dispatchKey(key.replace(/\+/g, '_').toUpperCase());
+}
+
+function boardWidthEvidence(session) {
+  const lines = visibleLines(session.output());
+  const header = lines.find(line => line.includes('Ready') && line.includes('(1)'));
+  const cards = lines.find(line => line.includes('Long') && line.includes('Other'));
+  assert.ok(header && cards, `both columns must remain legible:\n${lines.join('\n')}`);
+  return {
+    headerStart: header.indexOf('Ready'),
+    cardStart: cards.indexOf('Other'),
+    counter: header.indexOf('(1)'),
+    visibleTitle: cards.match(/x+/)?.[0].length ?? 0
+  };
+}
+
+test('terminal integration Board keyboard width adjustment preserves data, minimums and content arrows after Esc', async () => {
+  await withResizableBoard(async ({session, model, longTitle}) => {
+    const before = fs.readFileSync(dbFilePath('boards'), 'utf8');
+    session.focus('board-card-list-1');
+    const initial = boardWidthEvidence(session);
+    enterBoardLayout(session);
+    session.dispatchKey('SHIFT_RIGHT');
+    session.dispatchKey('SHIFT_RIGHT');
+    session.dispatchKey('ESCAPE');
+    const adjusted = boardWidthEvidence(session);
+    const delta = adjusted.headerStart - initial.headerStart;
+    assert.ok(delta > 0, 'keyboard resizing must give more width to the first column');
+    assert.equal(adjusted.cardStart - initial.cardStart, delta, 'headers and card lists must consume the same effective widths');
+    assert.equal(adjusted.counter - initial.counter, delta, 'header formatting must use the effective column width');
+    assert.ok(adjusted.visibleTitle > initial.visibleTitle, 'a wider column must expose more of a long card title');
+    assert.equal(fs.readFileSync(dbFilePath('boards'), 'utf8'), before, 'layout changes must not persist widths or move cards/columns');
+
+    enterBoardLayout(session);
+    for (let index = 0; index < 30; index += 1) {
+      session.dispatchKey('SHIFT_LEFT');
+    }
+    session.dispatchKey('ESCAPE');
+    assert.match(session.output(), /Long/, 'the first column must retain readable card content at its minimum');
+    enterBoardLayout(session);
+    for (let index = 0; index < 30; index += 1) {
+      session.dispatchKey('SHIFT_RIGHT');
+    }
+    session.dispatchKey('ESCAPE');
+    assert.match(session.output(), /Other/, 'the neighboring column must retain readable card content at its minimum');
+    assert.equal(fs.readFileSync(dbFilePath('boards'), 'utf8'), before);
+
+    session.dispatchKey('RIGHT');
+    assert.ok(model.getCurrent().columns[1].cards.some(card => card.title === longTitle), 'Esc must restore content focus so Right moves the selected card');
+    session.focus('board-column-header-2');
+    session.dispatchKey('LEFT');
+    assert.equal(model.getCurrent().columns[0].id, 'ready', 'column header arrows must retain their reorder action outside layout mode');
+  });
+});
+
+test('terminal integration Board pointer resizing coordinates headers and lists and survives viewport changes', async () => {
+  await withResizableBoard(async ({session, stdin, stdout}) => {
+    const before = fs.readFileSync(dbFilePath('boards'), 'utf8');
+    const initial = boardWidthEvidence(session);
+    const lines = visibleLines(session.output());
+    const row = lines.findIndex(line => line.includes('Long') && line.includes('Other'));
+    const leftBorder = lines[row].lastIndexOf('│', lines[row].indexOf('Other'));
+    assert.ok(leftBorder > 0, 'expected a visible column boundary to drag');
+    // The divider lane is immediately left of the neighboring pane's border.
+    stdin.send(mousePrimaryPressSequence(leftBorder, row + 1));
+    stdin.send(mouseDragSequence(leftBorder + 3, row + 1));
+    const partial = boardWidthEvidence(session);
+    stdin.send(mouseDragSequence(leftBorder + 7, row + 1));
+    stdin.send(`\x1b[<0;${leftBorder + 7};${row + 1}m`);
+    const adjusted = boardWidthEvidence(session);
+    const delta = adjusted.headerStart - initial.headerStart;
+    assert.ok(delta > 0, 'dragging the divider must resize columns without entering keyboard layout mode');
+    assert.ok(adjusted.headerStart > partial.headerStart, 'the same drag must remain active across successive moves');
+    assert.equal(adjusted.cardStart - initial.cardStart, delta);
+    assert.equal(adjusted.counter - initial.counter, delta);
+    assert.ok(adjusted.visibleTitle > initial.visibleTitle);
+    session.update();
+    assert.deepEqual(boardWidthEvidence(session), adjusted, 'normal rerenders must retain the adjusted widths');
+
+    stdout.rows = 30;
+    stdout.emit('resize');
+    await new Promise<void>(resolve => queueMicrotask(resolve));
+    const taller = boardWidthEvidence(session);
+    assert.equal(taller.cardStart - initial.cardStart, taller.headerStart - initial.headerStart, 'height-only viewport changes must keep headers and cards aligned');
+    stdout.columns = 80;
+    stdout.rows = 24;
+    stdout.emit('resize');
+    await new Promise<void>(resolve => queueMicrotask(resolve));
+    const resized = visibleLines(session.output());
+    assert.ok(resized.length <= 24 && resized.every(line => line.length <= 80));
+    assert.match(session.output(), /Other/);
+    assert.match(session.output(), /Long/);
+    assert.match(session.output(), /Add card/);
+    assert.equal(fs.readFileSync(dbFilePath('boards'), 'utf8'), before, 'pointer and viewport resizing must not mutate stored Board data');
+  });
+});
 
 test('Board action bar reemplaza Columns por Add column y abre add-column directo', async () => {
   const Ui = require(uiModulePath);
@@ -333,7 +487,7 @@ test('Board mover card enfoca columna destino y mantiene la card movida seleccio
   session.destroy();
 });
 
-test('Board muestra todas las columnas disponibles del read-model en el ancho actual', async () => {
+test('Board muestra todas las columnas disponibles del read-model en el ancho actual', async (t) => {
   const Ui = require(uiModulePath);
   const columns = ['Todo', 'Doing', 'Review', 'Blocked', 'Done', 'Archive'].map((title, index) => ({
     title,
@@ -347,12 +501,13 @@ test('Board muestra todas las columnas disponibles del read-model en el ancho ac
       models: boardSnapshotModels({title: 'Release board', columns})
     }
   });
+  t.after(() => session.destroy());
 
   const lines = visibleLines(session.output());
-  const visibleColumnFragments = ['Todo', 'Doing', 'Review', 'Blocke', 'Done', 'Archiv'];
-  const headerLine = lines.find(line => visibleColumnFragments.every(fragment => line.includes(fragment)));
+  const visibleCards = columns.map((_, index) => `Card ${index + 1}`);
+  const cardLine = lines.find(line => visibleCards.every(title => line.includes(title)));
 
-  assert.ok(headerLine, `expected all columns in one flexible row, got:
+  assert.ok(cardLine, `expected cards from all columns in one flexible row, got:
 ${lines.join('\n')}`);
   assert.doesNotMatch(session.output(), /more columns/i);
   assert.equal(lines.filter(line => line.length > 80).length, 0);

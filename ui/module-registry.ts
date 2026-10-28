@@ -86,6 +86,7 @@ type ActiveViewOptions = {
   requestRender: () => void;
   utilityActions: JSX.Element[];
   width: number;
+  rows: number;
 };
 
 type UtilityOverlayOptions = {
@@ -196,7 +197,7 @@ export function createActiveModuleView(options: ActiveViewOptions): RegisteredVi
   }
 
   if (state.activeTab === "Board") {
-    return createBoardMainView({ board: snapshot.board, state: state.board, isActive: true, width, boardActions, refreshSnapshot, utilityActions });
+    return createBoardMainView({ board: snapshot.board, state: state.board, isActive: true, width, rows: options.rows, boardActions, refreshSnapshot, utilityActions });
   }
 
   if (state.activeTab === "Sync") {

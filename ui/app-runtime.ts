@@ -115,10 +115,12 @@ export const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Objec
     "Use Actions to manage notes."
   ]),
   Board: Object.freeze([
-    "Use ↑/↓ to choose a card. Use Enter/Space to select it.",
-    "Use O to open card or column details.",
     "Use ←/→ to move cards or columns.",
     "Use Shift+↑/↓ to change priority.",
+    "Ctrl+R: Adjust column widths. Tab chooses a divider, ←/→ resizes.",
+    "Shift+←/→ resizes faster. Esc returns to cards. Drag dividers to resize.",
+    "Use ↑/↓ to choose a card. Use Enter/Space to select it.",
+    "Use O to open card or column details.",
     "Use Actions to add cards, columns, or boards."
   ]),
   Clocks: Object.freeze([
@@ -130,6 +132,7 @@ export const HELP_LINES_BY_TAB: Readonly<Record<Tab, readonly string[]>> = Objec
     "Setup asks for the remote, branch, and confirmation."
   ]),
   Translate: Object.freeze([
+    "Alt+↑/↓ recalls recent translated texts and restores your draft.",
     "Write the text, source, and target.",
     "Use Actions to translate.",
     "Use Actions to copy the result."

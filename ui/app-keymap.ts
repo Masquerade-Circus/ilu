@@ -79,15 +79,22 @@ export function createKeymap(
     { key: "CTRL_6", command: { id: "ilu.tab", text: "Translate" }, scope: "global" },
     { key: "CTRL_7", command: { id: "ilu.tab", text: "Speech" }, scope: "global" },
     { key: "CTRL_K", command: { id: "ilu.help" }, scope: "global" },
+    { key: "CTRL_R", command: { id: "layout.toggle" }, scope: "global" },
     { key: "ESCAPE", command: { id: "ilu.escape" }, scope: "global" },
     { key: "CTRL_C", command: { id: "input.copy" }, scope: "input", when: { focusedTag: "terminal-input" } },
+    { key: "CTRL_C", command: { id: "editor.copy" }, scope: "editor", when: { focusedTag: "terminal-editor" } },
     { key: "CTRL_C", command: { id: "ilu.cancel" }, scope: "global" }
   ];
 
   return {
     bindings,
     onCommand(command: TerminalCommand, context: TerminalCommandContext) {
-      const handled = typeof handleLocalCommand === "function" && handleLocalCommand(command, context) ? true : handleCommand(command, state);
+      const helpExit = state.overlay === "help" && (command.id === "ilu.escape" || command.id === "ilu.cancel");
+      const handled = helpExit
+        ? handleCommand(command, state)
+        : typeof handleLocalCommand === "function" && handleLocalCommand(command, context)
+          ? true
+          : handleCommand(command, state);
 
       if (command.id === "ilu.focus-context") {
         return handled;

@@ -8,10 +8,18 @@ import { FakeStdin, FakeStdout, findNodeById, exerciseEditorHeight } from './tes
 import fs from 'node:fs';
 import { createTtsService } from '../tts/index.ts';
 import { createTtsActions } from '../ui/modules/tts/actions.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 import 'tsx/cjs';
 const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
+
+test('physical capture Translate editor preserves real inputs and actions across growth and shrink without provider calls', async context => {
+  const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+  const result = await captureIluScenario({scenario: 'translateEditor', command: captureCommand, viewport: {cols: 80, rows: 24}});
+  assert.equal(result.exitCode, 0);
+  assertCaptureArtifacts({result, checkpoints: ['translate-1', 'translate-2', 'translate-3'], diagnostic: message => context.diagnostic(message)});
+});
 
 function stripAnsi(output) {
   return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
@@ -599,6 +607,174 @@ test('Translate TUI displays and copies every provider segment in order', async 
       assert.equal(session.clipboard(), 'Primero. Segundo.');
     } finally {
       await session.destroy();
+    }
+  });
+});
+
+function setTranslationDraft({session, text}) {
+  assert.equal(session.focus('translate-text'), true);
+  session.dispatchKey('CTRL_A');
+  session.dispatchKey('BACKSPACE');
+  session.dispatchText(text);
+}
+
+async function submitTranslation({session, text}) {
+  setTranslationDraft({session, text});
+  session.click('translate-start');
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+test('terminal integration Translate history excludes drafts, invalid, failed and obsolete requests', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    let finishObsolete;
+    const obsolete = new Promise(resolve => { finishObsolete = resolve; });
+    const requested = [];
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(), state: {activeTab: 'Translate'},
+      babelActions: createBabelActions({provider: async ({text}) => {
+        requested.push(text);
+        if (text === 'Failed text') {
+          throw new Error('Controlled provider failure');
+        }
+        if (text === 'Obsolete text') {
+          return obsolete;
+        }
+        if (text === 'Missing result') {
+          return {sentences: []};
+        }
+        return {sentences: [{trans: 'Translated text'}]};
+      }})
+    });
+    try {
+      await submitTranslation({session, text: 'Successful text'});
+      await submitTranslation({session, text: ''});
+      await submitTranslation({session, text: 'Failed text'});
+      await submitTranslation({session, text: 'Missing result'});
+      await submitTranslation({session, text: 'Obsolete text'});
+      setTranslationDraft({session, text: 'Unsubmitted draft'});
+      finishObsolete({sentences: [{trans: 'Obsolete result'}]});
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(requested, ['Successful text', 'Failed text', 'Missing result', 'Obsolete text']);
+      assert.equal(session.state().utilities.babel.translation, '', 'obsolete completion must not replace the draft result');
+
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Successful text');
+      assert.match(session.output(), /Successful text/);
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Successful text', 'excluded requests must not be available as older history');
+      session.dispatchKey('ALT_DOWN');
+      assert.equal(session.state().utilities.babel.text, 'Unsubmitted draft', 'history must restore the current draft');
+    } finally {
+      finishObsolete({sentences: []});
+      await session.destroy();
+    }
+  });
+});
+
+test('terminal integration Translate history restores multiline text and the draft across tabs', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    const requested = [];
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(), state: {activeTab: 'Translate'},
+      babelActions: createBabelActions({provider: async ({text}) => {
+        requested.push(text);
+        return {sentences: [{trans: 'Translation'}]};
+      }})
+    });
+    try {
+      await submitTranslation({session, text: 'First source\nSecond line'});
+      await submitTranslation({session, text: 'Latest source'});
+      session.dispatchKey('CTRL_1');
+      session.dispatchKey('CTRL_6');
+      setTranslationDraft({session, text: 'Draft xy'});
+      session.dispatchKey('LEFT');
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Latest source');
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'First source\nSecond line');
+      assert.match(session.output(), /First source/);
+      assert.match(session.output(), /Second line/);
+      session.dispatchKey('ALT_DOWN');
+      assert.equal(session.state().utilities.babel.text, 'Latest source');
+      session.dispatchKey('ALT_DOWN');
+      assert.equal(session.state().utilities.babel.text, 'Draft xy');
+      session.dispatchText('!');
+      assert.equal(session.state().utilities.babel.text, 'Draft x!y', 'restoring the draft must restore its cursor');
+      session.dispatchKey('ALT_UP');
+      session.dispatchKey('ALT_UP');
+      session.click('translate-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(requested.at(-1), 'First source\nSecond line', 'recovered history must be usable as the next translation input');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('terminal integration Translate history retains only ten distinct recent successful texts', async () => {
+  await withTempHome(async () => {
+    const Ui = await import('../ui/app.tsx');
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(), state: {activeTab: 'Translate'},
+      babelActions: createBabelActions({provider: async () => ({sentences: [{trans: 'Translation'}]})})
+    });
+    try {
+      for (let index = 1; index <= 12; index += 1) {
+        await submitTranslation({session, text: `Successful-${index}`});
+      }
+      await submitTranslation({session, text: 'Successful-12'});
+      setTranslationDraft({session, text: 'Working draft'});
+      const recalled = [];
+      for (let index = 0; index < 12; index += 1) {
+        session.dispatchKey('ALT_UP');
+        recalled.push(session.state().utilities.babel.text);
+      }
+      assert.equal(recalled[0], 'Successful-12');
+      assert.equal(new Set(recalled.slice(0, 10)).size, 10, 'duplicates must not consume history slots');
+      assert.deepEqual(new Set(recalled), new Set(Array.from({length: 10}, (_, index) => `Successful-${index + 3}`)));
+      assert.equal(recalled[10], recalled[9], 'older texts must be evicted at the retention limit');
+      await submitTranslation({session, text: 'Successful-3'});
+      setTranslationDraft({session, text: 'Another draft'});
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Successful-3', 'reusing an older text must make it the most recent');
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Successful-12');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('terminal integration Translate history stays in memory and disappears in a new session', async () => {
+  await withTempHome(async home => {
+    const Ui = await import('../ui/app.tsx');
+    const options = {
+      snapshot: baseSnapshot(), state: {activeTab: 'Translate'},
+      babelActions: createBabelActions({provider: async () => ({sentences: [{trans: 'Translation'}]})})
+    };
+    const session = await Ui.createHeadlessSession(options);
+    try {
+      const before = fs.readdirSync(home, {recursive: true}).filter(entry => fs.statSync(path.join(home, String(entry))).isFile())
+        .map(entry => [String(entry), fs.readFileSync(path.join(home, String(entry)), 'utf8')]);
+      await submitTranslation({session, text: 'Session-only synthetic source'});
+      setTranslationDraft({session, text: 'Draft'});
+      session.dispatchKey('ALT_UP');
+      assert.equal(session.state().utilities.babel.text, 'Session-only synthetic source');
+      const after = fs.readdirSync(home, {recursive: true}).filter(entry => fs.statSync(path.join(home, String(entry))).isFile())
+        .map(entry => [String(entry), fs.readFileSync(path.join(home, String(entry)), 'utf8')]);
+      assert.deepEqual(after, before, 'translation history must not write to disk');
+    } finally {
+      await session.destroy();
+    }
+    const reopened = await Ui.createHeadlessSession(options);
+    try {
+      setTranslationDraft({session: reopened, text: 'New session draft'});
+      reopened.dispatchKey('ALT_UP');
+      assert.equal(reopened.state().utilities.babel.text, 'New session draft', 'a new session must not inherit prior history');
+    } finally {
+      await reopened.destroy();
     }
   });
 });

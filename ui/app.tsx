@@ -1,4 +1,4 @@
-import { Text } from "@valyrianjs/terminal";
+import { ScrollView, Text } from "@valyrianjs/terminal";
 import type {
   TerminalCommand,
   TerminalCommandContext,
@@ -177,14 +177,17 @@ function createApp(
     return (
       <AppOverlay
         title={<Text>{`${state.activeTab} help`}</Text>}
-        content={[
-          <Text>Tab moves focus.</Text>,
-          <Text>Enter activates.</Text>,
-          ...TABS.map((tab, index) => <Text>{`Ctrl+${index + 1}: ${tab}`}</Text>),
-          ...helpLines.map((line: string) => <Text>{line}</Text>),
-          <Text>Esc closes Help.</Text>
+        content={<ScrollView id="help-content" fill={true}>
+          <Text>Tab moves focus.</Text>
+          <Text>Enter activates.</Text>
+          <Text>Ctrl+C copies selected text in inputs and editors.</Text>
+          {TABS.map((tab, index) => <Text>{`Ctrl+${index + 1}: ${tab}`}</Text>)}
+          {helpLines.map((line: string) => <Text>{line}</Text>)}
+        </ScrollView>}
+        bottomNav={[
+          <Text>Esc closes Help.</Text>,
+          createButton("help-close", "Close", () => { state.overlay = null; })
         ]}
-        bottomNav={createButton("help-close", "Close", () => { state.overlay = null; })}
       />
     );
   }
@@ -192,7 +195,7 @@ function createApp(
   function App(): JSX.Element {
     const snapshot = currentSnapshot();
     const utilityActions: JSX.Element[] = [];
-    const activeView = createActiveModuleView({ state, snapshot, actions, refreshSnapshot, requestRender, utilityActions, width: currentWidth() });
+    const activeView = createActiveModuleView({ state, snapshot, actions, refreshSnapshot, requestRender, utilityActions, width: currentWidth(), rows: currentRows() });
     const activeUtilityOverlay = isUtilityTab(state.activeTab)
       ? createActiveUtilityOverlay({ state, actions, layout: { width: currentWidth(), rows: currentRows() }, requestRender })
       : null;
@@ -468,7 +471,11 @@ function hasActiveOverlay(state: AppRuntimeState): boolean {
 }
 
 function enableContextualFooter(session: TerminalSession, actions: SessionActions, state: AppRuntimeState): void {
-  actions.isTextEntryFocused = () => findNodeById(session.tree(), trackedFocusIds.get(state))?.tag === "terminal-input";
+  actions.isTextEntryFocused = () => {
+    const tag = findNodeById(session.tree(), trackedFocusIds.get(state))?.tag;
+
+    return tag === "terminal-input" || tag === "terminal-editor";
+  };
   const dispatch = session.dispatchKey.bind(session);
   // tree() intentionally hides focus internals. Ask the public keymap context
   // after input settles, for both real input and programmatic focus changes.

@@ -82,6 +82,7 @@ type BoardMainViewOptions = {
   state: BoardRuntimeState;
   isActive: boolean;
   width: number;
+  rows?: number;
   boardActions: BoardActions;
   refreshSnapshot: RefreshSnapshot;
   utilityActions?: JSX.Element[];
@@ -110,17 +111,44 @@ export function renderBoardNodes(board: BoardSnapshot, state: BoardRuntimeState,
   }
 
   const columns = board.columns;
-  const gap = 0;
   const boardWidth = Math.max(1, layout.width - 2);
-  const columnWidth = Math.max(1, Math.floor(boardWidth / columns.length));
+  const available = Math.max(0, boardWidth - (columns.length - 1));
+  const layoutKey = JSON.stringify([
+    board.id,
+    columns.map((column) => column.id ?? column.index ?? column.title),
+    boardWidth,
+    layout.rows
+  ]);
+
+  if (state.columnLayout?.key !== layoutKey) {
+    state.columnLayout = {
+      key: layoutKey,
+      revision: (state.columnLayout?.revision ?? 0) + 1,
+      sizes: columns.map((_, index) =>
+        Math.floor(available / columns.length) + (index < available % columns.length ? 1 : 0)
+      )
+    };
+  }
+
+  const columnLayout = state.columnLayout;
   const columnNodes = columns.map((column: BoardColumn, columnOffset: number) => {
-    return createBoardColumnNode(column, columnOffset, columnWidth, state, layout.openCardDetails, layout.openColumnDetails);
+    return createBoardColumnNode(column, columnOffset, columnLayout.sizes[columnOffset], state, layout.openCardDetails, layout.openColumnDetails);
   });
 
   return [
     <Pane fill={true}>
       <Fixed position="top" size={1}>{selector}</Fixed>
-      <Split width={boardWidth} fill={true} direction="row" gap={gap} sizes={columns.map(() => "1fr")}>{columnNodes}</Split>
+      {/* Automatic height avoids 0.2.14's cloned fill node, which loses divider geometry. */}
+      <Split
+        id={`board-columns-${columnLayout.revision}`}
+        width={boardWidth}
+        direction="row"
+        resizable={true}
+        sizes={columns.map(() => "1fr")}
+        onresize={(event) => {
+          columnLayout.sizes = [...event.sizes];
+        }}
+      >{columnNodes}</Split>
     </Pane>
   ];
 }
@@ -1327,7 +1355,7 @@ export function createBoardMainView(options: BoardMainViewOptions): BoardMainVie
     );
   }
 
-  const boardPanelNodes = renderBoardNodes(board, state, { width, openCardDetails, openColumnDetails, switchBoard, openBoardDetails });
+  const boardPanelNodes = renderBoardNodes(board, state, { width, rows: options.rows, openCardDetails, openColumnDetails, switchBoard, openBoardDetails });
 
   return {
     activePanelNodes: boardPanelNodes,

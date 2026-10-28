@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { withTempHome } from '../support/home-sandbox.ts';
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(import.meta.dirname, '..');
 import 'tsx/cjs';
@@ -49,6 +50,26 @@ function createSyncActions(calls) {
     }
   };
 }
+
+test('terminal integration Sync LogView preserves readable ordered details with its default renderer', async () => {
+  await withTempHome(async () => {
+    const Ui = require(uiModulePath);
+    const details = Array.from({length: 20}, (_, index) => `Synthetic sync event ${String(index + 1).padStart(2, '0')}`);
+    const session = await Ui.createHeadlessSession({
+      snapshot: baseSnapshot(), state: {activeTab: 'Sync', utilities: {sync: {statusLoaded: true, details}}}
+    });
+    try {
+      const output = stripAnsi(session.output());
+      assert.ok(output.includes(details.at(-1)), 'the current tail of sync details must remain visible');
+      const visibleEvents = [...output.matchAll(/Synthetic sync event (\d+)/g)].map(match => Number(match[1]));
+      assert.ok(visibleEvents.length > 1, 'the log must display actual entry content');
+      assert.ok(visibleEvents.every((value, index) => index === 0 || value > visibleEvents[index - 1]), 'visible log entries must retain their order');
+      assert.doesNotMatch(output, /\[object Object\]/);
+    } finally {
+      await session.destroy();
+    }
+  });
+});
 
 test('Sync app opens from top nav and shows detailed status', async () => {
   const Ui = require(uiModulePath);

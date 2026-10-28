@@ -201,7 +201,6 @@ export function createSyncMainView(state: UtilityAppState, _syncActions: SyncAct
         entries={logEntries("sync", busy ? [...state.sync.details, "Pending sync"] : state.sync.details)}
         followTail={true}
         emptyText="No sync details yet."
-        renderEntry={(entry) => entry.content}
       />
     </FocusScope>
   ];

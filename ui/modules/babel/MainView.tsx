@@ -15,6 +15,7 @@ export function createInitialBabelState(source: Record<string, unknown> = {}): B
 
   return {
     text: cleanText(babelSource.text),
+    history: [],
     source: cleanText(babelSource.source, "auto"),
     target: cleanText(babelSource.target, "en"),
     translation: cleanText(babelSource.translation),
@@ -110,6 +111,12 @@ export function runTranslate(state: UtilityAppState, babelActions: BabelActions,
       }
 
       applyBabelResult(state.babel, result);
+      if (result.ok === true) {
+        state.babel.history = [
+          ...state.babel.history.filter((text) => text !== requestValues.text),
+          requestValues.text
+        ].slice(-10);
+      }
     })
     .catch(() => {
       if (state.babel.inputVersion !== requestVersion) {
@@ -177,6 +184,7 @@ export function createBabelMainView(state: UtilityAppState, _babelActions: Babel
       <Editor
         id="translate-text"
         value={state.babel.text}
+        history={state.babel.history}
         fill={true}
         placeholder="Text to translate"
         onchange={(event: TerminalEditorChangeEventPayload) => {

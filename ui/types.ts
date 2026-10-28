@@ -71,6 +71,7 @@ export interface ClockRuntimeState {
 }
 
 export interface BoardRuntimeState {
+  columnLayout: { key: string; revision: number; sizes: number[] } | null;
   selectedCard: Selection | null;
   selectedColumnIndex: number;
   selectedBoardId: BoardId | null;
@@ -111,6 +112,7 @@ export interface SyncUtilityState {
 
 export interface BabelUtilityState {
   text: string;
+  history: string[];
   source: string;
   target: string;
   translation: string;
@@ -242,6 +244,7 @@ export interface UiSnapshot {
 
 export interface BoardLayout {
   width: number;
+  rows?: number;
   openCardDetails?: (selection: Selection) => void;
   openColumnDetails?: (columnIndex: number) => void;
   switchBoard?: (id: BoardId) => void;

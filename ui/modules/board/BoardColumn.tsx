@@ -162,7 +162,7 @@ export function createBoardColumnNode(
   const headerStyle = state.selectedColumnIndex === columnIndex ? BOARD_COLUMN_HEADER_ACTIVE_STYLE : BOARD_COLUMN_HEADER_STYLE;
 
   return (
-    <Pane fill={true} style={BOARD_COLUMN_STYLE}>
+    <Pane fill={true} minWidth={12} style={BOARD_COLUMN_STYLE}>
       <Fixed position="top" size={headerHeight}>
         <Box height={headerHeight} style={headerStyle}>
           <Button

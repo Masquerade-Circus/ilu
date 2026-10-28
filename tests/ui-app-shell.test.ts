@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -694,15 +695,16 @@ test('createHeadlessSession cambia a Clocks al hacer click en top nav y muestra 
   session.destroy();
 });
 
-test('help overlay muestra Esc como cierre y no presenta Ctrl+C como key de app', async () => {
+test('help overlay distinguishes contextual copy from closing Help', async (t) => {
   const Ui = require(uiModulePath);
 
   const session = await Ui.createHeadlessSession({state: {overlay: 'help'}, snapshot: baseSnapshot()});
+  t.after(() => session.destroy());
   const output = session.output();
   const helpOverlayText = scopedOverlayLines(output, /Todo help/).join('\n');
 
   assert.match(helpOverlayText, /Esc closes Help\./);
-  assert.doesNotMatch(helpOverlayText, /Ctrl\+C/);
+  assert.match(helpOverlayText, /Ctrl\+C[^\n]*cop/i);
   assert.doesNotMatch(helpOverlayText, /Esc\/Ctrl\+C closes this panel\./);
   assert.doesNotMatch(output, /Ctrl\+C closes this panel or exits\./);
   session.destroy();
@@ -749,9 +751,10 @@ test('Ctrl+H no abre help ni se mantiene como alias inseguro', async () => {
   session.destroy();
 });
 
-test('Ctrl+K opens contextual help for every app', async () => {
+test('Ctrl+K opens contextual help for every app', async (t) => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+  t.after(() => session.destroy());
 
   const cases = [
     ['CTRL_1', 'Todo', /Use ↑\/↓ to choose a task\./, /Use Shift\+↑\/↓ to reorder\./],
@@ -777,7 +780,7 @@ test('Ctrl+K opens contextual help for every app', async () => {
     assert.match(output, /Tab moves focus\./);
     assert.match(output, /Enter activates\./);
     assert.match(output, /Esc closes Help\./);
-    assert.doesNotMatch(scopedOverlayLines(output, new RegExp(`${tab} help`)).join('\n'), /Ctrl\+C/);
+    assert.match(scopedOverlayLines(output, new RegExp(`${tab} help`)).join('\n'), /Ctrl\+C[^\n]*cop/i);
 
     session.dispatchKey('CTRL_K');
     assert.equal(session.state().overlay, null);
@@ -802,6 +805,18 @@ test('help overlay closes with Esc and Close button without exiting', async (t) 
   assert.equal(session.state().overlay, 'help');
 
   session.click('help-close');
+  assert.equal(session.state().overlay, null);
+  assert.equal(session.state().running, true);
+
+  session.dispatchKey('CTRL_3');
+  session.dispatchKey('CTRL_K');
+  assert.equal(session.focus('help-content'), true);
+  for (let index = 0; index < 25; index += 1) {
+    session.dispatchKey('DOWN');
+  }
+  assert.match(session.output(), /Use Actions to add cards, columns, or boards/);
+  assert.match(session.output(), /Esc closes Help/);
+  session.dispatchKey('ESCAPE');
   assert.equal(session.state().overlay, null);
   assert.equal(session.state().running, true);
 
@@ -840,7 +855,7 @@ test('footer Ctrl+C hint follows copy focus and overlay close behavior', async (
       session.focus('todo-add-title');
       assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
       session.dispatchKey('TAB');
-      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*(?:close|cancel|back)/i);
+      assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
       session.dispatchKey('SHIFT_TAB');
       assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
       session.dispatchText('Draft task');
@@ -859,6 +874,21 @@ test('footer Ctrl+C hint follows copy focus and overlay close behavior', async (
       await session.destroy();
     }
   });
+});
+
+test('physical capture Help and contextual footer preserve real copy, paste, draft and save behavior', async context => {
+  const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+  const result = await captureIluScenario({scenario: 'helpFooter', command: captureCommand, viewport: {cols: 80, rows: 24}});
+  assert.equal(result.exitCode, 0);
+  assertCaptureArtifacts({result, checkpoints: ['footer-input', 'footer-editor', 'help-over-editor', 'help-closed'], diagnostic: message => context.diagnostic(message)});
+});
+
+test('physical capture real CLI failure retains its nonzero exit and inspectable error artifacts', async context => {
+  const {captureIluScenario} = await import('./test-helpers/terminal-capture.ts');
+  const result = await captureIluScenario({scenario: 'cliFailure', command: ['node', path.join(repoRoot, 'bin', 'cli.js'), '--unsupported-capture-option'], viewport: {cols: 80, rows: 24}});
+  assert.equal(Number.isInteger(result.exitCode), true);
+  assert.notEqual(result.exitCode, 0, 'the bridge must preserve the real CLI failure instead of reporting success');
+  assertCaptureArtifacts({result, checkpoints: ['cli-error'], diagnostic: message => context.diagnostic(message)});
 });
 
 test('Ctrl+C exits from Help instead of acting as overlay help copy', async () => {
@@ -895,9 +925,105 @@ test('Ctrl+C in a focused input uses Valyrian copy and keeps the UI running', as
   }
 });
 
-test('Ctrl+K puts help above an already open page overlay and Close targets help', async () => {
+for (const target of [
+  {tab: 'Todo', open: 'todo-add-task', editor: 'todo-add-description', cancel: 'todo-add-cancel'},
+  {tab: 'Todo', open: 'todo-manage-lists', next: 'todo-add-list', editor: 'todo-add-list-description', cancel: 'todo-add-list-cancel'},
+  {tab: 'Notes', open: 'note-add-note', editor: 'note-add-content', cancel: 'note-add-cancel'},
+  {tab: 'Notes', open: 'note-manage-lists', next: 'note-add-list', editor: 'note-add-list-description', cancel: 'note-add-list-cancel'},
+  {tab: 'Board', open: 'board-add-card', editor: 'board-add-description', cancel: 'board-add-cancel'},
+  {tab: 'Board', open: 'board-add-board', editor: 'board-add-board-description', cancel: 'board-add-board-cancel'},
+  {tab: 'Translate', open: null, editor: 'translate-text', cancel: null}
+]) {
+  test(`terminal integration contextual Editor copy preserves selection and explicit exits: ${target.editor}`, async () => {
+    await withTempHome(async () => {
+      const Ui = require(uiModulePath);
+      const session = await Ui.createHeadlessSession({cols: 100, rows: 28, state: {activeTab: target.tab}, snapshot: richSnapshot()});
+      try {
+        if (target.open) {
+          session.click(target.open);
+        }
+        if (target.next) {
+          session.click(target.next);
+        }
+        assert.equal(session.focus(target.editor), true);
+        session.dispatchText('Alpha\nBeta');
+        session.dispatchKey('CTRL_C');
+        assert.equal(session.state().running, true, 'Ctrl+C without selection must not exit');
+        assert.equal(session.focus(target.editor), true, 'Ctrl+C without selection must not dismiss the dialog');
+        assert.equal(session.clipboard(), '', 'Ctrl+C without selection must not copy the whole document');
+        session.dispatchKey('CTRL_A');
+        session.dispatchKey('CTRL_C');
+        assert.equal(session.clipboard(), 'Alpha\nBeta', 'copy must preserve multiline selection');
+        assert.equal(session.state().running, true);
+        assert.equal(session.focus(target.editor), true, 'copy must leave the dialog and its editor open');
+        assert.match(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i);
+
+        session.dispatchKey('END');
+        session.dispatchKey('CTRL_C');
+        assert.equal(session.clipboard(), 'Alpha\nBeta', 'copy without selection must preserve the clipboard');
+        assert.equal(session.focus(target.editor), true, 'copy without selection must not close the editor');
+        session.dispatchKey('HOME');
+        session.dispatchKey('SHIFT_END');
+        session.dispatchKey('CTRL_C');
+        assert.equal(session.clipboard(), 'Beta', 'Ctrl+C must copy the selected range rather than the whole document');
+        session.dispatchText('Gamma');
+        session.dispatchKey('CTRL_A');
+        session.dispatchKey('CTRL_C');
+        assert.equal(session.clipboard(), 'Alpha\nGamma', 'editing must remain available after copy');
+
+        if (target.cancel) {
+          session.dispatchKey('ESCAPE');
+          assert.equal(session.focus(target.editor), false, 'Esc must still close the dialog');
+          assert.equal(session.state().running, true);
+          session.click(target.open);
+          if (target.next) {
+            session.click(target.next);
+          }
+          session.click(target.cancel);
+          assert.equal(session.focus(target.editor), false, 'Cancel must remain an explicit exit');
+        } else {
+          session.dispatchKey('CTRL_1');
+          assert.equal(session.state().activeTab, 'Todo');
+        }
+      } finally {
+        await session.destroy();
+      }
+    });
+  });
+}
+
+test('terminal integration Help above an Editor describes copy and keeps global Ctrl+C semantics', async () => {
+  await withTempHome(async () => {
+    const Ui = require(uiModulePath);
+    const session = await Ui.createHeadlessSession({cols: 100, rows: 32, snapshot: baseSnapshot()});
+    try {
+      session.click('todo-add-task');
+      session.focus('todo-add-description');
+      session.dispatchText('Hidden draft');
+      session.dispatchKey('CTRL_A');
+      session.dispatchKey('CTRL_C');
+      session.dispatchKey('CTRL_K');
+      const help = scopedOverlayLines(session.output(), /Todo help/).join('\n');
+      assert.match(help, /(?:editor|input|text)[^\n]*Ctrl\+C[^\n]*cop(?:y|ies)|Ctrl\+C[^\n]*cop(?:y|ies)[^\n]*(?:editor|input|text)|Ctrl\+C[^\n]*(?:editor|input|text)[^\n]*cop(?:y|ies)/i);
+      assert.match(help, /Esc[^\n]*(?:close|cancel)/i);
+      assert.doesNotMatch(visibleLines(session.output()).at(-1), /Ctrl\+C[^\n]*copy/i, 'a hidden Editor must not determine the Help footer');
+      session.dispatchKey('ESCAPE');
+      assert.equal(session.state().overlay, null);
+      assert.equal(session.focus('todo-add-description'), true, 'closing Help must preserve the draft dialog');
+      session.dispatchKey('CTRL_K');
+      session.dispatchKey('CTRL_C');
+      assert.equal(session.state().running, false, 'Ctrl+C in Help must retain its global exit behavior');
+      assert.equal(session.clipboard(), 'Hidden draft');
+    } finally {
+      await session.destroy();
+    }
+  });
+});
+
+test('Ctrl+K puts help above an already open page overlay and Close targets help', async (t) => {
   const Ui = require(uiModulePath);
   const session = await Ui.createHeadlessSession({snapshot: richSnapshot()});
+  t.after(() => session.destroy());
 
   session.click('todo-add-task');
   assert.equal(session.state().todo.overlay, 'add-task');

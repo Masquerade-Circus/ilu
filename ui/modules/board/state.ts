@@ -105,6 +105,7 @@ export function getBoardPendingFocus(state: Pick<BoardRuntimeState, "selectedCol
 export function createInitialBoardState(overrides: Partial<BoardRuntimeState> | Record<string, unknown> = {}): BoardRuntimeState {
   const source = typeof overrides === "object" && overrides !== null ? overrides as Record<string, unknown> : {};
   const state: BoardRuntimeState = {
+    columnLayout: null,
     addCard: normalizeAddCardState(source.addCard),
     editCard: normalizeCardFormState(source.editCard),
     addColumn: normalizeTitleFormState(source.addColumn),
