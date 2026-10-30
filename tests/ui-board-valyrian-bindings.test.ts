@@ -1,138 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-const repoRoot = path.resolve(import.meta.dirname, '..');
-import 'tsx/cjs';
-import * as __cjsImport81 from '../ui/modules/board/MainView.tsx';
-const { createBoardKeyBindings } = __cjsImport81;
-import Ui from '../ui/app.tsx';
-function bindingSignature(binding) {
-  return {
-    key: binding.key,
-    scope: binding.scope,
-    focusedTag: binding.when && binding.when.focusedTag,
-    commandId: binding.command && binding.command.id
-  };
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
+
+// tuiInteraction is a required physical-driver capability, not implemented by
+// this author. fill targets a visible label. data inspects persisted business
+// values in the capture HOME. No action adapter or binding table is replaced.
+const cases = [
+  ['Board delegates Editor Enter and List press keys to Valyrian defaults', [
+    {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Long'}, {key: 'SPACE'}, {key: 'ENTER'},
+    {expect: {absent: 'Edit card'}}, {unchanged: ['boards']},
+    {key: 'o'}, {click: 'Edit', area: 'overlay'}, {fill: {label: 'Description', text: 'Alpha'}},
+    {key: 'ENTER'}, {type: 'Beta'}, {expect: {separateRows: ['Alpha', 'Beta'], text: 'Cancel'}},
+    {screenshot: 'result'}, {click: 'Cancel'}, {unchanged: ['boards']}
+  ]],
+  ['Board WIP overlay rejects non-numeric input before calling the action', [
+    {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Backlog'}, {key: 'o'}, {click: 'WIP'},
+    {fill: {label: 'WIP limit', text: 'abc'}}, {click: 'Save'},
+    {expect: {invalid: true, text: 'Cancel'}}, {unchanged: ['boards']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Board WIP overlay rejects empty Enter submit before calling the action', [
+    {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Backlog'}, {key: 'o'}, {click: 'WIP'},
+    {fill: {label: 'WIP limit', text: ''}}, {key: 'ENTER'},
+    {expect: {invalid: true, text: 'Cancel'}}, {unchanged: ['boards']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Board WIP overlay handles invalid Enter submit without throwing', [
+    {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Backlog'}, {key: 'o'}, {click: 'WIP'},
+    {fill: {label: 'WIP limit', text: 'abc'}}, {key: 'ENTER'},
+    {expect: {invalid: true}}, {unchanged: ['boards']}, {screenshot: 'result'},
+    {fill: {label: 'WIP limit', text: '2'}}, {click: 'Save'},
+    {data: {domain: 'boards', column: 'Backlog', wipLimit: 2}}
+  ]],
+  ['Board WIP overlay submits finite NumberInput values with zero as no limit', [
+    {key: 'CTRL_3'}, {click: 'Backlog'}, {key: 'o'}, {click: 'WIP'},
+    {fill: {label: 'WIP limit', text: '0'}}, {click: 'Save'},
+    {data: {domain: 'boards', column: 'Backlog', noWipLimit: true}}, {screenshot: 'result'}
+  ]]
+] as const;
+
+for (const [name, steps] of cases) {
+  test(name, async context => {
+    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {steps, finish: 'normal-exit'}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
+  });
 }
-
-test('Board delegates Editor Enter and List press keys to Valyrian defaults', () => {
-  const forbiddenBindings = createBoardKeyBindings()
-    .map(bindingSignature)
-    .filter(binding => {
-      const forcesEditorEnter = binding.key === 'ENTER'
-        && binding.scope === 'editor'
-        && binding.focusedTag === 'terminal-editor';
-      const interceptsListPress = (binding.key === 'ENTER' || binding.key === 'SPACE')
-        && binding.scope === 'list'
-        && binding.focusedTag === 'terminal-list';
-
-      return forcesEditorEnter || interceptsListPress;
-    });
-
-  assert.deepEqual(forbiddenBindings, []);
-});
-
-function snapshot() {
-  return {
-    todo: {title: 'Today', items: [], remaining: 0},
-    notes: {title: 'Notes', items: [], remaining: 0},
-    board: {
-      title: 'Board',
-      columns: [
-        {title: 'Backlog', wipLimit: null, cards: []}
-      ],
-      totalCards: 0
-    },
-    clocks: {items: [], remaining: 0}
-  };
-}
-
-function boardActions(calls) {
-  const ok = () => ({ok: true});
-
-  return {
-    addCard: ok,
-    editCard: ok,
-    moveCard: ok,
-    prioritizeCard: ok,
-    removeCard: ok,
-    addColumn: ok,
-    renameColumn: ok,
-    moveColumnLeft: ok,
-    moveColumnRight: ok,
-    removeColumn: ok,
-    setWipLimit(values) {
-      calls.push(values);
-      return {ok: true};
-    }
-  };
-}
-
-test('Board WIP overlay rejects non-numeric input before calling the action', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Board', board: {overlay: 'set-wip-limit', selectedColumnIndex: 1, wipLimit: {title: 'abc'}}},
-    snapshot: snapshot(),
-    boardActions: boardActions(calls)
-  });
-
-  session.click('board-set-wip-save');
-
-  assert.deepEqual(calls, []);
-  assert.match(session.output(), /Choose a WIP limit of 0 or higher\./);
-  session.destroy();
-});
-
-test('Board WIP overlay rejects empty Enter submit before calling the action', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Board', board: {overlay: 'set-wip-limit', selectedColumnIndex: 1, wipLimit: {title: ''}}},
-    snapshot: snapshot(),
-    boardActions: boardActions(calls)
-  });
-
-  session.focus('board-wip-limit');
-  session.dispatchKey('ENTER');
-
-  assert.deepEqual(calls, []);
-  assert.match(session.output(), /Choose a WIP limit of 0 or higher\./);
-  session.destroy();
-});
-
-test('Board WIP overlay handles invalid Enter submit without throwing', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Board', board: {overlay: 'set-wip-limit', selectedColumnIndex: 1, wipLimit: {title: 'abc'}}},
-    snapshot: snapshot(),
-    boardActions: boardActions(calls)
-  });
-
-  session.focus('board-wip-limit');
-  assert.doesNotThrow(() => session.dispatchKey('ENTER'));
-
-  assert.deepEqual(calls, []);
-  assert.match(session.output(), /Choose a WIP limit of 0 or higher\./);
-  session.destroy();
-});
-
-test('Board WIP overlay submits finite NumberInput values with zero as no limit', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Board', board: {overlay: 'set-wip-limit', selectedColumnIndex: 1, wipLimit: {title: '0'}}},
-    snapshot: snapshot(),
-    boardActions: boardActions(calls)
-  });
-
-  session.click('board-set-wip-save');
-
-  assert.deepEqual(calls, [{columnIndex: 1, wipLimit: 0}]);
-  session.destroy();
-});

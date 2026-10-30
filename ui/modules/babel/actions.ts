@@ -45,7 +45,8 @@ function normalizeDictionaryEntries(response: TranslationResponse) {
   return entries;
 }
 
-function createSafeDefaultProvider({fetchImpl, log}: {fetchImpl?: typeof fetch; log?: Logger} = {}) {
+function createSafeDefaultProvider({fetchImpl, log = {cross() {}}}: {fetchImpl?: typeof fetch; log?: Logger} = {}) {
+  // The TUI renders provider failures from its result. Out-of-band stdout shifts the live screen.
   return createGoogleTranslateProvider({
     fetchImpl,
     log

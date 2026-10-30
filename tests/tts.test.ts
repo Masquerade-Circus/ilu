@@ -1,868 +1,585 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import { withTempHome } from '../support/home-sandbox.ts';
-import * as __cjsImport71 from '../support/home-sandbox';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { setTestHome } = __cjsImport71;
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const ttsModulePath = path.join(repoRoot, 'tts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import http from "node:http";
+import { spawnSync } from "node:child_process";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import { createTtsService } from "../tts/index.ts";
+import { withTempHome } from "../support/home-sandbox.ts";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
 
-function createFakeOpenAi(seenPayloads) {
-  return function createOpenAI({apiKey}) {
-    seenPayloads.push({apiKey});
-    return {
-      audio: {
-        speech: {
-          async create(payload) {
-            seenPayloads.push(payload);
-            return {
-              async arrayBuffer() {
-                return Buffer.from(`[${payload.input}]`);
-              }
-            };
-          }
+const cases = [
+  { name: "tts test helper restaura HOME original después del override temporal", kind: "home" },
+  {
+    name: "tts convierte markdown a audio, pide API key faltante y la guarda en tts-config.json usando alloy por default",
+    kind: "missing-key"
+  },
+  { name: "tts rechaza output que resuelve al mismo archivo de entrada antes de llamar OpenAI", kind: "overwrite" },
+  { name: "tts reutiliza API key y voz guardadas en .config/tts-config.json y no pide prompt", kind: "saved-config" },
+  { name: "tts usa voz explícita soportada en el contrato real de conversión", kind: "explicit-voice" },
+  { name: "tts rechaza voz no soportada antes de crear cliente OpenAI", kind: "invalid-voice" },
+  { name: "tts rechaza inputs que no sean .txt o .md", kind: "invalid-extension" },
+  {
+    name: "tts voice sin argumento usa prompt select compatible, muestra voces soportadas y persiste la elección",
+    kind: "choose-voice"
+  },
+  { name: "tts ignora config anterior y sync-config, cae a alloy y pide API key nueva", kind: "old-config" },
+  {
+    name: "TTS CLI bounds multilingual requests conservatively and preserves all text with real audio merge",
+    kind: "multilingual"
+  },
+  { name: "tts con texto corto hace un solo request, genera chunk numerado y mergea al final", kind: "short" },
+  { name: "tts usa temp dir adyacente y nombres numerados estables para chunks", kind: "chunk-paths" },
+  { name: "tts construye concat input de ffmpeg en orden determinista", kind: "concat-order" },
+  {
+    name: "tts usa rutas absolutas en concat.txt cuando mergea una sola parte con output relativo",
+    kind: "relative-output"
+  },
+  {
+    name: "tts con varios párrafos largos hace múltiples requests en orden, mergea después y borra chunks numerados",
+    kind: "paragraphs"
+  },
+  { name: "tts preserva carpeta temporal y chunks si el merge falla", kind: "merge-failure" },
+  { name: "tts divide un párrafo demasiado largo por oraciones antes de cortar por longitud", kind: "sentences" },
+  { name: "tts usa fallback por longitud cuando una oración todavía excede el límite", kind: "length" },
+  {
+    name: "tts reintenta con el mismo comando, omite chunks existentes y continúa desde el siguiente faltante",
+    kind: "printed-retry"
+  },
+  ...["text", "voice", "model", "chunk-size", "legacy", "none"].map((change) => ({
+    name: `TTS CLI resumes only the same audio job after ${change} change with real merge`,
+    kind: "resume",
+    change
+  }))
+];
+
+function audioBytes(tone: number) {
+  const result = spawnSync(ffmpegInstaller.path, [
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=${tone}:duration=0.18`,
+    "-f",
+    "mp3",
+    "pipe:1"
+  ]);
+  assert.equal(result.status, 0, String(result.stderr));
+  assert.ok(result.stdout.length > 0);
+  return result.stdout;
+}
+
+// Observe actual decoded audio, not a fake merge result or concat.txt spelling.
+// Distinct provider tones make a wrong chunk order audible and detectable.
+function assertPlayableOrder({ outputs, tones }: { outputs: string[]; tones: number[] }) {
+  const observed: number[] = [];
+  let decodedBytes = 0;
+  for (const output of outputs) {
+    const decoded = spawnSync(
+      ffmpegInstaller.path,
+      ["-v", "error", "-i", output, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"],
+      { maxBuffer: 64 * 1024 * 1024 }
+    );
+    assert.equal(decoded.status, 0, String(decoded.stderr));
+    assert.ok(decoded.stdout.length > 0);
+    decodedBytes += decoded.stdout.length;
+    const samples = decoded.stdout;
+    for (let offset = 0; offset + 800 <= samples.length; offset += 400) {
+      let crossings = 0;
+      let peak = 0;
+      for (let index = offset + 2; index < offset + 800; index += 2) {
+        const current = samples.readInt16LE(index);
+        peak = Math.max(peak, Math.abs(current));
+        if (samples.readInt16LE(index - 2) <= 0 && current > 0) {
+          crossings += 1;
         }
       }
-    };
-  };
+      if (peak < 100) {
+        continue;
+      }
+      const frequency = crossings * 20;
+      const nearest = [...tones].sort((left, right) => Math.abs(left - frequency) - Math.abs(right - frequency))[0];
+      if (typeof nearest === "number" && Math.abs(nearest - frequency) <= 25 && observed.at(-1) !== nearest) {
+        observed.push(nearest);
+      }
+    }
+  }
+  let cursor = 0;
+  for (const tone of tones) {
+    const found = observed.indexOf(tone, cursor);
+    assert.ok(
+      found >= cursor,
+      `audio must contain tone ${tone} after preceding chunks, observed ${observed.join(",")}`
+    );
+    cursor = found + 1;
+  }
+  assert.ok(decodedBytes >= tones.length * 1200, "the output must contain playable audio for all chunks");
 }
 
-function createFakeMerge(calls, options: any = {}) {
-  return async function mergeChunkFiles({chunkFiles, outputFile, ffmpegPath}) {
-    calls.push({chunkFiles: [...chunkFiles], outputFile, ffmpegPath});
-
-    if (options.failWith) {
-      throw options.failWith;
-    }
-
-    const merged = Buffer.concat(chunkFiles.map(file => fs.readFileSync(file)));
-    fs.writeFileSync(outputFile, merged);
-    return {outputFile};
-  };
-}
-
-const withTestHome = setTestHome;
-
-test('tts test helper restaura HOME original después del override temporal', () => {
-  const originalHome = process.env.HOME;
-  const restoreHome = withTestHome('/tmp/ilu-test-home');
-
-  assert.equal(process.env.HOME, '/tmp/ilu-test-home');
-
-  restoreHome();
-
-  assert.equal(process.env.HOME, originalHome);
-});
-
-test('tts convierte markdown a audio, pide API key faltante y la guarda en tts-config.json usando alloy por default', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.md');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  fs.writeFileSync(inputFile, '# Hola\n\nMundo', 'utf8');
-
-  const promptCalls = [];
-  const openAiCalls = [];
-  const prompts = {
-    async prompt(questions) {
-      promptCalls.push(questions);
-      return {apiKey: 'sk-test-key'};
-    }
-  };
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: prompts.prompt,
-      mergeChunkFiles: createFakeMerge([]),
-      createOpenAI({apiKey}) {
-        openAiCalls.push({apiKey});
-        return {
-          audio: {
-            speech: {
-              async create(payload) {
-                openAiCalls.push(payload);
-                return {
-                  async arrayBuffer() {
-                    return Buffer.from('FAKE_MP3');
-                  }
-                };
-              }
+for (const entry of cases) {
+  test(entry.name, { concurrency: false }, async (context) => {
+    const originalHome = process.env.HOME;
+    await withTempHome(
+      async (home) => {
+        const bin = path.resolve(import.meta.dirname, "..", "bin/cli.js");
+        const configFile = path.join(home, ".ilu", ".config", "tts-config.json");
+        fs.mkdirSync(path.dirname(configFile), { recursive: true });
+        const token = "synthetic-capture-token";
+        const requests: Array<{ input: string; voice: string; model: string; tone: number; success: boolean }> = [];
+        const serverErrors: string[] = [];
+        const audioByTone = new Map<number, Buffer>();
+        const failureAt =
+          entry.kind === "chunk-paths"
+            ? 13
+            : entry.kind === "printed-retry"
+              ? 3
+              : entry.kind === "resume" && entry.change !== "legacy"
+                ? 2
+                : 0;
+        // Built-in HTTP supplies a controlled external service without adding a
+        // dependency. The real OpenAI SDK consumes its supported OPENAI_BASE_URL.
+        // No prompt, model, filesystem, merger or application method is mocked.
+        const server = http.createServer(async (request, response) => {
+          try {
+            assert.equal(request.method, "POST");
+            assert.equal(request.url, "/v1/audio/speech");
+            assert.equal(request.headers.authorization, `Bearer ${token}`);
+            const chunks: Buffer[] = [];
+            for await (const chunk of request) {
+              chunks.push(Buffer.from(chunk));
             }
-          }
-        };
-      }
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.equal(promptCalls.length, 1);
-    assert.deepEqual(openAiCalls, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: '# Hola\n\nMundo'}
-    ]);
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), 'FAKE_MP3');
-    assert.equal(
-      fs.readFileSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json'), 'utf8'),
-      JSON.stringify({apiKey: 'sk-test-key'}, null, 2)
-    );
-    assert.equal(
-      fs.statSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json')).mode & 0o777,
-      0o600
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts rechaza output que resuelve al mismo archivo de entrada antes de llamar OpenAI', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-overwrite-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  fs.writeFileSync(inputFile, 'texto original', 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI() {
-        throw new Error('OpenAI should not be called when output overwrites input');
-      }
-    });
-
-    await assert.rejects(
-      service.action({inputFile, outputFile: inputFile}, {}),
-      /output file must be different from input file/i
-    );
-    assert.equal(fs.readFileSync(inputFile, 'utf8'), 'texto original');
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts reutiliza API key y voz guardadas en .config/tts-config.json y no pide prompt', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-stored-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.wav');
-  const configFile = path.join(tempHome, '.ilu', '.config', 'tts-config.json');
-  fs.mkdirSync(path.dirname(configFile), {recursive: true});
-  fs.writeFileSync(configFile, JSON.stringify({apiKey: 'sk-saved', voice: 'nova'}, null, 2), 'utf8');
-  fs.writeFileSync(inputFile, 'Hola mundo', 'utf8');
-
-  let promptCalls = 0;
-  const seenPayloads = [];
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => {
-        promptCalls += 1;
-        return {apiKey: 'sk-other'};
-      },
-      mergeChunkFiles: createFakeMerge([]),
-      createOpenAI({apiKey}) {
-        seenPayloads.push({apiKey});
-        return {
-          audio: {
-            speech: {
-              async create(payload) {
-                seenPayloads.push(payload);
-                return {
-                  async arrayBuffer() {
-                    return Buffer.from('AUDIO');
-                  }
-                };
-              }
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            assert.equal(typeof body.input, "string");
+            assert.equal(typeof body.voice, "string");
+            assert.equal(typeof body.model, "string");
+            // Reuse twelve distinguishable, sub-Nyquist tones even for inputs
+            // with hundreds of short sentences. Generate each fixture only once.
+            const tone = 380 + (requests.length % 12) * 80;
+            const success = requests.length + 1 !== failureAt;
+            requests.push({ input: body.input, voice: body.voice, model: body.model, tone, success });
+            if (!success) {
+              // 400 is a terminal provider error, avoiding automatic SDK retries.
+              response.writeHead(400, { "content-type": "application/json" });
+              response.end(
+                JSON.stringify({ error: { message: "Controlled audio interruption", type: "invalid_request_error" } })
+              );
+              return;
             }
-          }
-        };
-      }
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.equal(promptCalls, 0);
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-saved'},
-      {model: 'gpt-4o-mini-tts', voice: 'nova', input: 'Hola mundo'}
-    ]);
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), 'AUDIO');
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts usa voz explícita soportada en el contrato real de conversión', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-tts-explicit-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const seenPayloads = [];
-
-  fs.writeFileSync(inputFile, 'Hola mundo', 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      mergeChunkFiles: createFakeMerge([]),
-      createOpenAI: createFakeOpenAi(seenPayloads)
-    });
-
-    await service.action({inputFile, outputFile, voice: 'nova'}, {});
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'nova', input: 'Hola mundo'}
-    ]);
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts rechaza voz no soportada antes de crear cliente OpenAI', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-tts-voice-invalid-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-
-  fs.writeFileSync(inputFile, 'Hola mundo', 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI() {
-        throw new Error('OpenAI should not be called for an unsupported voice');
-      }
-    });
-
-    await assert.rejects(
-      service.action({inputFile, outputFile, voice: 'badvoice'}, {}),
-      /supported voice/i
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts rechaza inputs que no sean .txt o .md', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-invalid-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.json');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  fs.writeFileSync(inputFile, '{"hello": true}', 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test'}),
-      createOpenAI() {
-        throw new Error('OpenAI should not be called for invalid extensions');
-      }
-    });
-
-    await assert.rejects(
-      service.action({inputFile, outputFile}, {}),
-      /Only \.txt and \.md input files are supported/i
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts voice sin argumento usa prompt select compatible, muestra voces soportadas y persiste la elección', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-voice-select-'));
-  const restoreHome = withTestHome(tempHome);
-  const promptCalls = [];
-
-  try {
-    const {createTtsService, SUPPORTED_VOICES} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async questions => {
-        promptCalls.push(questions);
-        return {voice: 'sage'};
-      }
-    });
-
-    const result = await service.voiceAction({}, {});
-
-    assert.deepEqual(result, {voice: 'sage'});
-    assert.equal(promptCalls.length, 1);
-    assert.deepEqual(promptCalls[0], [{
-      type: 'select',
-      name: 'voice',
-      message: 'Select a default TTS voice',
-      choices: SUPPORTED_VOICES.map(value => ({name: value, value})),
-      default: 'alloy'
-    }]);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json'), 'utf8')),
-      {voice: 'sage'}
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts ignora config anterior y sync-config, cae a alloy y pide API key nueva', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-no-old-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.md');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const oldConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
-  const currentSyncConfigFile = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
-
-  fs.mkdirSync(path.dirname(oldConfigFile), {recursive: true});
-  fs.mkdirSync(path.dirname(currentSyncConfigFile), {recursive: true});
-  fs.writeFileSync(inputFile, '# Hola', 'utf8');
-  fs.writeFileSync(oldConfigFile, JSON.stringify({tts: {apiKey: 'sk-old', voice: 'nova'}}, null, 2), 'utf8');
-  fs.writeFileSync(currentSyncConfigFile, JSON.stringify({enabled: true, remoteUrl: '/tmp/remote.git'}), 'utf8');
-
-  const promptCalls = [];
-  const openAiCalls = [];
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      async prompt(questions) {
-        promptCalls.push(questions);
-        return {apiKey: 'sk-fresh'};
-      },
-      mergeChunkFiles: createFakeMerge([]),
-      createOpenAI({apiKey}) {
-        openAiCalls.push({apiKey});
-        return {
-          audio: {
-            speech: {
-              async create(payload) {
-                openAiCalls.push(payload);
-                return {
-                  async arrayBuffer() {
-                    return Buffer.from('SYNC_FREE');
-                  }
-                };
-              }
+            let audio = audioByTone.get(tone);
+            if (!Buffer.isBuffer(audio)) {
+              audio = audioBytes(tone);
+              audioByTone.set(tone, audio);
             }
+            response.writeHead(200, { "content-type": "audio/mpeg" });
+            response.end(audio);
+          } catch (error) {
+            serverErrors.push(String(error));
+            response.writeHead(400, { "content-type": "application/json" });
+            response.end(JSON.stringify({ error: { message: "Invalid local fixture request" } }));
           }
-        };
-      }
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.equal(promptCalls.length, 1);
-    assert.deepEqual(openAiCalls, [
-      {apiKey: 'sk-fresh'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: '# Hola'}
-    ]);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(tempHome, '.ilu', '.config', 'tts-config.json'), 'utf8')),
-      {apiKey: 'sk-fresh'}
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('TTS CLI bounds multilingual requests conservatively and preserves all text with real audio merge', async () => {
-  const inputs = [
-    'こんにちは🙂'.repeat(500),
-    '... ' + 'Hello world. '.repeat(180),
-    ' \t\n' + ['First paragraph.  ', 'Second paragraph?!\t'].join('\r\n\r\n').repeat(100) + '\n  ',
-    '...!? '.repeat(400)
-  ];
-  for (const input of inputs) {
-    await withTempHome(async (home) => {
-      const { createTtsService } = require(ttsModulePath);
-      const inputFile = path.join(home, "source.txt");
-      const outputFile = path.join(home, "result.mp3");
-      fs.writeFileSync(inputFile, input);
-      const audio = spawnSync(ffmpegInstaller.path, [
-        "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.12", "-f", "mp3", "pipe:1"
-      ]);
-      assert.equal(audio.status, 0, String(audio.stderr));
-      const requests = [];
-      const service = createTtsService({
-        prompt: async () => ({ apiKey: "synthetic-key" }),
-        createOpenAI: () => ({
-          audio: {
-            speech: {
-              async create(payload) {
-                assert.ok(
-                  Buffer.byteLength(payload.input, "utf8") <= 2000,
-                  "each request must respect the selected UTF-8 byte budget"
+        });
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(0, "127.0.0.1", resolve);
+        });
+        const address = server.address();
+        assert.ok(typeof address === "object" && address !== null);
+        const baseUrl = `http://127.0.0.1:${address.port}/v1`;
+        try {
+          const noKey = [
+            "home",
+            "choose-voice",
+            "missing-key",
+            "old-config",
+            "overwrite",
+            "invalid-extension",
+            "invalid-voice"
+          ].includes(entry.kind);
+          if (!noKey) {
+            fs.writeFileSync(
+              configFile,
+              JSON.stringify({ apiKey: token, voice: entry.kind === "saved-config" ? "nova" : "alloy" }),
+              { mode: 0o600 }
+            );
+          }
+          if (entry.kind === "invalid-voice") {
+            fs.writeFileSync(configFile, JSON.stringify({ voice: "badvoice" }), { mode: 0o600 });
+          }
+          if (entry.kind === "old-config") {
+            const legacy = path.join(home, ".ilu", ".sync", "config.json");
+            fs.mkdirSync(path.dirname(legacy), { recursive: true });
+            fs.writeFileSync(legacy, JSON.stringify({ tts: { apiKey: "synthetic-old-token", voice: "nova" } }));
+            fs.writeFileSync(
+              path.join(home, ".ilu", ".config", "sync-config.json"),
+              JSON.stringify({ enabled: true, remoteUrl: "./tmp/not-used.git" })
+            );
+          }
+          const paragraphs = ["Primer párrafo ", "Segundo párrafo ", "Tercer párrafo "]
+            .map((prefix, index) => prefix + String.fromCharCode(97 + index).repeat(1400) + ".")
+            .join("\n\n");
+          let inputs = [entry.kind === "missing-key" || entry.kind === "old-config" ? "# Hola\n\nMundo" : "Hola breve"];
+          if (["paragraphs", "concat-order", "merge-failure", "printed-retry"].includes(entry.kind)) {
+            inputs = [paragraphs];
+          }
+          if (entry.kind === "sentences") {
+            inputs = [
+              ["Primera oración ", "Segunda oración ", "Tercera oración "]
+                .map((prefix, index) => prefix + String.fromCharCode(97 + index).repeat(1400) + ".")
+                .join(" ")
+            ];
+          }
+          if (entry.kind === "length") {
+            inputs = ["a".repeat(4500)];
+          }
+          if (entry.kind === "chunk-paths") {
+            inputs = ["x".repeat(26001)];
+          }
+          if (entry.kind === "resume") {
+            inputs = ["a".repeat(4000)];
+          }
+          if (entry.kind === "multilingual") {
+            inputs = [
+              "こんにちは🙂".repeat(500),
+              "... " + "Hello world. ".repeat(180),
+              " \t\n" + ["First paragraph.  ", "Second paragraph?!\t"].join("\r\n\r\n").repeat(100) + "\n  ",
+              "...!? ".repeat(400)
+            ];
+          }
+          const directory = path.join(home, "dir with space and 'quote'");
+          fs.mkdirSync(directory);
+          const sources = inputs.map((_input, index) =>
+            path.join(
+              directory,
+              `chapter ${index}.${entry.kind === "invalid-extension" ? "json" : entry.kind === "missing-key" || entry.kind === "old-config" ? "md" : "txt"}`
+            )
+          );
+          const outputs = inputs.map((_input, index) =>
+            path.join(
+              directory,
+              entry.kind === "merge-failure" ? `result ${index}.unsupported` : `chapter's mix ${index}.mp3`
+            )
+          );
+          for (const [index, input] of inputs.entries()) {
+            fs.writeFileSync(sources[index], input);
+          }
+          const parts = path.join(directory, `.${path.basename(outputs[0])}.parts`);
+          let fixtureRequests = 0;
+          if (entry.kind === "resume") {
+            if (entry.change === "legacy") {
+              fs.mkdirSync(parts);
+              fs.writeFileSync(path.join(parts, `${path.basename(outputs[0], ".mp3")}-0001.mp3`), audioBytes(220));
+            } else {
+              // A real prior job is fixture preparation, like seeding a DB. The
+              // captured retry uses the public CLI/TUI with the current defaults.
+              // Only the external HTTP service is substituted, never job logic.
+              const originalBase = process.env.OPENAI_BASE_URL;
+              process.env.OPENAI_BASE_URL = baseUrl;
+              try {
+                const prior = createTtsService({
+                  model: entry.change === "model" ? "tts-1" : "gpt-4o-mini-tts",
+                  maxChunkLength: entry.change === "chunk-size" ? 1000 : 2000
+                });
+                await assert.rejects(
+                  prior.action({ inputFile: sources[0], outputFile: outputs[0], voice: "alloy" }),
+                  /Controlled audio interruption/
                 );
-                requests.push(payload.input);
-                return { async arrayBuffer() { return audio.stdout; } };
-              }
-            }
-          }
-        })
-      });
-      await service.action({ inputFile, outputFile });
-      assert.equal(requests.join(""), input);
-      const decoded = spawnSync(ffmpegInstaller.path, [
-        "-v", "error", "-i", outputFile, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"
-      ]);
-      assert.equal(decoded.status, 0, String(decoded.stderr));
-      assert.ok(decoded.stdout.length > 0);
-    }, { prefix: "ilu-tts-input-limit-" });
-  }
-});
-
-test('tts con texto corto hace un solo request, genera chunk numerado y mergea al final', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-short-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const seenPayloads = [];
-  const mergeCalls = [];
-
-  fs.writeFileSync(inputFile, 'Hola breve', 'utf8');
-
-  try {
-    const {createTtsService, getChunkDirForOutput} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI: createFakeOpenAi(seenPayloads),
-      mergeChunkFiles: createFakeMerge(mergeCalls),
-      maxChunkLength: 50
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    const chunkDir = getChunkDirForOutput(outputFile);
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Hola breve'}
-    ]);
-    assert.equal(mergeCalls.length, 1);
-    assert.deepEqual(
-      mergeCalls[0].chunkFiles.map(file => path.basename(file)),
-      ['chapter-0001.mp3']
-    );
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), '[Hola breve]');
-    assert.equal(fs.existsSync(chunkDir), false);
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts usa temp dir adyacente y nombres numerados estables para chunks', () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const {getChunkDirForOutput, getChunkFilePath} = require(ttsModulePath);
-  const outputFile = '/tmp/audio/final-book.mp3';
-
-  assert.equal(
-    getChunkDirForOutput(outputFile),
-    '/tmp/audio/.final-book.mp3.parts'
-  );
-  assert.equal(
-    getChunkFilePath(outputFile, 0),
-    '/tmp/audio/.final-book.mp3.parts/final-book-0001.mp3'
-  );
-  assert.equal(
-    getChunkFilePath(outputFile, 11),
-    '/tmp/audio/.final-book.mp3.parts/final-book-0012.mp3'
-  );
-});
-
-test('tts construye concat input de ffmpeg en orden determinista', () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const {buildFfmpegConcatInput} = require(ttsModulePath);
-
-  assert.equal(
-    buildFfmpegConcatInput([
-      '/tmp/.chapter.mp3.parts/chapter-0001.mp3',
-      "/tmp/.chapter.mp3.parts/chapter-0002's.mp3"
-    ]),
-    "file '/tmp/.chapter.mp3.parts/chapter-0001.mp3'\nfile '/tmp/.chapter.mp3.parts/chapter-0002'\\''s.mp3'\n"
-  );
-});
-
-test('tts usa rutas absolutas en concat.txt cuando mergea una sola parte con output relativo', () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-merge-relative-'));
-  const originalCwd = process.cwd();
-
-  try {
-    process.chdir(tempHome);
-
-    const {mergeChunkFiles, getChunkFilePath} = require(ttsModulePath);
-    const outputFile = 'ilu.mp3';
-    const chunkFile = getChunkFilePath(outputFile, 0);
-    const expectedConcatInput = `file '${path.resolve(chunkFile)}'\n`;
-    let seenConcatInput = null;
-
-    fs.mkdirSync(path.dirname(chunkFile), {recursive: true});
-    fs.writeFileSync(chunkFile, 'FAKE_MP3', 'utf8');
-
-    mergeChunkFiles({
-      chunkFiles: [chunkFile],
-      outputFile,
-      ffmpegPath: '/fake/ffmpeg',
-      spawnSync(command, args) {
-        assert.equal(command, '/fake/ffmpeg');
-        seenConcatInput = fs.readFileSync(args[6], 'utf8');
-        return {status: 0, stdout: '', stderr: ''};
-      }
-    });
-
-    assert.equal(seenConcatInput, expectedConcatInput);
-  } finally {
-    process.chdir(originalCwd);
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts con varios párrafos largos hace múltiples requests en orden, mergea después y borra chunks numerados', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-paragraphs-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const seenPayloads = [];
-  const mergeCalls = [];
-  const input = ['Primer párrafo largo.', 'Segundo párrafo largo.', 'Tercer párrafo largo.'].join('\n\n');
-
-  fs.writeFileSync(inputFile, input, 'utf8');
-
-  try {
-    const {createTtsService, getChunkDirForOutput} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI: createFakeOpenAi(seenPayloads),
-      mergeChunkFiles: createFakeMerge(mergeCalls),
-      maxChunkLength: 25
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    const chunkDir = getChunkDirForOutput(outputFile);
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primer párrafo largo.\n\n'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segundo párrafo largo.\n\n'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercer párrafo largo.'}
-    ]);
-    assert.equal(
-      fs.readFileSync(outputFile, 'utf8'),
-      '[Primer párrafo largo.\n\n][Segundo párrafo largo.\n\n][Tercer párrafo largo.]'
-    );
-    assert.equal(mergeCalls.length, 1);
-    assert.deepEqual(
-      mergeCalls[0].chunkFiles.map(file => path.basename(file)),
-      ['chapter-0001.mp3', 'chapter-0002.mp3', 'chapter-0003.mp3']
-    );
-    assert.equal(fs.existsSync(chunkDir), false);
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts preserva carpeta temporal y chunks si el merge falla', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-merge-fail-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-
-  fs.writeFileSync(inputFile, ['Uno.', 'Dos.'].join('\n\n'), 'utf8');
-
-  try {
-    const {createTtsService, getChunkDirForOutput} = require(ttsModulePath);
-    const chunkDir = getChunkDirForOutput(outputFile);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI: createFakeOpenAi([]),
-      mergeChunkFiles: createFakeMerge([], {failWith: new Error('merge failed')}),
-      maxChunkLength: 5
-    });
-
-    await assert.rejects(service.action({inputFile, outputFile}, {}), /merge failed/i);
-
-    assert.equal(fs.existsSync(chunkDir), true);
-    assert.deepEqual(
-      fs.readdirSync(chunkDir).filter(name => /^chapter-\d{4}\.mp3$/.test(name)),
-      ['chapter-0001.mp3', 'chapter-0002.mp3', 'chapter-0003.mp3']
-    );
-    assert.equal(fs.existsSync(outputFile), false);
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts divide un párrafo demasiado largo por oraciones antes de cortar por longitud', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-sentences-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const seenPayloads = [];
-  const input = 'Primera oración. Segunda oración. Tercera oración.';
-
-  fs.writeFileSync(inputFile, input, 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI: createFakeOpenAi(seenPayloads),
-      mergeChunkFiles: createFakeMerge([]),
-      maxChunkLength: 20
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Primera oración. '},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Segunda oración. '},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercera oración.'}
-    ]);
-    assert.equal(
-      fs.readFileSync(outputFile, 'utf8'),
-      '[Primera oración. ][Segunda oración. ][Tercera oración.]'
-    );
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts usa fallback por longitud cuando una oración todavía excede el límite', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-length-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputFile = path.join(tempHome, 'chapter.txt');
-  const outputFile = path.join(tempHome, 'chapter.mp3');
-  const seenPayloads = [];
-
-  fs.writeFileSync(inputFile, 'abcdefghij', 'utf8');
-
-  try {
-    const {createTtsService} = require(ttsModulePath);
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      createOpenAI: createFakeOpenAi(seenPayloads),
-      mergeChunkFiles: createFakeMerge([]),
-      maxChunkLength: 4
-    });
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'abcd'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'efgh'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'ij'}
-    ]);
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), '[abcd][efgh][ij]');
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-test('tts reintenta con el mismo comando, omite chunks existentes y continúa desde el siguiente faltante', async () => {
-  delete require.cache[require.resolve(ttsModulePath)];
-
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-tts-resume-'));
-  const restoreHome = withTestHome(tempHome);
-  const inputDir = path.join(tempHome, "dir with space and 'quote'");
-  const outputDir = path.join(tempHome, 'out dir');
-  const inputFile = path.join(inputDir, 'chapter copy.txt');
-  const outputFile = path.join(outputDir, 'chapter mix.mp3');
-  const seenPayloads = [];
-  const mergeCalls = [];
-  const input = ['Primer párrafo largo.', 'Segundo párrafo largo.', 'Tercer párrafo largo.'].join('\n\n');
-
-  fs.mkdirSync(inputDir, {recursive: true});
-  fs.mkdirSync(outputDir, {recursive: true});
-  fs.writeFileSync(inputFile, input, 'utf8');
-
-  try {
-    const {createTtsService, getChunkDirForOutput, getChunkFilePath} = require(ttsModulePath);
-    const chunkDir = getChunkDirForOutput(outputFile);
-    fs.mkdirSync(chunkDir, {recursive: true});
-
-    let attempt = 0;
-    const service = createTtsService({
-      prompt: async () => ({apiKey: 'sk-test-key'}),
-      mergeChunkFiles: createFakeMerge(mergeCalls),
-      createOpenAI({apiKey}) {
-        seenPayloads.push({apiKey});
-        return {
-          audio: {
-            speech: {
-              async create(payload) {
-                seenPayloads.push(payload);
-
-                if (attempt === 0 && payload.input === 'Tercer párrafo largo.') {
-                  throw new Error('simulated interruption');
+              } finally {
+                if (typeof originalBase === "string") {
+                  process.env.OPENAI_BASE_URL = originalBase;
+                } else {
+                  delete process.env.OPENAI_BASE_URL;
                 }
-
-                return {
-                  async arrayBuffer() {
-                    return Buffer.from(`[${payload.input}]`);
-                  }
-                };
               }
+              assert.equal(fs.existsSync(outputs[0]), false);
+            }
+            fixtureRequests = requests.length;
+            if (entry.change === "text") {
+              inputs = ["b".repeat(4000)];
+              fs.writeFileSync(sources[0], inputs[0]);
+            }
+            if (entry.change === "voice") {
+              fs.writeFileSync(configFile, JSON.stringify({ apiKey: token, voice: "nova" }), { mode: 0o600 });
             }
           }
-        };
-      },
-      maxChunkLength: 25
-    });
-
-    await assert.rejects(
-      service.action({inputFile, outputFile}, {}),
-      error => {
-        assert.match(error.message, /simulated interruption/i);
-        assert.match(
-          error.message,
-          /Retry with: ilu tts '\/.*\/dir with space and '\"'\"'quote'\"'\"'\/chapter copy\.txt' '\/.*\/out dir\/chapter mix\.mp3'/
-        );
-        return true;
-      }
-    );
-
-    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 0), 'utf8'), '[Primer párrafo largo.\n\n]');
-    assert.equal(fs.readFileSync(getChunkFilePath(outputFile, 1), 'utf8'), '[Segundo párrafo largo.\n\n]');
-    assert.equal(fs.existsSync(getChunkFilePath(outputFile, 2)), false);
-    assert.equal(fs.existsSync(outputFile), false);
-    assert.equal(mergeCalls.length, 0);
-
-    attempt = 1;
-    seenPayloads.length = 0;
-
-    await service.action({inputFile, outputFile}, {});
-
-    assert.deepEqual(seenPayloads, [
-      {apiKey: 'sk-test-key'},
-      {model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Tercer párrafo largo.'}
-    ]);
-    assert.equal(mergeCalls.length, 1);
-    assert.equal(fs.readFileSync(outputFile, 'utf8'), '[Primer párrafo largo.\n\n][Segundo párrafo largo.\n\n][Tercer párrafo largo.]');
-    assert.equal(fs.existsSync(chunkDir), false);
-  } finally {
-    restoreHome();
-    fs.rmSync(tempHome, {recursive: true, force: true});
-    delete require.cache[require.resolve(ttsModulePath)];
-  }
-});
-
-for (const change of ['text', 'voice', 'model', 'chunk-size', 'legacy', 'none']) {
-  test(`TTS CLI resumes only the same audio job after ${change} change with real merge`, async () => {
-    await withTempHome(async home => {
-      const {createTtsService, getChunkFilePath} = require(ttsModulePath);
-      const inputFile = path.join(home, 'source.txt');
-      const outputFile = path.join(home, 'result.mp3');
-      const configFile = path.join(home, '.ilu', '.config', 'tts-config.json');
-      fs.mkdirSync(path.dirname(configFile), {recursive: true});
-      fs.writeFileSync(configFile, JSON.stringify({apiKey: 'synthetic-test-key', voice: 'alloy'}));
-      fs.writeFileSync(inputFile, 'abcdefgh');
-      const audio = spawnSync(ffmpegInstaller.path, [
-        '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.12', '-f', 'mp3', 'pipe:1'
-      ]);
-      assert.equal(audio.status, 0, String(audio.stderr));
-      assert.ok(audio.stdout.length > 0);
-      const payloads = [];
-      let interrupted = true;
-      const createOpenAI = () => ({audio: {speech: {async create(payload) {
-        payloads.push(payload);
-        if (interrupted && payloads.length === 2) {
-          throw new Error('Controlled interruption');
+          const environment = ["env", `HOME=${home}`, "OPENAI_API_KEY=", `OPENAI_BASE_URL=${baseUrl}`];
+          let command = [...environment, "node", bin, "ui"];
+          const steps: Array<Record<string, unknown>> = [];
+          let expectedExit = 0;
+          if (entry.kind === "home" || entry.kind === "choose-voice") {
+            command = [...environment, "node", bin, "tts", "voice"];
+            steps.push({ waitFor: "Select a default TTS voice" }, { checkpoint: "supported-voices" });
+            if (entry.kind === "choose-voice") {
+              for (let index = 0; index < 8; index++) {
+                steps.push({ press: "DOWN" });
+              }
+            }
+            steps.push({ press: "ENTER" });
+          } else if (
+            [
+              "overwrite",
+              "invalid-extension",
+              "invalid-voice",
+              "missing-key",
+              "old-config",
+              "chunk-paths",
+              "merge-failure",
+              "printed-retry"
+            ].includes(entry.kind)
+          ) {
+            command = [
+              ...environment,
+              "node",
+              bin,
+              "tts",
+              sources[0],
+              entry.kind === "overwrite" ? sources[0] : outputs[0]
+            ];
+            if (entry.kind === "missing-key" || entry.kind === "old-config") {
+              steps.push({ waitFor: "OpenAI API key" }, { checkpoint: "api-key" }, { type: token }, { press: "ENTER" });
+            }
+            if (
+              ["overwrite", "invalid-extension", "invalid-voice", "chunk-paths", "merge-failure"].includes(entry.kind)
+            ) {
+              expectedExit = 1;
+            }
+            if (entry.kind === "printed-retry") {
+              const aliasDir = path.join(home, "bin");
+              fs.mkdirSync(aliasDir);
+              fs.writeFileSync(
+                path.join(aliasDir, "ilu"),
+                `#!/bin/sh\nexec node '${bin.replaceAll("'", "'\\''")}' "$@"\n`,
+                { mode: 0o700 }
+              );
+              // The host waits silently for the actual copyable retry command.
+              // The driver must extract/validate that command from application
+              // output, then type it as a user would. Never synthesize its args.
+              command = [
+                ...environment,
+                `PATH=${aliasDir}:${process.env.PATH ?? ""}`,
+                "sh",
+                "-c",
+                'node "$1" tts "$2" "$3"; code=$?; [ "$code" -eq 1 ] || exit 2; IFS= read -r retry; exec sh -c "$retry"',
+                "ilu-capture",
+                bin,
+                sources[0],
+                outputs[0]
+              ];
+              steps.push(
+                { waitFor: "Retry with:" },
+                {
+                  checkpoint: "interrupted",
+                  files: [
+                    path.join(parts, `${path.basename(outputs[0], ".mp3")}-0001.mp3`),
+                    path.join(parts, `${path.basename(outputs[0], ".mp3")}-0002.mp3`)
+                  ]
+                },
+                { typePrintedRetry: { executable: "ilu", allowedHome: home } }
+              );
+            }
+          } else {
+            steps.push({ clickText: "Speech" }, { waitFor: "Text to Speech" });
+            if (entry.kind === "explicit-voice") {
+              steps.push(
+                { clickText: "Choose voice" },
+                { clickText: "nova" },
+                { press: "ENTER" },
+                { waitFor: "Start conversion" },
+                { checkpoint: "explicit-voice" },
+                { writeFile: { path: configFile, content: JSON.stringify({ apiKey: token, voice: "alloy" }) } }
+              );
+            }
+            for (let index = 0; index < sources.length; index++) {
+              steps.push(
+                { clickText: "Input file", rowOffset: 1 },
+                { press: "CTRL_A" },
+                { type: entry.kind === "relative-output" ? path.relative(home, sources[index]) : sources[index] },
+                { clickText: "Output file", rowOffset: 1 },
+                { press: "CTRL_A" },
+                { type: entry.kind === "relative-output" ? path.relative(home, outputs[index]) : outputs[index] },
+                { clickText: "Start conversion" },
+                { waitForFile: outputs[index] },
+                { waitFor: "Audio ready" },
+                { checkpoint: `audio-${index}` }
+              );
+            }
+            steps.push({ clickText: "Todo" }, { press: "CTRL_C" });
+          }
+          const sourceBefore = fs.readFileSync(sources[0], "utf8");
+          const configBefore = fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null;
+          const result = await captureIluScenario({
+            testName: context.name,
+            command,
+            cwd: home,
+            scenario: "cliScript",
+            input: { steps },
+            viewport: { cols: 140, rows: 44 }
+          });
+          assert.equal(result.exitCode, expectedExit);
+          assert.deepEqual(serverErrors, []);
+          assert.equal(process.env.HOME, home);
+          const actual = requests.slice(fixtureRequests);
+          const successful = actual.filter((request) => request.success);
+          if (entry.kind === "home" || entry.kind === "choose-voice") {
+            assert.equal(requests.length, 0);
+            assert.equal(
+              JSON.parse(fs.readFileSync(configFile, "utf8")).voice,
+              entry.kind === "home" ? "alloy" : "sage"
+            );
+            if (entry.kind === "choose-voice") {
+              for (const voice of [
+                "alloy",
+                "ash",
+                "ballad",
+                "coral",
+                "echo",
+                "fable",
+                "nova",
+                "onyx",
+                "sage",
+                "shimmer"
+              ]) {
+                assert.ok(result.frames["supported-voices"].includes(voice));
+              }
+            }
+          } else if (["overwrite", "invalid-extension", "invalid-voice"].includes(entry.kind)) {
+            assert.equal(requests.length, 0, "validation must precede every provider request");
+            assert.equal(fs.readFileSync(sources[0], "utf8"), sourceBefore);
+            assert.equal(fs.existsSync(outputs[0]), false);
+            assert.equal(fs.existsSync(parts), false);
+            assert.equal(fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null, configBefore);
+            assert.match(
+              result.currentScreen,
+              entry.kind === "overwrite"
+                ? /output file must be different from input file/i
+                : entry.kind === "invalid-extension"
+                  ? /Only \.txt and \.md input files are supported/i
+                  : /supported voice/i
+            );
+            assert.doesNotMatch(result.currentScreen, /OpenAI API key|ECONNREFUSED/i);
+          } else if (entry.kind === "chunk-paths" || entry.kind === "merge-failure") {
+            assert.equal(fs.existsSync(outputs[0]), false);
+            assert.ok(fs.statSync(parts).isDirectory());
+            const retained = fs
+              .readdirSync(parts)
+              .filter((name) => /-\d{4}\.mp3$/.test(name))
+              .sort();
+            assert.equal(retained.length, entry.kind === "chunk-paths" ? 12 : successful.length);
+            assert.equal(successful.length, entry.kind === "chunk-paths" ? 12 : 3);
+            assert.equal(actual.filter((request) => !request.success).length, entry.kind === "chunk-paths" ? 1 : 0);
+            assert.deepEqual(
+              retained,
+              retained.map(
+                (_name, index) =>
+                  `${path.basename(outputs[0], path.extname(outputs[0]))}-${String(index + 1).padStart(4, "0")}.mp3`
+              )
+            );
+            assertPlayableOrder({
+              outputs: retained.map((name) => path.join(parts, name)),
+              tones: successful.map((request) => request.tone)
+            });
+            assert.match(
+              result.currentScreen,
+              entry.kind === "chunk-paths" ? /Retry with:.*ilu tts/ : /format|ffmpeg|Invalid argument/i
+            );
+          } else {
+            for (const request of actual) {
+              assert.ok(Buffer.byteLength(request.input, "utf8") <= 2000);
+              assert.equal(
+                request.voice,
+                entry.kind === "saved-config" ||
+                  entry.kind === "explicit-voice" ||
+                  (entry.kind === "resume" && entry.change === "voice")
+                  ? "nova"
+                  : "alloy"
+              );
+              assert.equal(request.model, "gpt-4o-mini-tts");
+            }
+            const expectedText =
+              entry.kind === "resume" && entry.change === "none" ? inputs[0].slice(2000) : inputs.join("");
+            assert.equal(successful.map((request) => request.input).join(""), expectedText);
+            if (
+              ["short", "saved-config", "explicit-voice", "relative-output", "missing-key", "old-config"].includes(
+                entry.kind
+              )
+            ) {
+              assert.equal(successful.length, 1);
+            }
+            if (
+              entry.kind === "paragraphs" ||
+              entry.kind === "sentences" ||
+              entry.kind === "length" ||
+              entry.kind === "concat-order"
+            ) {
+              assert.equal(successful.length, 3);
+            }
+            if (entry.kind === "paragraphs") {
+              assert.ok(successful.slice(0, -1).every((request) => request.input.endsWith("\n\n")));
+            }
+            if (entry.kind === "sentences") {
+              assert.ok(successful.every((request) => /\.\s*$/.test(request.input)));
+            }
+            if (entry.kind === "length") {
+              assert.deepEqual(
+                successful.map((request) => request.input.length),
+                [2000, 2000, 500]
+              );
+            }
+            if (entry.kind === "printed-retry") {
+              assert.equal(actual.filter((request) => !request.success).length, 1);
+              assert.equal(actual.length, 4);
+              assert.match(result.frames.interrupted, /Retry with:/);
+              assert.match(result.frames.interrupted, /chapter.*mix/);
+              assert.equal(Object.keys(result.fileSnapshots.interrupted).length, 2);
+            }
+            const tones =
+              entry.kind === "resume" && entry.change === "none"
+                ? [requests[0].tone, ...successful.map((request) => request.tone)]
+                : successful.map((request) => request.tone);
+            assertPlayableOrder({ outputs, tones });
+            for (const output of outputs) {
+              assert.equal(
+                fs.existsSync(path.join(path.dirname(output), `.${path.basename(output)}.parts`)),
+                false,
+                "successful merge must clean active chunks"
+              );
+            }
+            if (entry.kind === "saved-config") {
+              assert.equal(fs.readFileSync(configFile, "utf8"), configBefore);
+            }
+            if (entry.kind === "explicit-voice") {
+              assert.equal(
+                JSON.parse(fs.readFileSync(configFile, "utf8")).voice,
+                "alloy",
+                "the live explicit choice must override an externally changed stored fallback"
+              );
+            }
+            if (entry.kind === "missing-key" || entry.kind === "old-config") {
+              assert.equal(JSON.parse(fs.readFileSync(configFile, "utf8")).apiKey, token);
+              assert.equal(fs.statSync(configFile).mode & 0o777, 0o600);
+              assert.doesNotMatch(result.frames["api-key"], new RegExp(token));
+            }
+          }
+          if (entry.kind === "home" || entry.kind === "choose-voice") {
+            assert.equal(fs.statSync(configFile).mode & 0o777, 0o600);
+          }
+          assertCaptureArtifacts({
+            result,
+            checkpoints: [
+              ...steps.flatMap((step) => (typeof step.checkpoint === "string" ? [step.checkpoint] : [])),
+              "cli-result"
+            ],
+            testName: context.name,
+            diagnostic: (message) => context.diagnostic(message)
+          });
+        } finally {
+          await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
         }
-        return {async arrayBuffer() { return audio.stdout; }};
-      }}}});
-      const first = createTtsService({createOpenAI, maxChunkLength: 4});
-      if (change === 'legacy') {
-        const unverifiedChunk = getChunkFilePath(outputFile, 0);
-        fs.mkdirSync(path.dirname(unverifiedChunk), {recursive: true});
-        fs.writeFileSync(unverifiedChunk, audio.stdout);
-      } else {
-        await assert.rejects(first.action({inputFile, outputFile, voice: 'alloy'}));
-      }
-      assert.equal(fs.existsSync(outputFile), false);
-
-      interrupted = false;
-      payloads.length = 0;
-      const nextText = change === 'text' ? 'ijklmnop' : 'abcdefgh';
-      fs.writeFileSync(inputFile, nextText);
-      const retry = createTtsService({
-        createOpenAI,
-        maxChunkLength: change === 'chunk-size' ? 3 : 4,
-        model: change === 'model' ? 'tts-1' : 'gpt-4o-mini-tts'
-      });
-      await retry.action({inputFile, outputFile, voice: change === 'voice' ? 'nova' : 'alloy'});
-
-      assert.equal(payloads.map(payload => payload.input).join(''), change === 'none' ? 'efgh' : nextText);
-      assert.ok(payloads.every(payload => payload.voice === (change === 'voice' ? 'nova' : 'alloy')));
-      assert.ok(payloads.every(payload => payload.model === (change === 'model' ? 'tts-1' : 'gpt-4o-mini-tts')));
-      const decoded = spawnSync(ffmpegInstaller.path, ['-v', 'error', '-i', outputFile, '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1']);
-      assert.equal(decoded.status, 0, String(decoded.stderr));
-      assert.ok(decoded.stdout.length > 3000, 'the final playable audio must contain multiple chunks');
-    }, {prefix: 'ilu-tts-job-regression-'});
+      },
+      { prefix: "ilu-tts-physical-", testName: context.name }
+    );
+    assert.equal(process.env.HOME, originalHome);
   });
 }

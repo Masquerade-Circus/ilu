@@ -2,69 +2,36 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import * as __cjsImport53 from 'node:child_process';
-const { spawnSync } = __cjsImport53;
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 const repoRoot = path.resolve(import.meta.dirname, '..');
 
-function writeCollectionDb(tempHome, filename, collectionName, entry) {
-  fs.mkdirSync(path.join(tempHome, '.ilu'), {recursive: true});
-  fs.writeFileSync(
-    path.join(tempHome, '.ilu', filename),
-    JSON.stringify({
-      collections: {
-        [collectionName]: {
-          data: [entry],
-          index: 1,
-          createdAt: '2026-04-20T00:00:00.000Z',
-          modifiedAt: '2026-04-20T00:00:00.000Z'
-        }
-      },
-      createdAt: '2026-04-20T00:00:00.000Z',
-      modifiedAt: '2026-04-20T00:00:00.000Z'
-    }),
-    'utf8'
-  );
-}
+test('node bin/cli.js todo --add-list falla limpio cuando recibe stdin por pipe', async context => {
+  const result = await captureIluScenario({
+    testName: context.name,
+    command: ['sh', '-c', 'printf "%s\\n" "Inbox" "Pendientes" | node "$1" todo --add-list', 'ilu-non-tty', path.join(repoRoot, 'bin/cli.js')],
+    scenario: 'cliExit',
+    viewport: {cols: 120, rows: 24}
+  });
 
-test('node bin/cli.js todo --add-list falla limpio cuando recibe stdin por pipe', () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-non-tty-'));
-
-  try {
-    const result = spawnSync(process.execPath, ['bin/cli.js', 'todo', '--add-list'], {
-      cwd: repoRoot,
-      env: {...process.env, HOME: tempHome},
-      input: 'Inbox\nPendientes\n',
-      encoding: 'utf8'
-    });
-
-    const output = `${result.stdout}${result.stderr}`;
-
-    assert.notEqual(result.status, 0);
-    assert.match(output, /interactive terminal/i);
-    assert.doesNotMatch(output, /ExitPromptError/);
-  } finally {
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+  assert.ok(Number.isInteger(result.exitCode), 'the CLI must finish with an actual exit status');
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.currentScreen, /interactive terminal/i);
+  assert.doesNotMatch(fs.readFileSync(result.outputPath, 'utf8'), /ExitPromptError/);
+  assertCaptureArtifacts({result, checkpoints: ['cli-result'], testName: context.name, diagnostic: message => context.diagnostic(message)});
 });
 
-test('node bin/cli.js c --add falla limpio cuando recibe stdin por pipe', () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ilu-non-tty-clock-'));
+test('node bin/cli.js c --add falla limpio cuando recibe stdin por pipe', async context => {
+  const result = await captureIluScenario({
+    testName: context.name,
+    command: ['sh', '-c', 'printf "%s\\n" "America/Mexico_City" "CDMX" | node "$1" c --add', 'ilu-non-tty-clock', path.join(repoRoot, 'bin/cli.js')],
+    scenario: 'cliExit',
+    viewport: {cols: 120, rows: 24}
+  });
 
-  try {
-    const result = spawnSync(process.execPath, ['bin/cli.js', 'c', '--add'], {
-      cwd: repoRoot,
-      env: {...process.env, HOME: tempHome},
-      input: 'America/Mexico_City\nCDMX\n',
-      encoding: 'utf8'
-    });
-
-    const output = `${result.stdout}${result.stderr}`;
-
-    assert.notEqual(result.status, 0);
-    assert.match(output, /interactive terminal/i);
-    assert.doesNotMatch(output, /ExitPromptError/);
-  } finally {
-    fs.rmSync(tempHome, {recursive: true, force: true});
-  }
+  assert.ok(Number.isInteger(result.exitCode), 'the CLI must finish with an actual exit status');
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.currentScreen, /interactive terminal/i);
+  assert.doesNotMatch(fs.readFileSync(result.outputPath, 'utf8'), /ExitPromptError/);
+  assertCaptureArtifacts({result, checkpoints: ['cli-result'], testName: context.name, diagnostic: message => context.diagnostic(message)});
 });

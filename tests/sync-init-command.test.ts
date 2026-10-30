@@ -1,377 +1,161 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import Module from 'node:module';
-import * as __cjsImport57 from '../support/home-sandbox';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { withTempHome } = __cjsImport57;
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios";
 
-function loadCommandsWithStubs(overrides: any = {}) {
-  const originalLoad = Module._load;
-  const calls = [];
-  const defaultLocalPaths = {
-    syncDirPath() {
-      return '/tmp/ilu-test-sync';
+// syncWorkflow executes real bin/cli.js commands in the captured private shell.
+// $REMOTE is substituted as ONE argv value, never interpolated as shell source.
+// Rejected remote fixtures must be blocked at the Git process boundary as well.
+const workflows = [
+  {
+    name: "sync init valida remote y usa branch main por default",
+    fixture: { remote: "empty", local: { todos: "Local inbox" } },
+    steps: [
+      { action: "cli", args: ["sync", "init"], name: "rejected" },
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" },
+    ],
+    check({ at }) {
+      assert.notEqual(at.rejected.exitCode, 0);
+      assert.equal(at.rejected.files[".config/sync-config.json"], null);
+      assert.equal(at.rejected.transport.length, 0);
+      assert.equal(at.initialized.exitCode, 0);
+      const config = JSON.parse(at.initialized.files[".config/sync-config.json"]);
+      assert.equal(config.branch, "main");
+      assert.equal(config.remoteUrl, at.initialized.remotePath);
+      assert.match(at.initialized.remoteFiles["todos.json"], /Local inbox/);
     },
-    syncConfigFilePath() {
-      return '/tmp/ilu-test-sync/sync-config.json';
-    }
-  };
-  const defaultFs = {
-    mkdirSync() {},
-    writeFileSync() {},
-    existsSync() {
-      return false;
+  },
+  {
+    name: "sync init rechaza branch vacío explícito sin cambiar el default omitido",
+    fixture: { remote: "empty", local: { todos: "Local inbox" } },
+    steps: [
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE", "--branch", "   "], name: "rejected" },
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" },
+    ],
+    check({ at }) {
+      assert.notEqual(at.rejected.exitCode, 0);
+      assert.equal(at.rejected.transport.length, 0);
+      assert.equal(at.rejected.files[".config/sync-config.json"], null);
+      assert.equal(at.initialized.exitCode, 0);
+      assert.equal(JSON.parse(at.initialized.files[".config/sync-config.json"]).branch, "main");
     },
-    readFileSync() {
-      throw new Error('readFileSync should not be called in sync init test');
-    }
-  };
-  const defaultConfigStore = {
-    saveSyncConfig(config) {
-      return {
-        enabled: config.enabled === true,
-        remoteUrl: typeof config.remoteUrl === 'string' && config.remoteUrl.trim() ? config.remoteUrl.trim() : null,
-        branch: typeof config.branch === 'string' && config.branch.trim() ? config.branch.trim() : 'main',
-        autoSync: config.autoSync !== false,
-        autoPull: config.autoPull !== false,
-        autoPush: config.autoPush !== false
-      };
-    }
-  };
-  const defaultSyncIndex = {
-    createSyncRuntime(options) {
-      if (options !== undefined) {
-        calls.push({kind: 'createSyncRuntime', options});
+  },
+  {
+    name: "sync init rechaza nombres de branch inseguros antes de tocar bootstrap",
+    fixture: { remote: "empty", local: { todos: "Untouched" } },
+    steps: ["../main", "feature.lock", "feature..main", "feature@{main", "feature main", "-bad"].map((branch, index) => ({
+      action: "cli", args: ["sync", "init", "--remote", "$REMOTE", "--branch", branch], name: `rejected-${index + 1}`,
+    })),
+    check({ at }) {
+      assert.equal(Object.keys(at).length, 6, "every invalid branch must produce its own rejected command observation");
+      for (const observation of Object.values(at) as any[]) {
+        assert.notEqual(observation.exitCode, 0);
+        assert.equal(observation.transport.length, 0);
+        assert.equal(observation.files[".config/sync-config.json"], null);
+        assert.match(observation.files["todos.json"], /Untouched/);
+        assert.equal(observation.remoteHead, null);
       }
-      return {
-        getSyncStatus() {
-          return {status: 'healthy'};
-        },
-        sync: async () => {}
-      };
     },
-    createBootstrapBackend({branch, remoteUrl}) {
-      return {
-        inspectBootstrap(args) {
-          calls.push({kind: 'inspectBootstrap', args, branch, remoteUrl});
-          return {localHasData: false, remoteHasHistory: false};
-        }
-      };
+  },
+  {
+    name: "sync init rechaza remotes con credenciales embebidas antes de tocar bootstrap",
+    fixture: { remote: "none", denyExternalTransport: true },
+    steps: ["https://user:synthetic@example.test/repo.git", "https://synthetic@example.test/repo.git", "https://ghp_SYNTHETIC@example.test/repo.git", "ssh://git:synthetic@example.test/repo.git"].map((remote, index) => ({
+      action: "cli", args: ["sync", "init", "--remote", remote], name: `rejected-${index + 1}`,
+    })),
+    check({ at }) {
+      assert.equal(Object.keys(at).length, 4, "every credential-bearing remote must be rejected independently");
+      for (const observation of Object.values(at) as any[]) {
+        assert.notEqual(observation.exitCode, 0);
+        assert.equal(observation.transport.length, 0);
+        assert.equal(observation.files[".config/sync-config.json"], null);
+      }
     },
-    getBootstrapContext() {
-      return {
-        rootPath: './tmp/source',
-        excludePatterns: ['.config/**']
-      };
+  },
+  {
+    name: "sync init rechaza remotes con formato ambiguo antes de tocar bootstrap",
+    fixture: { remote: "none", denyExternalTransport: true },
+    steps: ["https://", "ftp://example.test/repo.git", "git@example.test", "git@example.test:", "example.test/org/repo.git", "repo with spaces.git", "./tmp/repo.git\nnext"].map((remote, index) => ({
+      action: "cli", args: ["sync", "init", "--remote", remote], name: `rejected-${index + 1}`,
+    })),
+    check({ at }) {
+      assert.equal(Object.keys(at).length, 7, "every ambiguous remote must be rejected independently");
+      for (const observation of Object.values(at) as any[]) {
+        assert.notEqual(observation.exitCode, 0);
+        assert.equal(observation.transport.length, 0);
+        assert.equal(observation.files[".config/sync-config.json"], null);
+      }
     },
-    getSyncConfig() {
-      return {
-        enabled: false,
-        remoteUrl: null,
-        branch: 'main',
-        autoSync: true,
-        autoPull: true,
-        autoPush: true
-      };
-    }
-  };
+  },
+  {
+    name: "sync init permite remotes SSH con usuario normal",
+    fixture: { remote: "seeded", ssh: "local-boundary", denyExternalTransport: true, remoteData: { todos: "SSH seed" } },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "ssh://git@ilu-sync.invalid/repo.git"], name: "initialized" }],
+    check({ at }) {
+      assert.equal(at.initialized.exitCode, 0);
+      assert.equal(JSON.parse(at.initialized.files[".config/sync-config.json"]).remoteUrl, "ssh://git@ilu-sync.invalid/repo.git");
+      assert.match(at.initialized.files["todos.json"], /SSH seed/);
+      assert.ok(at.initialized.transport.some(event => event.protocol === "ssh" && event.local === true));
+    },
+  },
+  {
+    name: "sync init en este test no escribe config real en disco",
+    fixture: { remote: "empty", local: { todos: "Private inbox" }, homeCanary: true },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" }],
+    check({ at, home, canaryBefore, canaryAfter }) {
+      assert.equal(at.initialized.exitCode, 0);
+      assert.ok(home.includes("terminal-capture-workspaces"));
+      assert.equal(JSON.parse(at.initialized.files[".config/sync-config.json"]).enabled, true);
+      assert.equal(typeof canaryBefore, "string");
+      assert.ok(canaryBefore.length > 0);
+      assert.equal(canaryAfter, canaryBefore, "a separate controlled HOME must remain unchanged");
+    },
+  },
+  {
+    name: "sync init aborta si local y remoto ya tienen historia",
+    fixture: { remote: "seeded", local: { todos: "Local original" }, remoteData: { todos: "Remote original" } },
+    steps: [
+      { action: "observe", name: "before" },
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "rejected" },
+    ],
+    check({ at }) {
+      assert.notEqual(at.rejected.exitCode, 0);
+      assert.equal(at.rejected.files["todos.json"], at.before.files["todos.json"]);
+      assert.equal(at.rejected.remoteHead, at.before.remoteHead);
+      assert.equal(at.rejected.files[".config/sync-config.json"], null);
+    },
+  },
+  {
+    name: "sync init inspecciona bootstrap usando source root e ignore patterns del consumer",
+    fixture: { remote: "seeded", excludedFiles: { ".config/canary.json": "synthetic-private" }, remoteData: { todos: "Adopted seed" } },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" }],
+    check({ at }) {
+      assert.equal(at.initialized.exitCode, 0, "excluded configuration must not count as local application history");
+      assert.match(at.initialized.files["todos.json"], /Adopted seed/);
+      assert.equal(at.initialized.files[".config/canary.json"], "synthetic-private");
+      assert.equal(at.initialized.remoteFiles[".config/canary.json"], null);
+    },
+  },
+  {
+    name: "sync init usa la factory única con backend explícito para publicar datos locales iniciales",
+    fixture: { remote: "empty", local: { todos: "Published seed" }, excludedFiles: { ".config/canary.json": "synthetic-private" } },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" }],
+    check({ at }) {
+      assert.equal(at.initialized.exitCode, 0);
+      assert.match(at.initialized.remoteFiles["todos.json"], /Published seed/);
+      assert.equal(at.initialized.remoteFiles[".config/canary.json"], null);
+      assert.equal(at.initialized.remoteFiles[".sync-core/state.json"], null);
+      assert.equal(JSON.parse(at.initialized.files[".config/sync-config.json"]).enabled, true);
+    },
+  },
+];
 
-  delete require.cache[require.resolve(commandsModulePath)];
-
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === 'node:fs') {
-      return overrides.fs || defaultFs;
-    }
-
-    if (request === '../utils/local-paths') {
-      return overrides.localPaths || defaultLocalPaths;
-    }
-
-    if (request === '../utils/config-store') {
-      return overrides.configStore || defaultConfigStore;
-    }
-
-    if (request === './index') {
-      return overrides.syncIndex || defaultSyncIndex;
-    }
-
-    if (request === './ilu-adapter') {
-      throw new Error('commands.js should not import ilu-adapter directly');
-    }
-
-    if (request === './state-store') {
-      throw new Error('commands.js should not import state-store directly');
-    }
-
-    if (request === './git-cli-backend') {
-      throw new Error('commands.js should not import git-cli-backend directly');
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const commands = require(commandsModulePath);
-    commands.configureCommandDependencies({
-      fs: overrides.fs || defaultFs,
-      localPaths: overrides.localPaths || defaultLocalPaths,
-      configStore: overrides.configStore || defaultConfigStore,
-      sync: overrides.syncIndex || defaultSyncIndex
-    });
-    return {commands, calls};
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(commandsModulePath)];
-  }
+for (const { name, fixture, steps, check } of workflows) {
+  test(name, async (t) => {
+    const checkpoints = steps.filter(step => typeof step.name === "string").map(step => step.name);
+    const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: { fixture, steps: [...steps, { action: "exit" }] } });
+    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+    check(result);
+    assert.equal(result.exitCode, 0);
+  });
 }
-
-test('sync init valida remote y usa branch main por default', async () => {
-  const {commands} = loadCommandsWithStubs();
-
-  await assert.rejects(() => commands.init([], {}), /remote/i);
-
-  const result = await commands.init([], {remote: '/tmp/remote.git'});
-  assert.equal(result.branch, 'main');
-  assert.equal(result.remoteUrl, '/tmp/remote.git');
-});
-
-test('sync init rechaza branch vacío explícito sin cambiar el default omitido', async () => {
-  const {commands, calls} = loadCommandsWithStubs();
-
-  const result = await commands.init([], {remote: '/tmp/remote.git'});
-  assert.equal(result.branch, 'main');
-
-  await assert.rejects(
-    () => commands.init([], {remote: '/tmp/remote.git', branch: '   '}),
-    /branch is required/i
-  );
-  assert.equal(calls.filter(call => call.kind === 'inspectBootstrap').length, 1);
-});
-
-test('sync init rechaza nombres de branch inseguros antes de tocar bootstrap', async () => {
-  const {commands, calls} = loadCommandsWithStubs();
-  const branches = [
-    '../main',
-    'feature.lock',
-    'feature..main',
-    'feature@{main',
-    'feature main',
-    '-bad'
-  ];
-
-  for (const branch of branches) {
-    await assert.rejects(
-      () => commands.init([], {remote: '/tmp/remote.git', branch}),
-      /Invalid sync branch/i,
-      branch
-    );
-  }
-
-  assert.deepEqual(calls, []);
-});
-
-test('sync init rechaza remotes con credenciales embebidas antes de tocar bootstrap', async () => {
-  const {commands, calls} = loadCommandsWithStubs();
-  const remotes = [
-    'https://user:password@example.test/repo.git',
-    'https://token@example.test/repo.git',
-    'https://ghp_TOKEN@example.test/repo.git',
-    'ssh://git:token@example.test/repo.git'
-  ];
-
-  for (const remote of remotes) {
-    await assert.rejects(
-      () => commands.init([], {remote}),
-      /Remote URL must not include embedded credentials/i,
-      remote
-    );
-  }
-
-  assert.deepEqual(calls, []);
-});
-
-test('sync init rechaza remotes con formato ambiguo antes de tocar bootstrap', async () => {
-  const {commands, calls} = loadCommandsWithStubs();
-  const remotes = [
-    'https://',
-    'ftp://example.test/repo.git',
-    'git@github.com',
-    'git@github.com:',
-    'github.com/org/repo.git',
-    'repo with spaces.git',
-    './tmp/repo.git\nnext'
-  ];
-
-  for (const remote of remotes) {
-    await assert.rejects(
-      () => commands.init([], {remote}),
-      /Invalid sync remote URL/i,
-      remote
-    );
-  }
-
-  assert.deepEqual(calls, []);
-});
-
-test('sync init permite remotes SSH con usuario normal', async () => {
-  const {commands, calls} = loadCommandsWithStubs();
-
-  const result = await commands.init([], {remote: 'ssh://git@github.com/org/repo.git'});
-
-  assert.equal(result.branch, 'main');
-  assert.equal(result.remoteUrl, 'ssh://git@github.com/org/repo.git');
-  assert.equal(calls.find(call => call.kind === 'inspectBootstrap').remoteUrl, 'ssh://git@github.com/org/repo.git');
-});
-
-test('sync init en este test no escribe config real en disco', async () => {
-  await withTempHome(async tempHome => {
-    const tempConfigPath = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
-    const {commands} = loadCommandsWithStubs();
-    await commands.init([], {remote: '/tmp/remote.git'});
-    assert.equal(fs.existsSync(tempConfigPath), false);
-  }, {prefix: 'ilu-sync-init-test-'});
-});
-
-test('sync init aborta si local y remoto ya tienen historia', async () => {
-  const {commands} = loadCommandsWithStubs({
-    syncIndex: {
-      createSyncRuntime() {
-        return {
-          getSyncStatus() {
-            return {status: 'healthy'};
-          },
-          sync: async () => {}
-        };
-      },
-      createBootstrapBackend() {
-        return {
-          inspectBootstrap() {
-            return {localHasData: true, remoteHasHistory: true};
-          }
-        };
-      },
-      getBootstrapContext() {
-        return {
-          rootPath: './tmp/source',
-          excludePatterns: ['.config/**']
-        };
-      },
-      getSyncConfig() {
-        return {
-          enabled: false,
-          remoteUrl: null,
-          branch: 'main',
-          autoSync: true,
-          autoPull: true,
-          autoPush: true
-        };
-      }
-    }
-  });
-
-  await assert.rejects(() => commands.init([], {remote: '/tmp/remote.git'}), /avoid overwriting data/i);
-});
-
-test('sync init inspecciona bootstrap usando source root e ignore patterns del consumer', async () => {
-  let inspectArgs = null;
-
-  const {commands} = loadCommandsWithStubs({
-    syncIndex: {
-      createSyncRuntime() {
-        return {
-          getSyncStatus() {
-            return {status: 'healthy'};
-          },
-          sync: async () => {}
-        };
-      },
-      createBootstrapBackend() {
-        return {
-          inspectBootstrap(args) {
-            inspectArgs = args;
-            return {localHasData: false, remoteHasHistory: false};
-          }
-        };
-      },
-      getBootstrapContext() {
-        return {
-          rootPath: './tmp/consumer-source',
-          excludePatterns: ['.config/**', '.cache/**']
-        };
-      },
-      getSyncConfig() {
-        return {
-          enabled: false,
-          remoteUrl: null,
-          branch: 'main',
-          autoSync: true,
-          autoPull: true,
-          autoPush: true
-        };
-      }
-    }
-  });
-
-  await commands.init([], {remote: '/tmp/remote.git'});
-
-  assert.deepEqual(inspectArgs, {
-    rootPath: './tmp/consumer-source',
-    excludePatterns: ['.config/**', '.cache/**']
-  });
-});
-
-test('sync init usa la factory única con backend explícito para publicar datos locales iniciales', async () => {
-  const calls = [];
-
-  const {commands} = loadCommandsWithStubs({
-    syncIndex: {
-      createSyncRuntime(options) {
-        calls.push({kind: 'createSyncRuntime', options});
-        return {
-          async sync(context) {
-            calls.push({kind: 'sync', context});
-          },
-          getSyncStatus() {
-            return {status: 'healthy'};
-          }
-        };
-      },
-      createBootstrapBackend() {
-        return {
-          inspectBootstrap() {
-            return {localHasData: true, remoteHasHistory: false};
-          }
-        };
-      },
-      getBootstrapContext() {
-        return {
-          rootPath: './tmp/consumer-source',
-          excludePatterns: ['.config/**']
-        };
-      },
-      getSyncConfig() {
-        return {
-          enabled: false,
-          remoteUrl: null,
-          branch: 'main',
-          autoSync: true,
-          autoPull: true,
-          autoPush: true
-        };
-      }
-    }
-  });
-
-  await commands.init([], {remote: '/tmp/remote.git'});
-
-   assert.equal(calls[0]?.kind, 'createSyncRuntime');
-   assert.equal(calls[0].options.backend.inspectBootstrap().localHasData, true);
-   assert.equal(calls[0].options.rootPath, './tmp/consumer-source');
-    assert.equal('enabled' in calls[0].options, false);
-    assert.deepEqual(calls[1], {kind: 'sync', context: {reason: 'init'}});
-});

@@ -1,100 +1,147 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const packageVersion = (
-  JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {version: string}
-).version;
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { withTempHome } from "../support/home-sandbox.ts";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
+const repoRoot = path.resolve(import.meta.dirname, "..");
+const packageVersion = (JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as { version: string })
+  .version;
 
-function runHelp(entrypoint) {
-  return spawnSync(process.execPath, [entrypoint, '--help'], {
-    cwd: repoRoot,
-    encoding: 'utf8'
+test("node bin/cli.js --help arranca correctamente", async (context) => {
+  const result = await captureIluScenario({
+    testName: context.name,
+    command: ["node", path.join(repoRoot, "bin/cli.js"), "--help"],
+    scenario: "cliExit",
+    viewport: { cols: 120, rows: 48 }
   });
-}
 
-function runCli(entrypoint, ...args) {
-  return spawnSync(process.execPath, [entrypoint, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8'
+  assert.equal(result.exitCode, 0);
+  assert.match(result.currentScreen, /\btodo\b/);
+  assert.match(result.currentScreen, /\bnote\b/);
+  assert.match(result.currentScreen, /\bboard\b/);
+  assertCaptureArtifacts({
+    result,
+    checkpoints: ["cli-result"],
+    testName: context.name,
+    diagnostic: (message) => context.diagnostic(message)
   });
-}
-
-test('node bin/cli.js --help arranca correctamente', () => {
-  const result = runHelp(path.join(repoRoot, 'bin/cli.js'));
-
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(`${result.stdout}${result.stderr}`, /Cli tools for productivity/);
 });
 
-test('node bin/cli.js --version imprime la versión del paquete', () => {
-  const result = runCli(path.join(repoRoot, 'bin/cli.js'), '--version');
+test("node bin/cli.js --version imprime la versión del paquete", async (context) => {
+  const result = await captureIluScenario({
+    testName: context.name,
+    command: ["node", path.join(repoRoot, "bin/cli.js"), "--version"],
+    scenario: "cliExit",
+    viewport: { cols: 80, rows: 24 }
+  });
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.stdout.trim(), packageVersion);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.currentScreen.trim(), packageVersion);
+  assertCaptureArtifacts({
+    result,
+    checkpoints: ["cli-result"],
+    testName: context.name,
+    diagnostic: (message) => context.diagnostic(message)
+  });
 });
 
-test('node bin/cli.js resuelve tsx desde un layout instalado con dependencias hoisted', () => {
-  const installRoot = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-cli-hoisted-'));
-  const packageRoot = path.join(installRoot, 'package');
+test("node bin/cli.js resuelve tsx desde un layout instalado con dependencias hoisted", async (context) => {
+  await withTempHome(
+    async (installRoot) => {
+      const packageRoot = path.join(installRoot, "package");
 
-  try {
-    fs.mkdirSync(packageRoot);
+      fs.mkdirSync(packageRoot);
 
-    for (const entryName of fs.readdirSync(repoRoot)) {
-      if (entryName === '.git' || entryName === 'node_modules' || entryName === 'tmp') {
-        continue;
+      for (const entryName of fs.readdirSync(repoRoot)) {
+        if (entryName === ".git" || entryName === "node_modules" || entryName === "tmp" || entryName === ".tmp") {
+          continue;
+        }
+
+        fs.cpSync(path.join(repoRoot, entryName), path.join(packageRoot, entryName), {
+          recursive: true
+        });
       }
 
-      fs.cpSync(path.join(repoRoot, entryName), path.join(packageRoot, entryName), {
-        recursive: true
+      fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(installRoot, "node_modules"), "dir");
+
+      const result = await captureIluScenario({
+        testName: context.name,
+        command: ["node", path.join(packageRoot, "bin/cli.js"), "--version"],
+        cwd: installRoot,
+        scenario: "cliExit",
+        viewport: { cols: 80, rows: 24 }
       });
-    }
 
-    fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(installRoot, 'node_modules'), 'dir');
-
-    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin/cli.js'), '--version'], {
-      cwd: installRoot,
-      encoding: 'utf8'
-    });
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(result.stdout.trim(), packageVersion);
-  } finally {
-    fs.rmSync(installRoot, {recursive: true, force: true});
-  }
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.currentScreen.trim(), packageVersion);
+      assert.equal(
+        fs.existsSync(path.join(packageRoot, "node_modules")),
+        false,
+        "dependencies must remain hoisted, not copied into the installed package"
+      );
+      assertCaptureArtifacts({
+        result,
+        checkpoints: ["cli-result"],
+        testName: context.name,
+        diagnostic: (message) => context.diagnostic(message)
+      });
+    },
+    { prefix: "ilu-cli-hoisted-", testName: context.name }
+  );
 });
 
-test('node bin/cli.js rechaza flags desconocidos sin stack trace', () => {
-  const result = runCli(path.join(repoRoot, 'bin/cli.js'), '--unknown-startup-flag');
+test("node bin/cli.js rechaza flags desconocidos sin stack trace", async (context) => {
+  const result = await captureIluScenario({
+    testName: context.name,
+    command: ["node", path.join(repoRoot, "bin/cli.js"), "--unknown-startup-flag"],
+    scenario: "cliExit",
+    viewport: { cols: 120, rows: 24 }
+  });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stderr, /unknown option/);
-  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /at .*\(/);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.currentScreen, /unknown option/i);
+  assert.match(result.currentScreen, /--unknown-startup-flag/);
+  assert.doesNotMatch(fs.readFileSync(result.outputPath, "utf8"), /at .*\(/);
+  assertCaptureArtifacts({
+    result,
+    checkpoints: ["cli-result"],
+    testName: context.name,
+    diagnostic: (message) => context.diagnostic(message)
+  });
 });
 
-test('node bin/cli.js preserva cwd externo del usuario al resolver rutas relativas de tts', () => {
-  const externalCwd = path.dirname(repoRoot);
-  const homeDir = fs.mkdtempSync(path.join(repoRoot, 'tmp', 'ilu-cli-cwd-home-'));
-
-  try {
-    const result = spawnSync(
-      process.execPath,
-      [path.join(repoRoot, 'bin/cli.js'), 'tts', 'ilu/README.md', 'ilu/README.md'],
-      {
+test("node bin/cli.js preserva cwd externo del usuario al resolver rutas relativas de tts", async (context) => {
+  await withTempHome(
+    async (externalCwd) => {
+      const document = path.join(externalCwd, "chapter.md");
+      const content = "Synthetic document. Must not be overwritten or sent to a provider.\n";
+      fs.writeFileSync(document, content);
+      const result = await captureIluScenario({
+        testName: context.name,
+        command: ["node", path.join(repoRoot, "bin/cli.js"), "tts", "chapter.md", "chapter.md"],
         cwd: externalCwd,
-        encoding: 'utf8',
-        env: {...process.env, HOME: homeDir}
-      }
-    );
+        scenario: "cliExit",
+        viewport: { cols: 120, rows: 24 }
+      });
 
-    assert.equal(result.status, 1, result.stderr || result.stdout);
-    assert.match(result.stderr, /output file must be different from input file/i);
-    assert.doesNotMatch(result.stderr, /Input file not found/i);
-    assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/i);
-  } finally {
-    fs.rmSync(homeDir, {recursive: true, force: true});
-  }
+      assert.equal(result.exitCode, 1);
+      assert.match(result.currentScreen, /output file must be different from input file/i);
+      assert.doesNotMatch(result.currentScreen, /Input file not found/i);
+      assert.doesNotMatch(result.currentScreen, /ERR_MODULE_NOT_FOUND/i);
+      assert.equal(
+        fs.readFileSync(document, "utf8"),
+        content,
+        "rejecting the destination must preserve the source document"
+      );
+      assertCaptureArtifacts({
+        result,
+        checkpoints: ["cli-result"],
+        testName: context.name,
+        diagnostic: (message) => context.diagnostic(message)
+      });
+    },
+    { prefix: "ilu-cli-cwd-", testName: context.name }
+  );
 });

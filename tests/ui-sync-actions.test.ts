@@ -1,217 +1,75 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-function createFakeCommands(overrides: any = {}) {
-  const calls = [];
-  return {
-    calls,
-    commands: {
-      async status() {
-        calls.push(['status']);
-        if (typeof overrides.status === 'function') {
-          return overrides.status();
-        }
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      async retry() {
-        calls.push(['retry']);
-        if (typeof overrides.retry === 'function') {
-          return overrides.retry();
-        }
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      async enable() {
-        calls.push(['enable']);
-        if (typeof overrides.enable === 'function') {
-          return overrides.enable();
-        }
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      async disable() {
-        calls.push(['disable']);
-        if (typeof overrides.disable === 'function') {
-          return overrides.disable();
-        }
-        return {status: 'disabled', hasPendingRemote: false};
-      },
-      async init(args, options) {
-        calls.push(['init', args, options]);
-        if (typeof overrides.init === 'function') {
-          return overrides.init(args, options);
-        }
-        return {enabled: true, remoteUrl: options.remote, branch: options.branch};
-      }
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
+
+const cases = [
+  {
+    name: "Sync UI adapter maps detailed statuses to approved safe labels",
+    caseId: "sync-statuses",
+    fixture: "local-remotes-status-matrix",
+    journey: ["With separate local-only fixture states open Sync for healthy, healthy with pending work, pending_remote, disabled, misconfigured and degraded_network", "Inspect each status meaning without asserting exact copy"],
+    expected: { visibleStatusMeanings: ["synced", "pending", "pending", "off", "not-configured", "failed"], rawInternalStatusLeaked: false }
+  },
+  {
+    name: "Sync UI adapter redacts unsafe command failures",
+    caseId: "sync-safe-status-failure",
+    fixture: "local-transport-failure-with-synthetic-private-detail",
+    journey: ["Open Sync with a failing local transport", "Refresh status and observe a recoverable failure", "Inspect visible screen and details for private path and token leakage"],
+    expected: { visibleStatusMeanings: ["failed"], leakedPrivateDetails: false, localDomainFilesUnchanged: true, applicationUsable: true }
+  },
+  {
+    name: "Sync retry, enable, and disable call command functions only after explicit action",
+    caseId: "sync-explicit-controls",
+    fixture: "configured-disabled-local-remote",
+    journey: ["Open Sync and inspect initially disabled persisted config and remote refs", "Verify no enable, disable or retry mutation from merely viewing", "Click Retry sync", "Click Enable sync", "Click Disable sync", "Restart"],
+    expected: { viewingChangedEnabledSetting: false, viewingChangedRemoteRefs: false, explicitOperationOrder: ["retry", "enable", "disable"], enabledAfterEnable: true, enabledAfterDisable: false, restoredEnabled: false }
+  },
+  {
+    name: "Sync init rejects missing remote URL, branch, and confirmation without command calls",
+    caseId: "sync-required-setup",
+    fixture: "unconfigured-with-local-remote",
+    journey: ["Open setup and submit without remote URL", "Enter local fixture remote and clear branch, then submit", "Enter main without confirmation and submit", "Inspect config, remote refs and local files after each rejection"],
+    expected: { rejectedInputs: ["missing-remote", "missing-branch", "unconfirmed"], syncConfigCreated: false, remoteRefsUnchanged: true, localDomainFilesUnchanged: true }
+  },
+  {
+    name: "Sync init rejects any embedded URL userinfo before command calls",
+    caseId: "sync-userinfo-rejection",
+    fixture: "unconfigured-deny-all-network",
+    journey: ["Submit each synthetic URL with main and explicit confirmation", "Check validation before any transport attempt"],
+    remoteUrls: ["https://user:password@example.test/repo.git", "https://token@example.test/repo.git", "https://ghp_TOKEN@example.test/repo.git", "ssh://git:token@example.test/repo.git"],
+    expected: { rejectedRemoteCount: 4, transportRequests: 0, syncConfigCreated: false, localDomainFilesUnchanged: true }
+  },
+  {
+    name: "Sync init action allows SSH remotes with a normal user",
+    caseId: "sync-normal-ssh-user",
+    fixture: "local-git-remote-with-intercepted-ssh-transport",
+    journey: ["Set up ssh://git@example.test/repo.git with main and confirmation", "External SSH transport must map exclusively to the owned local bare repo", "Inspect configured remote and refreshed visible status"],
+    expected: { setupAccepted: true, configuredRemoteUrl: "ssh://git@example.test/repo.git", configuredBranch: "main", realNetworkConnections: 0, statusRefreshedAfterSetup: true }
+  },
+  {
+    name: "Sync init preserves command safety path and refreshes status after setup",
+    caseId: "sync-init-refresh-pending",
+    fixture: "local-empty-remote-then-temporarily-unavailable-transport",
+    journey: ["Set up owned empty local remote with main and confirmation", "Make only the local remote transport temporarily unavailable after local setup", "Create local pending work", "Refresh Sync and inspect pending state with persisted local work"],
+    expected: { setupAccepted: true, configuredBranch: "main", pendingWorkVisible: true, pendingWorkPersisted: true, localWorkPreserved: true, statusRefreshedAfterSetup: true }
+  },
+  {
+    name: "Sync UI adapter classifies setup and init safety stops without leaking internals",
+    caseId: "sync-setup-safety-stops",
+    fixture: "missing-enabled-remote-and-both-sides-populated",
+    journey: ["Open Sync with enabled config missing remoteUrl and inspect setup-required state", "In a separate private HOME attempt confirmed init with both local and owned local remote already populated", "Inspect safety stop and compare both histories and domain files"],
+    expected: { missingRemoteRequiresSetup: true, conflictingInitRejected: true, localDomainFilesUnchanged: true, remoteRefsUnchanged: true, leakedPrivateDetails: false }
+  }
+];
+
+for (const entry of cases) {
+  test(entry.name, async context => {
+    const result = await captureIluScenario({ testName: context.name, scenario: "adapterBehavior", command: ["node", "bin/cli.js", "ui"], input: { area: "sync", caseId: entry.caseId, fixture: entry.fixture, journey: entry.journey, remoteUrls: "remoteUrls" in entry ? entry.remoteUrls : [] }, viewport: { cols: 100, rows: 40 } });
+    assert.equal(result.exitCode, 0);
+    for (const [key, expected] of Object.entries(entry.expected)) {
+      assert.deepEqual(result.observed[key], expected, `${entry.caseId}: ${key}`);
     }
-  };
+    assertCaptureArtifacts({ result, testName: context.name, checkpoints: ["condition", "outcome"], diagnostic: message => context.diagnostic(message) });
+  });
 }
-
-test('Sync UI adapter maps detailed statuses to approved safe labels', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const cases = [
-    [{status: 'healthy', hasPendingRemote: false}, 'Synced'],
-    [{status: 'healthy', hasPendingRemote: true}, 'Pending sync'],
-    [{status: 'pending_remote', hasPendingRemote: true}, 'Pending sync'],
-    [{status: 'disabled', hasPendingRemote: false}, 'Sync off'],
-    [{status: 'misconfigured', hasPendingRemote: false}, 'Not set up'],
-    [{status: 'degraded_network', hasPendingRemote: true, lastErrorKind: 'network'}, 'Sync failed']
-  ];
-
-  for (const [status, expectedLabel] of cases) {
-    const fake = createFakeCommands({status: () => status});
-    const actions = createSyncActions({commands: fake.commands});
-    const result = await actions.status();
-
-    assert.equal(result.ok, true, expectedLabel);
-    assert.equal(result.label, expectedLabel);
-    assert.match(result.details.join('\n'), new RegExp(`Status: ${(expectedLabel as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  }
-});
-
-test('Sync UI adapter redacts unsafe command failures', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands({
-    status() {
-      throw new Error('failed at /home/person/.ssh/key token=abc123\n    at provider stack');
-    }
-  });
-  const actions = createSyncActions({commands: fake.commands});
-
-  const result = await actions.status();
-
-  assert.deepEqual(result, {
-    ok: false,
-    error: 'Sync failed. Check your setup and try again.',
-    label: 'Sync failed',
-    details: ['Status: Sync failed']
-  });
-  assert.doesNotMatch(JSON.stringify(result), /\/home|\.ssh|token|abc123|stack|provider/i);
-});
-
-test('Sync retry, enable, and disable call command functions only after explicit action', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands();
-  const actions = createSyncActions({commands: fake.commands});
-
-  assert.deepEqual(fake.calls, []);
-
-  assert.equal((await actions.retry()).ok, true);
-  assert.equal((await actions.enable()).ok, true);
-  assert.equal((await actions.disable()).ok, true);
-
-  assert.deepEqual(fake.calls.map(call => call[0]), ['retry', 'enable', 'disable']);
-});
-
-test('Sync init rejects missing remote URL, branch, and confirmation without command calls', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands();
-  const actions = createSyncActions({commands: fake.commands});
-  const cases = [
-    [{remoteUrl: '', branch: 'main', confirmed: true}, 'Remote URL is required.'],
-    [{remoteUrl: './tmp/sync-ui-remote.git', branch: '', confirmed: true}, 'Branch is required.'],
-    [{remoteUrl: './tmp/sync-ui-remote.git', branch: 'main', confirmed: false}, 'Confirm setup before starting sync.']
-  ];
-
-  for (const [input, expectedError] of cases) {
-    const result = await actions.init(input);
-
-    assert.deepEqual(result, {
-      ok: false,
-      error: expectedError,
-      label: 'Not set up',
-      details: ['Status: Not set up']
-    });
-  }
-
-  assert.deepEqual(fake.calls, []);
-});
-
-test('Sync init rejects any embedded URL userinfo before command calls', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands();
-  const actions = createSyncActions({commands: fake.commands});
-  const cases = [
-    'https://user:password@example.test/repo.git',
-    'https://token@example.test/repo.git',
-    'https://ghp_TOKEN@example.test/repo.git',
-    'ssh://git:token@example.test/repo.git'
-  ];
-
-  for (const remoteUrl of cases) {
-    const result = await actions.init({remoteUrl, branch: 'main', confirmed: true});
-
-    assert.deepEqual(result, {
-      ok: false,
-      error: 'Remote URL must not include embedded credentials.',
-      label: 'Not set up',
-      details: ['Status: Not set up']
-    }, remoteUrl);
-  }
-
-  assert.deepEqual(fake.calls, []);
-});
-
-test('Sync init action allows SSH remotes with a normal user', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands();
-  const actions = createSyncActions({commands: fake.commands});
-
-  const result = await actions.init({remoteUrl: 'ssh://git@github.com/org/repo.git', branch: 'main', confirmed: true});
-
-  assert.equal(result.ok, true);
-  assert.deepEqual(fake.calls, [
-    ['init', [], {remote: 'ssh://git@github.com/org/repo.git', branch: 'main'}],
-    ['status']
-  ]);
-});
-
-test('Sync init preserves command safety path and refreshes status after setup', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const fake = createFakeCommands({
-    status() {
-      return {status: 'pending_remote', hasPendingRemote: true};
-    }
-  });
-  const actions = createSyncActions({commands: fake.commands});
-
-  const result = await actions.init({remoteUrl: './tmp/sync-ui-remote.git', branch: 'main', confirmed: true});
-
-  assert.equal(result.ok, true);
-  assert.equal(result.label, 'Pending sync');
-  assert.deepEqual(fake.calls, [
-    ['init', [], {remote: './tmp/sync-ui-remote.git', branch: 'main'}],
-    ['status']
-  ]);
-});
-
-
-test('Sync UI adapter classifies setup and init safety stops without leaking internals', async () => {
-  const { createSyncActions } = await import('../ui/modules/sync/actions');
-  const setupFake = createFakeCommands({
-    status() {
-      throw new Error('Sync runtime requires remoteUrl when sync is enabled at /home/person/project');
-    }
-  });
-  const setupActions = createSyncActions({commands: setupFake.commands});
-
-  assert.deepEqual(await setupActions.status(), {
-    ok: false,
-    error: 'Set up sync before trying again.',
-    label: 'Not set up',
-    details: ['Status: Not set up']
-  });
-
-  const safetyFake = createFakeCommands({
-    init() {
-      throw new Error('Initialization stopped to avoid overwriting data at /home/person/project');
-    }
-  });
-  const safetyActions = createSyncActions({commands: safetyFake.commands});
-  const result = await safetyActions.init({remoteUrl: './tmp/sync-ui-remote.git', branch: 'main', confirmed: true});
-
-  assert.deepEqual(result, {
-    ok: false,
-    error: 'Setup stopped to protect your files.',
-    label: 'Not set up',
-    details: ['Status: Not set up']
-  });
-  assert.doesNotMatch(JSON.stringify(result), /\/home|project|overwriting|stack|token|secret/i);
-});

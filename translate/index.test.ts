@@ -1,135 +1,97 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const translatorModulePath = path.join(import.meta.dirname, 'index.ts');
+import {captureTranslationScenario} from '../tests/test-helpers/terminal-capture.ts';
+import {assertCaptureArtifacts} from '../tests/test-helpers/terminal-capture-scenarios.ts';
 
-function loadTranslatorModule() {
-  delete require.cache[require.resolve(translatorModulePath)];
-  return require(translatorModulePath);
-}
+const cli = path.resolve(import.meta.dirname, '..', 'bin', 'cli.js');
 
-test('createTranslator usa el proveedor inyectado y evita red real al traducir', async () => {
-  const { createTranslator } = loadTranslatorModule();
-  const clipboardWrites = [];
-  const logs = [];
-  let providerCalls = 0;
-
-  const translator = createTranslator({
-    provider: async ({ text, source, target }) => {
-      providerCalls += 1;
-      assert.deepEqual({ text, source, target }, {
-        text: 'hello world',
-        source: 'en',
-        target: 'es'
-      });
-
-      return {
-        sentences: [{ trans: 'Hola ', orig: 'hello ' }, { trans: 'mundo', orig: 'world' }],
-        dict: [{ entry: [{ word: 'Hola', reverse_translation: ['Hello'] }] }],
-        src: 'en'
-      };
+test('createTranslator usa el proveedor inyectado y evita red real al traducir', async context => {
+  const result = await captureTranslationScenario({
+    testName: context.name,
+    command: ['node', cli, 'babel', '--source', 'en', '--target', 'es', 'hello', 'world'],
+    scenario: 'translationCli',
+    input: {
+      http: {status: 200, body: {
+        sentences: [{trans: 'Hola ', orig: 'hello '}, {trans: 'mundo', orig: 'world'}],
+        dict: [{entry: [{word: 'Hola', reverse_translation: ['Hello']}]}], src: 'en'
+      }},
+      clipboardBefore: 'Previous synthetic clipboard'
     },
-    clipboard: {
-      async write(value) {
-        clipboardWrites.push(value);
-      }
-    },
-    log: Object.assign(
-      (message) => logs.push({ type: 'log', message }),
-      {
-        warning(message) {
-          logs.push({ type: 'warning', message });
-        }
-      }
-    ),
-    osLang: 'es'
+    viewport: {cols: 100, rows: 30}
   });
-
-  await translator.action({ text: 'hello world' }, { source: 'en', target: 'es' });
-
-  assert.equal(providerCalls, 1);
-  assert.deepEqual(clipboardWrites, ['Hola mundo']);
-  assert.equal(logs.length, 2);
-  assert.match(logs[0].message, /EN > ES:/);
-  assert.match(logs[0].message, /Hola mundo/);
-  assert.match(logs[1].message, /Hola/);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.requests.length, 1);
+  const url = new URL(result.requests[0].url);
+  assert.equal(url.searchParams.get('q'), 'hello world');
+  assert.equal(url.searchParams.get('sl'), 'en');
+  assert.equal(url.searchParams.get('tl'), 'es');
+  assert.equal(result.clipboardAfter, 'Hola mundo');
+  assert.deepEqual(result.clipboardWrites, ['Hola mundo']);
+  assert.match(result.currentScreen, /EN\s*>\s*ES/);
+  assert.match(result.currentScreen, /Hola mundo/);
+  assert.match(result.currentScreen, /Hola[^\n]*Hello/);
+  assertCaptureArtifacts({result, checkpoints: ['translation-result'], testName: context.name, diagnostic: message => context.diagnostic(message)});
 });
 
-test('createTranslator avisa cuando el proveedor no regresa una traducción', async () => {
-  const { createTranslator } = loadTranslatorModule();
-  const warnings = [];
-  let clipboardWrites = 0;
-
-  const translator = createTranslator({
-    provider: async () => ({ sentences: [], src: 'en' }),
-    clipboard: {
-      async write() {
-        clipboardWrites += 1;
-      }
-    },
-    log: Object.assign(
-      () => {},
-      {
-        warning(message) {
-          warnings.push(message);
-        }
-      }
-    ),
-    osLang: 'es'
+test('createTranslator avisa cuando el proveedor no regresa una traducción', async context => {
+  const result = await captureTranslationScenario({
+    testName: context.name,
+    command: ['node', cli, 'babel', '--source', 'en', '--target', 'es', 'missing'],
+    scenario: 'translationCli',
+    input: {http: {status: 200, body: {sentences: [], src: 'en'}}, clipboardBefore: 'Keep synthetic clipboard'},
+    viewport: {cols: 100, rows: 30}
   });
-
-  await translator.action({ text: 'missing' }, { source: 'en', target: 'es' });
-
-  assert.deepEqual(warnings, ['No translation was found'.yellow]);
-  assert.equal(clipboardWrites, 0);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.requests.length, 1);
+  assert.match(result.currentScreen, /no translation|not found/i);
+  assert.equal(result.clipboardAfter, 'Keep synthetic clipboard');
+  assert.deepEqual(result.clipboardWrites, []);
+  assertCaptureArtifacts({result, checkpoints: ['translation-result'], testName: context.name, diagnostic: message => context.diagnostic(message)});
 });
 
-test('createTranslator valida texto antes de llamar al proveedor', async () => {
-  const { createTranslator } = loadTranslatorModule();
-  let providerCalls = 0;
-  const translator = createTranslator({
-    provider: async () => {
-      providerCalls += 1;
-      return { sentences: [{ trans: 'x' }], src: 'en' };
+test('createTranslator valida texto antes de llamar al proveedor', async context => {
+  // One original case covered both invalid inputs. Keep both in one recording,
+  // with a real CLI invocation and an inspectable checkpoint for each rejection.
+  const result = await captureTranslationScenario({
+    testName: context.name,
+    scenario: 'translationValidation',
+    input: {
+      commands: [
+        ['node', cli, 'babel', '--source', 'en', '--target', 'es', 'x'.repeat(5001)],
+        ['node', cli, 'babel', '--source', 'en', '--target', 'es', '   ']
+      ],
+      clipboardBefore: 'Keep synthetic clipboard'
     },
-    clipboard: { async write() {} },
-    log: Object.assign(() => {}, { warning() {} }),
-    osLang: 'es'
+    viewport: {cols: 100, rows: 30}
   });
-
-  await assert.rejects(
-    () => translator.action({ text: ['x'.repeat(5001)] }, { source: 'en', target: 'es' }),
-    /Maximum number of characters exceeded: 5000/
-  );
-  await assert.rejects(
-    () => translator.action({ text: [] }, { source: 'en', target: 'es' }),
-    /Text is required/
-  );
-
-  assert.equal(providerCalls, 0);
-});
-
-test('CLI translation does not copy malformed or empty provider results', async () => {
-  const {createTranslator} = loadTranslatorModule();
-  for (const response of [null, {}, {sentences: null}, {sentences: [null]}, {sentences: [{trans: 23}]}, {sentences: [{trans: '   '}]}]) {
-    const copied = [];
-    const warnings = [];
-    const translator = createTranslator({
-      provider: async () => response,
-      clipboard: {async write(value) { copied.push(value); }},
-      log: Object.assign(() => {}, {warning(message) { warnings.push(message); }}),
-      osLang: 'es'
-    });
-    let rejected = false;
-    try {
-      await translator.action({text: 'Example'}, {source: 'en', target: 'es'});
-    } catch (error) {
-      assert.ok(error instanceof Error);
-      rejected = true;
-    }
-    assert.equal(copied.length, 0, JSON.stringify(response));
-    assert.ok(rejected || warnings.length > 0, 'invalid results must surface a failure');
+  assert.equal(result.invocations.length, 2);
+  for (const invocation of result.invocations) {
+    assert.notEqual(invocation.exitCode, 0);
+    assert.equal(invocation.clipboardAfter, 'Keep synthetic clipboard');
+    assert.deepEqual(invocation.clipboardWrites, []);
   }
+  assert.match(result.invocations[0].currentScreen, /5000/);
+  assert.match(result.invocations[1].currentScreen, /text.*required|required.*text/i);
+  assert.equal(result.requests.length, 0);
+  assertCaptureArtifacts({result, checkpoints: ['translation-too-long', 'translation-missing'], testName: context.name, diagnostic: message => context.diagnostic(message)});
+});
+
+test('CLI translation does not copy malformed or empty provider results', async context => {
+  const bodies = [null, {}, {sentences: null}, {sentences: [null]}, {sentences: [{trans: 23}]}, {sentences: [{trans: '   '}]}];
+  const result = await captureTranslationScenario({
+    testName: context.name,
+    command: ['node', cli, 'babel', '--source', 'en', '--target', 'es', 'Example'],
+    scenario: 'translationMalformedResults',
+    input: {bodies, clipboardBefore: 'Keep synthetic clipboard'},
+    viewport: {cols: 100, rows: 30}
+  });
+  assert.equal(result.invocations.length, bodies.length);
+  assert.equal(result.requests.length, bodies.length);
+  for (const [index, invocation] of result.invocations.entries()) {
+    assert.equal(invocation.clipboardAfter, 'Keep synthetic clipboard', `response ${index + 1}`);
+    assert.deepEqual(invocation.clipboardWrites, [], `response ${index + 1} must not copy`);
+    assert.ok(invocation.exitCode !== 0 || /no translation|not found|error|fail/i.test(invocation.currentScreen), `response ${index + 1} must expose failure`);
+  }
+  assertCaptureArtifacts({result, checkpoints: bodies.map((_, index) => `translation-invalid-${index + 1}`), testName: context.name, diagnostic: message => context.diagnostic(message)});
 });

@@ -1,123 +1,72 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import {
-  uiModulePath,
-  visibleLines,
-  richSnapshot,
-  realBoardSnapshot,
-} from './test-helpers/ui-app.ts';
-const require = createRequire(import.meta.url);
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 
-test('a11y shell closes active page overlay when switching tabs by keyboard shortcut', async () => {
-  const {createHeadlessSession} = require(uiModulePath);
-  const session = await createHeadlessSession({snapshot: richSnapshot(), cols: 80, rows: 24});
-
-  try {
-    session.click('todo-add-task');
-    assert.match(session.output(), /Add task/);
-
-    session.dispatchKey('CTRL_2');
-
-    assert.equal(session.state().activeTab, 'Notes');
-    assert.equal(session.state().todo.overlay, null);
-    assert.doesNotMatch(session.output(), /Task title/);
-  } finally {
-    await session.destroy();
+// Integration requirement: tuiInteraction executes these steps against the live
+// Node CLI in the captured PTY. Targets are visible text, never component IDs.
+// expect uses the current PTY screen. remember/unchanged read private HOME data.
+// Every expect is an assertion, not a hint for choosing a generic recording.
+const cases = [
+  {
+    name: 'a11y shell closes active page overlay when switching tabs by keyboard shortcut',
+    steps: [
+      {click: 'Add task'}, {expect: {text: 'Task title'}},
+      {key: 'CTRL_2'}, {expect: {text: 'Capture note', absent: 'Task title'}},
+      {screenshot: 'result'}
+    ]
+  },
+  {
+    name: 'a11y overlay opening sets stable initial focus',
+    steps: [
+      {remember: ['todos', 'clocks']}, {click: 'Add task'},
+      {type: 'Initial task focus'}, {expect: {text: 'Initial task focus'}},
+      {click: 'Cancel'}, {key: 'CTRL_4'}, {click: 'Add clock'},
+      {type: 'Initial clock focus'}, {expect: {text: 'Initial clock focus'}},
+      {screenshot: 'result'}, {click: 'Cancel'}, {unchanged: ['todos', 'clocks']}
+    ]
+  },
+  {
+    name: 'a11y top nav groups apps and Sync as a global control',
+    steps: [
+      {expect: {sameRowOrdered: ['Todo', 'Notes', 'Board', 'Clocks', 'Translate', 'Speech', 'Sync'], absent: 'Tools'}},
+      {key: 'CTRL_5'}, {expect: {text: 'Retry sync'}}, {screenshot: 'result'}
+    ]
+  },
+  {
+    name: 'a11y Board Space and Enter select without destructive card actions',
+    steps: [
+      {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Long'},
+      {key: 'SPACE'}, {key: 'ENTER'},
+      {expect: {text: 'Long', absent: 'Card title'}},
+      {unchanged: ['boards']}, {screenshot: 'result'},
+      {key: 'o'}, {expect: {overlayTexts: ['Edit', 'Move', 'Remove']}}, {key: 'ESCAPE'}
+    ]
+  },
+  {
+    name: 'a11y Board exposes keyboard shortcut for card and column details',
+    steps: [
+      {remember: ['boards']}, {key: 'CTRL_3'}, {click: 'Long'},
+      {key: 'ENTER'}, {key: 'o'}, {expect: {overlayTexts: ['Edit', 'Move', 'Remove']}},
+      {key: 'ESCAPE'}, {click: 'Backlog'}, {key: 'ENTER'}, {key: 'o'},
+      {expect: {text: 'Remove column'}}, {screenshot: 'result'},
+      {key: 'ESCAPE'}, {resize: {cols: 80, rows: 40}},
+      {key: 'CTRL_K'}, {expect: {text: 'details'}},
+      {key: 'ESCAPE'}, {unchanged: ['boards']}
+    ]
   }
-});
+];
 
-test('a11y overlay opening sets stable initial focus', async () => {
-  const {createHeadlessSession} = require(uiModulePath);
-  const session = await createHeadlessSession({snapshot: richSnapshot(), cols: 80, rows: 24});
-
-  try {
-    session.click('todo-add-task');
-    assert.equal(session.focusedId(), 'todo-add-title');
-
-    session.click('todo-add-cancel');
-    session.click('tab-clocks');
-    session.click('clock-add-open');
-    assert.equal(session.focusedId(), 'clock-add-name');
-  } finally {
-    await session.destroy();
-  }
-});
-
-test('a11y top nav groups apps and Sync as a global control', async () => {
-  const {createHeadlessSession} = require(uiModulePath);
-  const session = await createHeadlessSession({snapshot: richSnapshot(), cols: 80, rows: 24});
-
-  try {
-    const navLine = visibleLines(session.output()).find(line => /Todo/.test(line) && /Speech/.test(line));
-    assert.ok(navLine, 'expected nav line with primary apps and utilities');
-    assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*Translate.*Speech/);
-    assert.ok(navLine.indexOf('Speech') < navLine.indexOf('Sync'), `expected Sync after app group:\n${navLine}`);
-    assert.doesNotMatch(navLine, /Tools/);
-  } finally {
-    await session.destroy();
-  }
-});
-
-test('a11y Board Space and Enter select without destructive card actions', async () => {
-  const {createHeadlessSession} = require(uiModulePath);
-  const actions = {
-    removeCard() {
-      assert.fail('Space must not remove a board card');
-    },
-    moveCard() {
-      assert.fail('Space must not move a board card');
-    },
-    prioritizeCard() {
-      assert.fail('Space must not reprioritize a board card');
-    }
-  };
-  const session = await createHeadlessSession({snapshot: realBoardSnapshot(), state: {activeTab: 'Board'}, boardActions: actions, cols: 80, rows: 24});
-
-  try {
-    assert.equal(session.focus('board-card-list-1'), true);
-    session.dispatchKey('SPACE');
-    assert.equal(session.state().board.overlay, null);
-
-    session.dispatchKey('ENTER');
-    assert.equal(session.state().board.overlay, null);
-    assert.deepEqual(session.state().board.selectedCard, {columnIndex: 1, position: 1});
-    assert.match(session.output(), /› Write tests/);
-  } finally {
-    await session.destroy();
-  }
-});
-
-test('a11y Board exposes keyboard shortcut for card and column details', async () => {
-  const {createHeadlessSession} = require(uiModulePath);
-  const session = await createHeadlessSession({snapshot: realBoardSnapshot(), state: {activeTab: 'Board'}, cols: 80, rows: 24});
-
-  try {
-    assert.equal(session.focus('board-card-list-1'), true);
-    session.dispatchKey('ENTER');
-    assert.equal(session.state().board.overlay, null);
-    assert.deepEqual(session.state().board.selectedCard, {columnIndex: 1, position: 1});
-
-    session.dispatchKey('o');
-    assert.equal(session.state().board.overlay, 'card-details');
-    assert.equal(session.focusedId(), 'board-card-details-scroll');
-
-    session.dispatchKey('ESCAPE');
-    assert.equal(session.state().board.overlay, null);
-
-    assert.equal(session.focus('board-column-header-1'), true);
-    session.dispatchKey('ENTER');
-    assert.equal(session.state().board.overlay, null);
-    assert.equal(session.state().board.selectedColumnIndex, 1);
-
-    session.dispatchKey('o');
-    assert.equal(session.state().board.overlay, 'column-details');
-    assert.equal(session.focusedId(), 'board-remove-column');
-
-    session.dispatchKey('ESCAPE');
-    session.dispatchKey('CTRL_K');
-    assert.match(session.output(), /Use O to open card or column details/);
-  } finally {
-    await session.destroy();
-  }
-});
+for (const entry of cases) {
+  test(entry.name, async context => {
+    const result = await captureIluScenario({
+      testName: context.name,
+      scenario: 'tuiInteraction',
+      command: captureCommand,
+      viewport: {cols: 80, rows: 24},
+      input: {steps: entry.steps, finish: 'normal-exit'}
+    });
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
+  });
+}

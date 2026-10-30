@@ -1,318 +1,205 @@
-import 'colors';
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import path from 'node:path';
-import Module, { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const boardListsModulePath = path.join(repoRoot, 'scrumban', 'board-lists.ts');
-const promptSelectionModulePath = path.join(repoRoot, 'utils', 'prompt-index-selection.ts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { withTempHome } from "../support/home-sandbox.ts";
+import loadDb from "../utils/load-db.ts";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
 
-const SIMPLE_DEFAULT_COLUMNS = ['Backlog', 'Ready', 'In Progress', 'Done'];
-
-function sanitizeColumnId(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function buildColumns(columns = SIMPLE_DEFAULT_COLUMNS) {
-  const usedIds = new Set();
-
-  return columns.map((title) => {
-    const trimmedTitle = title.trim();
-    const baseId = sanitizeColumnId(trimmedTitle) || 'column';
-    let id = baseId;
-    let suffix = 2;
-
-    while (usedIds.has(id)) {
-      id = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-
-    usedIds.add(id);
-
-    return {
-      id,
-      title: trimmedTitle,
-      cards: []
-    };
-  });
-}
-
-function createBoard(list: any = {}) {
-  const columns = Array.isArray(list.columns) && list.columns.length > 0
-    ? buildColumns(list.columns.map(column => column.title || column))
-    : buildColumns();
-
-  return {
-    description: '',
-    current: false,
-    ...list,
-    columns,
-    defaultColumnId: list.defaultColumnId || columns[0].id
-  };
-}
-
-function loadBoardListsWithStubs({promptAnswers = [], savedBoards = [], events}: any = {}) {
-  const originalLoad = Module._load;
-  const logs = [];
-  const promptCalls = [];
-  const queuedAnswers = Array.isArray(promptAnswers) ? [...promptAnswers] : [promptAnswers];
-  const modelState = {
-    boards: savedBoards.map((board, index) => ({
-      $id: `board-${index + 1}`,
-      index: index + 1,
-      ...createBoard(board)
-    })),
-    addCalls: [],
-    saveCalls: [],
-    removeCalls: [],
-    useCalls: []
-  };
-
-  delete require.cache[require.resolve(boardListsModulePath)];
-  delete require.cache[require.resolve(promptSelectionModulePath)];
-
-  Module._load = function patchedLoad(request, parent, isMain) {
-    const isPromptSelectionHelper = parent && parent.filename && parent.filename.endsWith(path.join('utils', 'prompt-index-selection.ts'));
-
-    if (request === '../utils/prompts' || request === '../utils/prompts.ts' || (isPromptSelectionHelper && (request === './prompts' || request === './prompts.ts'))) {
-      return {
-        prompt: async (questions) => {
-          promptCalls.push(questions);
-
-          if (queuedAnswers.length === 0) {
-            throw new Error('No prompt answers left');
-          }
-
-          return queuedAnswers.shift();
-        }
-      };
-    }
-
-    if (request === '../utils' || request === '../utils/index.ts' || (isPromptSelectionHelper && (request === './' || request === './index.ts'))) {
-      return {
-        required: () => true,
-            log: Object.assign(
-            (message) => {
-              if (events) {
-                events.push('log');
-              }
-              logs.push(message);
-            },
-            {
-              info(message) {
-                if (events) {
-                  events.push('log.info');
-                }
-                logs.push(message);
-              },
-              pointerSmall(message) {
-                if (events) {
-                  events.push('log.pointerSmall');
-                }
-                logs.push(message);
-              },
-              warning(message) {
-                if (events) {
-                  events.push('log.warning');
-                }
-                logs.push(message);
-              },
-              cross(message) {
-                if (events) {
-                  events.push('log.cross');
-                }
-                logs.push(message);
-              }
-            }
-        )
-      };
-    }
-
-    if (request === './model' || request === './model.ts') {
-      return {
-        find() {
-          return modelState.boards;
-        },
-        findOne(query: any = {}) {
-          if (Object.prototype.hasOwnProperty.call(query, 'index')) {
-            return modelState.boards.find(item => item.index === query.index);
-          }
-
-          if (Object.prototype.hasOwnProperty.call(query, 'current')) {
-            return modelState.boards.find(item => item.current === query.current);
-          }
-
-          return modelState.boards[0];
-        },
-        getCurrent() {
-          return modelState.boards.find(item => item.current);
-        },
-        getFirst() {
-          return modelState.boards[0];
-        },
-        add(board) {
-          modelState.addCalls.push(board);
-          const inserted = {
-            $id: `board-${modelState.boards.length + 1}`,
-            index: modelState.boards.length + 1,
-            current: true,
-            ...createBoard(board)
-          };
-          modelState.boards.forEach(item => {
-            item.current = false;
-          });
-          modelState.boards.push(inserted);
-          return inserted;
-        },
-        save(item) {
-          modelState.saveCalls.push({index: item.index, title: item.title, description: item.description});
-          return item;
-        },
-        use(id) {
-          modelState.useCalls.push(id);
-          modelState.boards.forEach(item => {
-            item.current = item.$id === id;
-          });
-        },
-        remove(item) {
-          modelState.removeCalls.push(item ? item.index : item);
-
-          if (!item) {
-            modelState.boards = [];
-            return;
-          }
-
-          modelState.boards = modelState.boards
-            .filter(current => current.$id !== item.$id)
-            .map((current, index) => ({...current, index: index + 1}));
-        }
-      };
-    }
-
-    if (request === 'lodash/isUndefined') {
-      return value => typeof value === 'undefined';
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const BoardLists = require(boardListsModulePath);
-    return {BoardLists, logs, promptCalls, modelState};
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(boardListsModulePath)];
-    delete require.cache[require.resolve(promptSelectionModulePath)];
+const cases = [
+  {
+    name: "board-list --add crea un board con set simple default aceptado rápidamente",
+    args: ["--add-board"],
+    steps: [
+      { waitFor: "Title of the board" },
+      { type: "Product" },
+      { press: "ENTER" },
+      { waitFor: "Description of the board" },
+      { type: "Delivery flow" },
+      { press: "ENTER" },
+      { waitFor: "Initial columns" },
+      { press: "ENTER" },
+      { waitFor: "Default column for new cards" },
+      { checkpoint: "default-columns" },
+      { press: "ENTER" }
+    ],
+    action: "add"
+  },
+  // BoardLists.details has no public CLI flag. Its user intent is inspected
+  // through the real board selector and details overlay, not a private call.
+  {
+    name: "board-list --details usa selección interactiva como única vía",
+    args: [],
+    steps: [
+      { clickText: "Board" },
+      { waitFor: "Backlog" },
+      { checkpoint: "board-columns" },
+      { doubleClickText: "Product" },
+      { waitFor: "Delivery" },
+      { checkpoint: "board-details" },
+      { press: "ESCAPE" },
+      { clickText: "Todo" },
+      { press: "CTRL_C" }
+    ],
+    action: "details"
+  },
+  {
+    name: "board-list --edit usa selección interactiva como única vía",
+    args: ["--edit-board"],
+    steps: [
+      { waitFor: "Select the board to edit" },
+      { type: "Product" },
+      { checkpoint: "board-selection" },
+      { press: "ENTER" },
+      { waitFor: "Title of the board" },
+      { press: "CTRL_A" },
+      { type: "Product 2" },
+      { press: "ENTER" },
+      { waitFor: "Description of the board" },
+      { press: "CTRL_A" },
+      { type: "Updated" },
+      { press: "ENTER" }
+    ],
+    action: "edit"
+  },
+  {
+    name: "board-list --use usa selección interactiva como única vía",
+    args: ["--use-board"],
+    steps: [
+      { waitFor: "Select the board to use" },
+      { type: "Product" },
+      { checkpoint: "board-selection" },
+      { press: "ENTER" }
+    ],
+    action: "use"
+  },
+  {
+    name: "board-list --remove usa selección interactiva como única vía",
+    args: ["--remove-board"],
+    steps: [
+      { waitFor: "Select the boards to remove" },
+      { press: "SPACE" },
+      { press: "DOWN" },
+      { press: "DOWN" },
+      { press: "SPACE" },
+      { checkpoint: "board-selection" },
+      { press: "ENTER" }
+    ],
+    action: "remove"
   }
+];
+
+for (const entry of cases) {
+  test(entry.name, { concurrency: false }, async (context) => {
+    await withTempHome(
+      async (home) => {
+        const file = path.join(home, ".ilu", "boards.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const columns = ["Backlog", "Ready", "In Progress", "Done"].map((title, index) => ({
+          id: title.toLowerCase().replaceAll(" ", "-"),
+          title,
+          index: index + 1,
+          cards: [],
+          wipLimit: null
+        }));
+        const boards = ["Inbox", "Product", "Ops"].map((title, index) => ({
+          $id: index + 1,
+          index: index + 1,
+          current: index === (entry.action === "details" ? 1 : 0),
+          title,
+          description: title === "Product" ? "Delivery" : "Base",
+          defaultColumnId: "backlog",
+          columns
+        }));
+        const collection = loadDb("boards").getCollection("boards");
+        if (entry.action !== "add") {
+          for (const board of boards) {
+            collection.add(board);
+          }
+        }
+        const result = await captureIluScenario({
+          testName: context.name,
+          command: [
+            "env",
+            `HOME=${home}`,
+            "node",
+            path.resolve(import.meta.dirname, "..", "bin/cli.js"),
+            entry.action === "details" ? "ui" : "board",
+            ...entry.args
+          ],
+          scenario: "cliScript",
+          input: { steps: entry.steps },
+          viewport: { cols: 110, rows: 36 }
+        });
+        assert.equal(result.exitCode, 0);
+        const saved = JSON.parse(fs.readFileSync(file, "utf8")).collections.boards.data;
+        if (entry.action === "add") {
+          assert.equal(saved.length, 1);
+          assert.equal(saved[0].title, "Product");
+          assert.equal(saved[0].description, "Delivery flow");
+          assert.deepEqual(
+            saved[0].columns.map((column) => column.title),
+            columns.map((column) => column.title)
+          );
+          assert.equal(saved[0].defaultColumnId, saved[0].columns[0].id);
+          assert.ok(saved[0].columns.every((column) => column.cards.length === 0));
+        }
+        if (entry.action === "edit") {
+          assert.deepEqual(
+            saved.map((board) => board.title),
+            ["Inbox", "Product 2", "Ops"]
+          );
+          assert.equal(saved[1].description, "Updated");
+        }
+        if (entry.action === "use") {
+          assert.deepEqual(
+            saved.filter((board) => board.current).map((board) => board.title),
+            ["Product"]
+          );
+          assert.deepEqual(
+            saved.map((board) => board.title),
+            ["Inbox", "Product", "Ops"]
+          );
+        }
+        if (entry.action === "remove") {
+          assert.deepEqual(
+            saved.map((board) => board.title),
+            ["Product"]
+          );
+          assert.equal(saved[0].current, true);
+          assert.equal(saved[0].index, 1);
+        }
+        if (entry.action === "details") {
+          assert.deepEqual(
+            saved.map((board) => ({
+              title: board.title,
+              description: board.description,
+              current: board.current,
+              columns: board.columns
+            })),
+            boards.map((board) => ({
+              title: board.title,
+              description: board.description,
+              current: board.current,
+              columns: board.columns
+            }))
+          );
+          assert.match(result.frames["board-details"], /Product/);
+          assert.match(result.frames["board-details"], /Delivery/);
+          assert.match(result.frames["board-columns"], /Backlog/);
+        }
+        assertCaptureArtifacts({
+          result,
+          checkpoints: [
+            ...entry.steps.flatMap((step) => ("checkpoint" in step ? [step.checkpoint] : [])),
+            "cli-result"
+          ],
+          testName: context.name,
+          diagnostic: (message) => context.diagnostic(message)
+        });
+      },
+      { prefix: "ilu-board-lists-physical-", testName: context.name }
+    );
+  });
 }
-
-test('board-list --add crea un board con set simple default aceptado rápidamente', {concurrency: false}, async () => {
-  const {BoardLists, promptCalls, modelState, logs} = loadBoardListsWithStubs({
-    promptAnswers: [
-      {title: 'Product', description: 'Delivery flow', columns: ''},
-      {defaultColumnId: 'backlog'}
-    ]
-  });
-
-  await BoardLists.add();
-
-  assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].name, 'title');
-  assert.equal(promptCalls[0][2].name, 'columns');
-  assert.equal(promptCalls[1][0].type, 'search');
-  assert.deepEqual(modelState.addCalls, [{
-    title: 'Product',
-    description: 'Delivery flow',
-    columns: SIMPLE_DEFAULT_COLUMNS.map(title => ({title})),
-    defaultColumnId: 'backlog'
-  }]);
-  assert.deepEqual(modelState.boards[0].columns.map(column => ({id: column.id, title: column.title})), [
-    {id: 'backlog', title: 'Backlog'},
-    {id: 'ready', title: 'Ready'},
-    {id: 'in-progress', title: 'In Progress'},
-    {id: 'done', title: 'Done'}
-  ]);
-  assert.equal(modelState.boards[0].defaultColumnId, 'backlog');
-  assert.ok(logs.some(entry => /Product/.test(entry)));
-});
-
-test('board-list --details usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {BoardLists, logs, promptCalls} = loadBoardListsWithStubs({
-    savedBoards: [
-      {title: 'Inbox', description: 'Base'},
-      {title: 'Product', description: 'Delivery', columns: [{title: 'Backlog', cards: [{title: 'A'}]}]}
-    ],
-    promptAnswers: [{index: 2}]
-  });
-
-  await BoardLists.details();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'search');
-  assert.ok(logs.some(entry => /Product/.test(entry)));
-  assert.ok(logs.some(entry => /Delivery/.test(entry)));
-  assert.ok(logs.some(entry => /Backlog/.test(entry)));
-});
-
-test('board-list --edit usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {BoardLists, promptCalls, modelState} = loadBoardListsWithStubs({
-    savedBoards: [
-      {title: 'Inbox', description: 'Base'},
-      {title: 'Product', description: 'Delivery'}
-    ],
-    promptAnswers: [
-      {index: 2},
-      {title: 'Product 2', description: 'Updated'}
-    ]
-  });
-
-  await BoardLists.edit();
-
-  assert.equal(promptCalls.length, 2);
-  assert.equal(promptCalls[0][0].type, 'search');
-  assert.equal(promptCalls[1][0].name, 'title');
-  assert.deepEqual(modelState.saveCalls, [
-    {index: 2, title: 'Product 2', description: 'Updated'}
-  ]);
-});
-
-test('board-list --use usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {BoardLists, promptCalls, modelState} = loadBoardListsWithStubs({
-    savedBoards: [
-      {title: 'Inbox', current: true},
-      {title: 'Product'}
-    ],
-    promptAnswers: [{index: 2}]
-  });
-
-  await BoardLists.use();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'search');
-  assert.deepEqual(modelState.useCalls, ['board-2']);
-  assert.equal(modelState.boards[1].current, true);
-});
-
-test('board-list --remove usa selección interactiva como única vía', {concurrency: false}, async () => {
-  const {BoardLists, promptCalls, modelState} = loadBoardListsWithStubs({
-    savedBoards: [
-      {title: 'Inbox', current: true},
-      {title: 'Product'},
-      {title: 'Ops'}
-    ],
-    promptAnswers: [{indexes: [1, 3]}]
-  });
-
-  await BoardLists.remove();
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'checkbox');
-  assert.deepEqual(modelState.removeCalls, [1, 3]);
-  assert.deepEqual(modelState.boards.map(item => item.title), ['Product']);
-  assert.deepEqual(modelState.useCalls, ['board-2']);
-});

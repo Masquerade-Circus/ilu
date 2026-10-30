@@ -1,437 +1,176 @@
-import 'colors';
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import path from 'node:path';
-import Module, { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const clocksModulePath = path.join(repoRoot, 'clocks', 'clocks.ts');
-const priorityPromptModulePath = path.join(repoRoot, 'clocks', 'priority-prompt.ts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { withTempHome } from "../support/home-sandbox.ts";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
 
-function loadClocksWithStubs({promptAnswers, priorityMoves, savedClocks = [], events}: any = {}) {
-  const originalLoad = Module._load;
-  const logs = [];
-  const promptCalls = [];
-  const queuedAnswers = Array.isArray(promptAnswers) ? [...promptAnswers] : [promptAnswers];
-  const queuedPriorityMoves = Array.isArray(priorityMoves) ? [...priorityMoves] : [priorityMoves];
-  const modelState = {
-    clocks: savedClocks.map(clock => ({...clock})),
-    addCalls: [],
-    removeCalls: [],
-    moveCalls: []
-  };
+const cases = [
+  // The actual search cannot return Mars/Olympus. The observable replacement
+  // proves an invalid zone cannot be selected or persisted, not a private Intl call.
+  { name: "clock valida timezone con Intl antes de persistir", action: "invalid-zone" },
+  { name: "clock --show no limpia la terminal antes de renderizar los relojes", action: "show-canary" },
+  { name: "clock --add usa búsqueda Valyrian con todos los timezones disponibles y resuelve alias utc", action: "add" },
+  { name: "clock --remove sin posición permite eliminar múltiples relojes seleccionados", action: "remove-many" },
+  { name: "clock --remove por posición mantiene fast path", action: "remove-position" },
+  { name: "clock --priority reordena relojes guardados y show refleja el nuevo orden", action: "priority" },
+  { name: "clock priority prompt construye choices para prompts nativos", action: "choices" },
+  { name: "clock priority prompt rechaza destino decimal desde la validación del prompt", action: "invalid-position" },
+  { name: "clock actions enruta opts.priority antes del show por defecto", action: "priority" },
+  { name: "clock --priority no intenta reordenar cuando hay menos de dos relojes", action: "single-clock" },
+  { name: "clock show lista todos los relojes con hora antes del nombre y timezone", action: "show" }
+];
 
-  delete require.cache[require.resolve(clocksModulePath)];
-
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === '../utils/prompts' || request === '../utils/prompts.ts') {
-      return {
-        prompt: async (questions) => {
-          promptCalls.push(questions);
-
-          if (queuedAnswers.length === 0) {
-            throw new Error('No prompt answers left');
-          }
-
-          return queuedAnswers.shift();
-        }
-      };
-    }
-
-    if (request === '../utils' || request === '../utils/index.ts') {
-      return {
-        log: Object.assign(
-          (message) => {
-            if (events) {
-              events.push('log');
-            }
-            logs.push(message);
-          },
-          {
-            info(message) {
-              if (events) {
-                events.push('log.info');
-              }
-              logs.push(message);
-            },
-            pointerSmall(message) {
-              if (events) {
-                events.push('log.pointerSmall');
-              }
-              logs.push(message);
-            },
-            cross(message) {
-              if (events) {
-                events.push('log.cross');
-              }
-              logs.push(message);
-            }
-          }
-        )
-      };
-    }
-
-    if (request === './model' || request === './model.ts') {
-      return {
-        add(clock) {
-          modelState.addCalls.push(clock);
-          modelState.clocks.push(clock);
-        },
-        find() {
-          return modelState.clocks;
-        },
-        get(index) {
-          return modelState.clocks[index - 1];
-        },
-        remove(index) {
-          modelState.removeCalls.push(index);
-          if (typeof index === 'number') {
-            modelState.clocks.splice(index - 1, 1);
-            return;
-          }
-
-          if (Array.isArray(index)) {
-            [...index]
-              .sort((left, right) => right - left)
-              .forEach(position => {
-                modelState.clocks.splice(position - 1, 1);
-              });
-            return;
-          }
-
-          modelState.clocks = [];
-        },
-        move(move) {
-          modelState.moveCalls.push(move);
-          const [clock] = modelState.clocks.splice(move.fromPosition - 1, 1);
-          if (clock) {
-            modelState.clocks.splice(move.toPosition - 1, 0, clock);
+for (const entry of cases) {
+  test(entry.name, { concurrency: false }, async (context) => {
+    await withTempHome(
+      async (home) => {
+        const file = path.join(home, ".ilu", "clocks.json");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const clocks = [
+          { name: "CDMX", timezone: "America/Mexico_City" },
+          { name: "Madrid", timezone: "Europe/Madrid" },
+          { name: "UTC", timezone: "Etc/UTC" }
+        ].slice(0, entry.action === "single-clock" ? 1 : 3);
+        fs.writeFileSync(file, JSON.stringify(clocks));
+        const before = fs.readFileSync(file, "utf8");
+        const steps: Record<string, string>[] = [];
+        let args = ["clock"];
+        if (entry.action === "invalid-zone" || entry.action === "add") {
+          args.push("--add");
+          steps.push(
+            { waitFor: "Search and select a timezone" },
+            { type: entry.action === "add" ? "utc" : "Mars/Olympus" }
+          );
+          if (entry.action === "add") {
+            steps.push(
+              { checkpoint: "zone-search" },
+              { press: "ENTER" },
+              { waitFor: "Name of the clock" },
+              { type: "Universal" },
+              { checkpoint: "clock-name" },
+              { press: "ENTER" }
+            );
+          } else {
+            steps.push({ waitFor: "No matching", flags: "i" }, { checkpoint: "invalid-zone" }, { press: "CTRL_C" });
           }
         }
-      };
-    }
-
-    if (request === './priority-prompt' || request === './priority-prompt.ts') {
-      return async (options) => {
-        promptCalls.push([{type: 'clock-priority', ...options}]);
-
-        if (queuedPriorityMoves.length === 0) {
-          throw new Error('No priority moves left');
+        if (entry.action === "priority" || entry.action === "choices" || entry.action === "invalid-position") {
+          args.push("--priority");
+          steps.push(
+            { waitFor: "Select the clock to move" },
+            { checkpoint: "clock-choices" },
+            { type: "UTC" },
+            { press: "ENTER" },
+            { waitFor: "to position" },
+            { press: "CTRL_A" },
+            { type: entry.action === "invalid-position" ? "1.5" : "1" },
+            { press: "ENTER" }
+          );
+          if (entry.action === "invalid-position") {
+            steps.push(
+              { waitFor: "whole|integer", flags: "i" },
+              { checkpoint: "invalid-position" },
+              { press: "CTRL_C" }
+            );
+          }
         }
-
-        return queuedPriorityMoves.shift();
-      };
-    }
-
-    if (request === 'lodash/isUndefined') {
-      return value => typeof value === 'undefined';
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const Clocks = require(clocksModulePath).default;
-    return {Clocks, logs, modelState, promptCalls};
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(clocksModulePath)];
-  }
-}
-
-function withProcessStubs(run) {
-  const originalExit = process.exit;
-  const exitCalls = [];
-
-  process.exit = (code) => {
-    exitCalls.push(code);
-    throw new Error(`process.exit:${code}`);
-  };
-
-  return run({exitCalls}).finally(() => {
-    process.exit = originalExit;
-  });
-}
-
-function withIntlDateTimeFormatStub(formattedTimes, run) {
-  const originalDateTimeFormat = Intl.DateTimeFormat;
-
-  (Intl as any).DateTimeFormat = function DateTimeFormatStub(locale, options: any = {}) {
-    return {
-      format() {
-        return formattedTimes[options.timeZone] || '00:00:00';
-      }
-    };
-  };
-
-  return Promise.resolve()
-    .then(run)
-    .finally(() => {
-      Intl.DateTimeFormat = originalDateTimeFormat;
-    });
-}
-
-test('clock valida timezone con Intl antes de persistir', {concurrency: false}, async () => {
-  const {Clocks, modelState} = loadClocksWithStubs({
-    promptAnswers: [
-      {timezone: 'Mars/Olympus'},
-      {name: 'Base'}
-    ]
-  });
-
-  await withProcessStubs(async ({exitCalls}) => {
-    await assert.rejects(
-      Clocks.add(),
-      /process\.exit:1/
+        if (entry.action === "single-clock") {
+          args.push("--priority");
+        }
+        if (entry.action === "remove-position") {
+          args.push("--remove", "2");
+        }
+        if (entry.action === "remove-many") {
+          args.push("--remove");
+          steps.push(
+            { waitFor: "Select clocks to remove" },
+            { press: "SPACE" },
+            { press: "DOWN" },
+            { press: "DOWN" },
+            { press: "SPACE" },
+            { checkpoint: "clock-selection" },
+            { press: "ENTER" }
+          );
+        }
+        const bin = path.resolve(import.meta.dirname, "..", "bin/cli.js");
+        const command =
+          entry.action === "show-canary"
+            ? [
+                "env",
+                `HOME=${home}`,
+                "sh",
+                "-c",
+                'printf "Preexisting clock content\\n"; exec node "$1" clock',
+                "ilu-capture",
+                bin
+              ]
+            : ["env", `HOME=${home}`, "node", bin, ...args];
+        const result = await captureIluScenario({
+          testName: context.name,
+          command,
+          scenario: "cliScript",
+          input: { steps },
+          viewport: { cols: 120, rows: 38 }
+        });
+        const invalid = entry.action === "invalid-zone" || entry.action === "invalid-position";
+        assert.equal(result.exitCode, invalid ? 1 : 0);
+        const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (invalid || entry.action.startsWith("show") || entry.action === "single-clock") {
+          assert.equal(fs.readFileSync(file, "utf8"), before);
+        }
+        if (entry.action === "add") {
+          assert.deepEqual(saved, [...clocks, { name: "Universal", timezone: "Etc/UTC" }]);
+          assert.match(result.frames["zone-search"], /Etc\/UTC/);
+          assert.match(result.currentScreen, /Universal/);
+        }
+        if (entry.action === "remove-many") {
+          assert.deepEqual(saved, [clocks[1]]);
+          assert.match(result.currentScreen, /Madrid/);
+        }
+        if (entry.action === "remove-position") {
+          assert.deepEqual(saved, [clocks[0], clocks[2]]);
+        }
+        if (entry.action === "priority" || entry.action === "choices") {
+          assert.deepEqual(saved, [clocks[2], clocks[0], clocks[1]]);
+          assert.ok(result.currentScreen.indexOf("UTC") < result.currentScreen.indexOf("CDMX"));
+          assert.ok(result.currentScreen.indexOf("CDMX") < result.currentScreen.indexOf("Madrid"));
+        }
+        if (entry.action === "choices") {
+          for (const clock of clocks) {
+            assert.ok(result.frames["clock-choices"].includes(clock.name));
+            assert.ok(result.frames["clock-choices"].includes(clock.timezone));
+          }
+        }
+        if (entry.action === "single-clock") {
+          assert.match(result.currentScreen, /at least two clocks/i);
+          assert.match(result.currentScreen, /CDMX/);
+          assert.doesNotMatch(result.currentScreen, /to position/);
+        }
+        if (entry.action === "show-canary") {
+          assert.match(result.currentScreen, /Preexisting clock content/);
+        }
+        if (entry.action.startsWith("show")) {
+          for (const clock of clocks) {
+            const line = result.currentScreen.split("\n").find((line) => line.includes(clock.name));
+            assert.equal(typeof line, "string");
+            assert.match(line, /\d{1,2}:\d{2}:\d{2}/);
+            assert.ok(line.search(/\d{1,2}:\d{2}:\d{2}/) < line.indexOf(clock.name));
+            assert.ok(line.indexOf(clock.name) < line.indexOf(clock.timezone));
+          }
+        }
+        assertCaptureArtifacts({
+          result,
+          checkpoints: [
+            ...steps.flatMap((step) => (typeof step.checkpoint === "string" ? [step.checkpoint] : [])),
+            "cli-result"
+          ],
+          testName: context.name,
+          diagnostic: (message) => context.diagnostic(message)
+        });
+      },
+      { prefix: "ilu-clocks-physical-", testName: context.name }
     );
-
-    assert.deepEqual(exitCalls, [1]);
   });
-
-  assert.deepEqual(modelState.addCalls, []);
-});
-
-test('clock --show no limpia la terminal antes de renderizar los relojes', {concurrency: false}, async () => {
-  const events = [];
-  const {Clocks, logs} = loadClocksWithStubs({
-    events,
-    savedClocks: [
-      {timezone: 'America/Mexico_City', name: 'CDMX'}
-    ]
-  });
-  const originalConsoleClear = console.clear;
-
-  console.clear = () => {
-    events.push('clear');
-  };
-
-  try {
-    await withIntlDateTimeFormatStub({
-      'America/Mexico_City': '10:15:20'
-    }, async () => {
-      Clocks.show();
-    });
-  } finally {
-    console.clear = originalConsoleClear;
-  }
-
-  assert.deepEqual(events, ['log.pointerSmall']);
-  assert.ok(logs.some(entry => /CDMX/.test(entry)));
-});
-
-test('clock --add usa búsqueda Valyrian con todos los timezones disponibles y resuelve alias utc', {concurrency: false}, async () => {
-  const originalSupportedValuesOf = Intl.supportedValuesOf;
-  Intl.supportedValuesOf = () => [
-    'America/Mexico_City',
-    'America/Monterrey',
-    'Europe/Madrid'
-  ];
-
-  try {
-    const {Clocks, modelState, promptCalls} = loadClocksWithStubs({
-      promptAnswers: [
-        {timezone: 'Etc/UTC'},
-        {name: 'CDMX'}
-      ]
-    });
-
-    await withIntlDateTimeFormatStub({
-      'Etc/UTC': '10:15:20'
-    }, async () => {
-      await Clocks.add();
-    });
-
-    assert.equal(promptCalls.length, 2);
-    assert.equal(promptCalls[0][0].type, 'search');
-    assert.equal(promptCalls[0][0].name, 'timezone');
-    assert.deepEqual(
-      promptCalls[0][0].choices.map(choice => choice.value),
-      ['Etc/UTC', 'America/Mexico_City', 'America/Monterrey', 'Europe/Madrid']
-    );
-    assert.equal(promptCalls[1][0].name, 'name');
-    assert.deepEqual(modelState.addCalls, [{timezone: 'Etc/UTC', name: 'CDMX'}]);
-  } finally {
-    Intl.supportedValuesOf = originalSupportedValuesOf;
-  }
-});
-
-test('clock --remove sin posición permite eliminar múltiples relojes seleccionados', {concurrency: false}, async () => {
-  const {Clocks, modelState, promptCalls, logs} = loadClocksWithStubs({
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'Madrid', timezone: 'Europe/Madrid'},
-      {name: 'UTC', timezone: 'Etc/UTC'}
-    ],
-    promptAnswers: [
-      {indexes: [1, 3]}
-    ]
-  });
-
-  await withIntlDateTimeFormatStub({
-    'America/Mexico_City': '10:15:20'
-  }, async () => {
-    await Clocks.remove(true);
-  });
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'checkbox');
-  assert.equal(promptCalls[0][0].name, 'indexes');
-  assert.deepEqual(
-    promptCalls[0][0].choices.map(choice => choice.value),
-    [1, 2, 3]
-  );
-  assert.deepEqual(modelState.removeCalls, [[1, 3]]);
-  assert.deepEqual(modelState.clocks, [{name: 'Madrid', timezone: 'Europe/Madrid'}]);
-  assert.match(logs[0], /2 clocks have been removed/i);
-});
-
-test('clock --remove por posición mantiene fast path', {concurrency: false}, () => {
-  const {Clocks, modelState, logs, promptCalls} = loadClocksWithStubs({
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'Madrid', timezone: 'Europe/Madrid'}
-    ]
-  });
-
-  Clocks.remove(2);
-
-  assert.deepEqual(promptCalls, []);
-  assert.deepEqual(modelState.removeCalls, [2]);
-  assert.match(logs[0], /The clock "2" has been removed\./);
-});
-
-test('clock --priority reordena relojes guardados y show refleja el nuevo orden', {concurrency: false}, async () => {
-  const {Clocks, modelState, logs, promptCalls} = loadClocksWithStubs({
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'Madrid', timezone: 'Europe/Madrid'},
-      {name: 'UTC', timezone: 'Etc/UTC'}
-    ],
-    priorityMoves: [
-      {fromPosition: 3, toPosition: 1}
-    ]
-  });
-
-  await withIntlDateTimeFormatStub({
-    'America/Mexico_City': '10:15:20',
-    'Europe/Madrid': '17:15:20',
-    'Etc/UTC': '16:15:20'
-  }, async () => {
-    await Clocks.priority();
-  });
-
-  assert.equal(promptCalls.length, 1);
-  assert.equal(promptCalls[0][0].type, 'clock-priority');
-  assert.deepEqual(
-    promptCalls[0][0].clocks.map(clock => clock.name),
-    ['CDMX', 'Madrid', 'UTC']
-  );
-  assert.deepEqual(modelState.moveCalls, [{fromPosition: 3, toPosition: 1}]);
-  assert.deepEqual(modelState.clocks.map(clock => clock.name), ['UTC', 'CDMX', 'Madrid']);
-  assert.deepEqual(logs, [
-    `1 ${'16:15:20'.cyan.bold} - ${'UTC'.white} ${'(Etc/UTC)'.gray}`,
-    `2 ${'10:15:20'.cyan.bold} - ${'CDMX'.white} ${'(America/Mexico_City)'.gray}`,
-    `3 ${'17:15:20'.cyan.bold} - ${'Madrid'.white} ${'(Europe/Madrid)'.gray}`
-  ]);
-});
-
-test('clock priority prompt construye choices para prompts nativos', {concurrency: false}, () => {
-  const priorityPrompt = require(priorityPromptModulePath).default;
-  const clocks = [
-    {name: 'CDMX', timezone: 'America/Mexico_City'},
-    {name: 'Madrid', timezone: 'Europe/Madrid'},
-    {name: 'UTC', timezone: 'Etc/UTC'}
-  ];
-
-  assert.deepEqual(priorityPrompt.createClockChoices(clocks), [
-    {name: '1. CDMX (America/Mexico_City)', value: 1},
-    {name: '2. Madrid (Europe/Madrid)', value: 2},
-    {name: '3. UTC (Etc/UTC)', value: 3}
-  ]);
-});
-
-test('clock priority prompt rechaza destino decimal desde la validación del prompt', {concurrency: false}, async () => {
-  const priorityPrompt = require(priorityPromptModulePath).default;
-  const calls = [];
-  const promptsModule = {
-    async prompt(questions) {
-      calls.push(questions[0]);
-      return calls.length === 1 ? {fromPosition: 1} : {toPosition: 2};
-    }
-  };
-
-  const result = await priorityPrompt({
-    clocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'UTC', timezone: 'Etc/UTC'}
-    ],
-    promptsModule
-  });
-
-  assert.deepEqual(result, {fromPosition: 1, toPosition: 2});
-  assert.equal(typeof calls[1].validate, 'function');
-  assert.match(calls[1].validate(1.5), /whole number|integer/i);
-  assert.equal(calls[1].validate(2), true);
-});
-
-test('clock actions enruta opts.priority antes del show por defecto', {concurrency: false}, async () => {
-  const events = [];
-  const {Clocks, modelState} = loadClocksWithStubs({
-    events,
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'UTC', timezone: 'Etc/UTC'}
-    ],
-    priorityMoves: [
-      {fromPosition: 2, toPosition: 1}
-    ]
-  });
-
-  await Clocks.actions([], {priority: true});
-
-  assert.deepEqual(modelState.moveCalls, [{fromPosition: 2, toPosition: 1}]);
-  assert.deepEqual(events, ['log.pointerSmall', 'log.pointerSmall']);
-});
-
-test('clock --priority no intenta reordenar cuando hay menos de dos relojes', {concurrency: false}, async () => {
-  const {Clocks, modelState, logs, promptCalls} = loadClocksWithStubs({
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'}
-    ],
-    priorityMoves: [
-      {fromPosition: 1, toPosition: 1}
-    ]
-  });
-
-  await withIntlDateTimeFormatStub({
-    'America/Mexico_City': '10:15:20'
-  }, async () => {
-    await Clocks.priority();
-  });
-
-  assert.deepEqual(promptCalls, []);
-  assert.deepEqual(modelState.moveCalls, []);
-  assert.match(logs[0], /at least two clocks/i);
-  assert.match(logs[1], /CDMX/);
-});
-
-test('clock show lista todos los relojes con hora antes del nombre y timezone', {concurrency: false}, async () => {
-  const {Clocks, logs} = loadClocksWithStubs({
-    savedClocks: [
-      {name: 'CDMX', timezone: 'America/Mexico_City'},
-      {name: 'UTC', timezone: 'Etc/UTC'}
-    ]
-  });
-
-  await withIntlDateTimeFormatStub({
-    'America/Mexico_City': '10:15:20',
-    'Etc/UTC': '16:15:20'
-  }, async () => {
-    Clocks.show();
-  });
-
-  assert.deepEqual(logs, [
-    `1 ${'10:15:20'.cyan.bold} - ${'CDMX'.white} ${'(America/Mexico_City)'.gray}`,
-    `2 ${'16:15:20'.cyan.bold} - ${'UTC'.white} ${'(Etc/UTC)'.gray}`
-  ]);
-});
+}

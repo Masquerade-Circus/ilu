@@ -1,81 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as __cjsImport111 from 'valyrian.js';
-const { v } = __cjsImport111;
-import * as __cjsImport112 from '@valyrianjs/terminal';
-const { mountTerminal } = __cjsImport112;
-test('Valyrian Overlay modal shield blocks click-through to covered background hitboxes', () => {
-  let backgroundPresses = 0;
-  const session = mountTerminal(
-    v("terminal-screen", {title: 'Overlay hit test'},
-      v("terminal-button", {id: 'background', onpress: () => { backgroundPresses += 1; }}, 'Background action'),
-      v("terminal-overlay", {margin: {x: 0, y: 1}, trapFocus: true, backdrop: true, style: {background: '#000000'}},
-        v("terminal-text", null, 'Overlay covers this row visually')
-      )
-    ),
-    {cols: 40, rows: 6, runtime: 'headless'}
-  );
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 
-  session.clickAt(2, 2);
+// Preserve the shield guarantees through ilu's real task modal. The driver
+// remembers coordinates BEFORE opening the modal, then clicks that same cell
+// under its painted surface. It must not resolve the hidden target by ID.
+const cases = [
+  ['Valyrian Overlay modal shield blocks click-through to covered background hitboxes', [
+    {remember: ['todos']}, {locate: {text: 'Capture task', as: 'covered-task'}},
+    {click: 'Add task'}, {type: 'Shield draft'}, {clickRemembered: 'covered-task'},
+    {expect: {text: 'Shield draft'}}, {unchanged: ['todos']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Valyrian Overlay trapFocus keeps sequential focus inside overlay and blocks direct focusAt on covered background', [
+    {remember: ['todos']}, {locate: {text: 'Capture task', as: 'covered-task'}},
+    {click: 'Add task'}, {type: 'Trapped draft'},
+    {traverseModal: {cycles: 2, direction: 'forward', forbidBackground: true}},
+    {traverseModal: {cycles: 2, direction: 'backward', forbidBackground: true}},
+    {clickRemembered: 'covered-task'}, {expect: {text: 'Trapped draft'}},
+    {unchanged: ['todos']}, {screenshot: 'result'}, {click: 'Cancel'},
+    {click: 'Add task'}, {type: 'Modal remains usable'}, {click: 'Save'},
+    {data: {domain: 'todos', title: 'Modal remains usable', count: 1}}
+  ]],
+  ['Valyrian Overlay modal shield blocks empty-area click-through while preserving modal controls', [
+    {remember: ['todos']}, {locate: {text: 'Capture task', as: 'covered-task'}},
+    {click: 'Add task'}, {type: 'Modal control works'}, {clickRemembered: 'covered-task'},
+    {unchanged: ['todos']}, {screenshot: 'result'}, {click: 'Save'},
+    {data: {domain: 'todos', title: 'Modal control works', count: 1}},
+    {data: {domain: 'todos', title: 'Capture task', done: false}}
+  ]]
+] as const;
 
-  assert.equal(backgroundPresses, 0);
-  session.destroy();
-});
-
-test('Valyrian Overlay trapFocus keeps sequential focus inside overlay and blocks direct focusAt on covered background', () => {
-  let backgroundPresses = 0;
-  let modalPresses = 0;
-  const session = mountTerminal(
-    v("terminal-screen", {title: 'Overlay focus test'},
-      v("terminal-button", {id: 'background', onpress: () => { backgroundPresses += 1; }}, 'Background action'),
-      v("terminal-overlay", {margin: {x: 0, y: 1}, trapFocus: true, backdrop: true, style: {background: '#000000'}},
-        v("terminal-focus-scope", null,
-          v("terminal-text", null, 'Overlay covers background row'),
-          v("terminal-button", {id: 'modal', onpress: () => { modalPresses += 1; }}, 'Modal action')
-        )
-      )
-    ),
-    {cols: 40, rows: 6, runtime: 'headless'}
-  );
-
-  session.focus('modal');
-  session.focusNext();
-  session.dispatchKey('ENTER');
-  assert.equal(modalPresses, 1);
-  assert.equal(backgroundPresses, 0);
-
-  assert.equal(session.focusAt(2, 2), false);
-  session.dispatchKey('ENTER');
-  assert.equal(backgroundPresses, 0);
-  assert.equal(modalPresses, 2);
-
-  session.destroy();
-});
-
-
-test('Valyrian Overlay modal shield blocks empty-area click-through while preserving modal controls', () => {
-  let backgroundPresses = 0;
-  let modalPresses = 0;
-  const session = mountTerminal(
-    v("terminal-screen", {title: 'Overlay shield test'},
-      v("terminal-button", {id: 'background', onpress: () => { backgroundPresses += 1; }}, 'Background action'),
-      v("terminal-overlay", {margin: {x: 0, y: 1}, trapFocus: true, backdrop: true, style: {background: '#000000'}},
-        v("terminal-focus-scope", null,
-          v("terminal-text", null, 'Overlay covers background row'),
-          v("terminal-button", {id: 'modal', onpress: () => { modalPresses += 1; }}, 'Modal action')
-        )
-      )
-    ),
-    {cols: 40, rows: 6, runtime: 'headless'}
-  );
-
-  session.clickAt(2, 2);
-  assert.equal(backgroundPresses, 0);
-  assert.equal(modalPresses, 0);
-
-  session.clickAt(2, 3);
-  assert.equal(backgroundPresses, 0);
-  assert.equal(modalPresses, 1);
-
-  session.destroy();
-});
+for (const [name, steps] of cases) {
+  test(name, async context => {
+    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {steps, finish: 'normal-exit'}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
+  });
+}

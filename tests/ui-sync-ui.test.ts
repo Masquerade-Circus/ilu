@@ -1,406 +1,88 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { createRequire } from 'node:module';
-import { withTempHome } from '../support/home-sandbox.ts';
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(import.meta.dirname, '..');
-import 'tsx/cjs';
-const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 
-function stripAnsi(output) {
-  return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-}
+// syncBoundary controls only the external Git transport, never syncActions,
+// createTuiSyncClient or application state. Every remote is capture-owned. SSH
+// acceptance uses a controlled transport, with unmatched network denied.
+const cases = [
+  ['terminal integration Sync LogView preserves readable ordered details with its default renderer', [
+    {key: 'CTRL_5'},
+    {expect: {orderedStatusDetails: ['status', 'pending-remote'], minimumVisibleDetails: 2, lastDetail: 'pending-remote', absent: '[object Object]'}},
+    {screenshot: 'result'}
+  ]],
+  ['Sync app opens from top nav and shows detailed status', [
+    {click: 'Sync', area: 'nav'}, {expect: {texts: ['Status:', 'Retry sync', 'Enable sync', 'Disable sync', 'Set up sync'], sameRowOrdered: ['Todo', 'Notes', 'Board', 'Clocks'], withinViewport: true}}, {screenshot: 'result'}
+  ]],
+  ['Sync app renders action controls in the bottom action area', [
+    {key: 'CTRL_5'}, {expect: {pageBottomActions: ['Retry sync', 'Enable sync', 'Disable sync', 'Set up sync'], withinViewport: true}}, {screenshot: 'result'}
+  ]],
+  ['Sync retry updates visible status through the utility command path', [
+    {key: 'CTRL_5'}, {click: 'Retry sync'}, {expect: {syncStatus: 'synced', absent: ['CANARY_SECRET', 'stack']}},
+    {remoteData: {matchesLocal: true}}, {screenshot: 'result'}
+  ]],
+  ['Sync setup overlay pins setup actions to the overlay bottom', [
+    {key: 'CTRL_5'}, {click: 'Set up sync'}, {expect: {overlayBottomActions: ['Confirm setup', 'Set up sync', 'Cancel'], withinViewport: true}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['Ctrl+C exits when Help is above Sync setup overlay', [
+    {key: 'CTRL_5'}, {click: 'Set up sync'}, {key: 'CTRL_K'},
+    {expect: {text: 'Sync help'}}, {screenshot: 'result'}, {key: 'CTRL_C'}, {expectExit: 0}
+  ]],
+  ['Sync init form requires explicit confirmation and keeps test remote under repo tmp', [
+    {remember: ['sync-config']}, {key: 'CTRL_5'}, {click: 'Set up sync'}, {click: 'Set up sync', area: 'overlay'},
+    {expect: {invalid: true}}, {unchanged: ['sync-config']},
+    {fill: {label: 'Remote URL', valueFrom: 'privateRemote'}},
+    {click: 'Set up sync', area: 'overlay'}, {expect: {invalid: true}}, {unchanged: ['sync-config']},
+    {click: 'Confirm setup'}, {click: 'Set up sync', area: 'overlay'},
+    {expect: {syncStatus: 'synced', absent: 'Remote URL'}},
+    {data: {domain: 'sync-config', enabled: true, branch: 'main', remoteUnderPrivateWorkspace: true}}, {screenshot: 'result'}
+  ], 'unconfigured'],
+  ['Sync init blocks embedded credentials before calling the action', [
+    {remember: ['sync-config']}, {key: 'CTRL_5'}, {click: 'Set up sync'},
+    {fill: {label: 'Remote URL', text: 'https://user:CANARY_SECRET@example.test/repo.git'}},
+    {click: 'Confirm setup'}, {click: 'Set up sync', area: 'overlay'},
+    {expect: {invalid: true, absent: 'CANARY_SECRET'}}, {remoteOperations: {init: 0}},
+    {unchanged: ['sync-config']}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ], 'unconfigured'],
+  ['Sync init blocks SSH password before calling the action', [
+    {remember: ['sync-config']}, {key: 'CTRL_5'}, {click: 'Set up sync'},
+    {fill: {label: 'Remote URL', text: 'ssh://git:CANARY_SECRET@example.test/repo.git'}},
+    {click: 'Confirm setup'}, {click: 'Set up sync', area: 'overlay'},
+    {expect: {invalid: true, absent: 'CANARY_SECRET'}}, {remoteOperations: {init: 0}},
+    {unchanged: ['sync-config']}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ], 'unconfigured'],
+  ['Sync init form allows SSH remotes with a normal user', [
+    {syncBoundary: {fixture: 'controlled-ssh-remote', denyOtherConnections: true}},
+    {key: 'CTRL_5'}, {click: 'Set up sync'}, {fill: {label: 'Remote URL', text: 'ssh://git@example.test/repo.git'}},
+    {click: 'Confirm setup'}, {click: 'Set up sync', area: 'overlay'},
+    {expect: {syncStatus: 'synced', absent: 'Remote URL'}},
+    {data: {domain: 'sync-config', remoteUrl: 'ssh://git@example.test/repo.git', branch: 'main', enabled: true}}, {screenshot: 'result'}
+  ], 'unconfigured'],
+  ['Esc keeps Sync app open when no secondary overlay is active', [
+    {key: 'CTRL_5'}, {key: 'ESCAPE'}, {expect: {text: 'Retry sync'}}, {screenshot: 'result'}
+  ]],
+  ['Sync enable and disable update status through visible utility controls', [
+    {key: 'CTRL_5'}, {click: 'Enable sync'}, {data: {domain: 'sync-config', enabled: true}},
+    {click: 'Disable sync'}, {data: {domain: 'sync-config', enabled: false}},
+    {expect: {syncStatus: 'off'}}, {screenshot: 'result'}
+  ], 'disabled'],
+  ['Sync utility prevents duplicate operation while a command is pending', [
+    {syncBoundary: {defer: 'retry', as: 'retry'}}, {key: 'CTRL_5'}, {click: 'Retry sync'}, {click: 'Retry sync'},
+    {remoteOperations: {retry: 1}}, {expect: {pending: true}}, {screenshot: 'result'},
+    {releaseSyncBoundary: 'retry'}, {expect: {syncStatus: 'synced', pending: false}}, {remoteData: {matchesLocal: true}}
+  ]],
+  ['Sync retry can replace the initial status load when status is still pending', [
+    {syncBoundary: {defer: 'initial-status', as: 'status', staleStatus: 'pending'}},
+    {key: 'CTRL_5'}, {click: 'Retry sync'}, {expect: {syncStatus: 'synced'}},
+    {releaseSyncBoundary: 'status'}, {expect: {syncStatus: 'synced', pending: false}}, {screenshot: 'result'}
+  ]]
+] as const;
 
-function visibleLines(output) {
-  return stripAnsi(output).split(/\r?\n/);
-}
-
-function baseSnapshot(overrides: any = {}) {
-  return {
-    todo: {title: 'Today', items: [], remaining: 0},
-    notes: {title: 'Notes list', items: [], remaining: 0},
-    board: {title: 'Board view', columns: [], totalCards: 0},
-    clocks: {items: [], remaining: 0},
-    ...overrides
-  };
-}
-
-function createSyncActions(calls) {
-  return {
-    status() {
-      calls.push(['status']);
-      return {ok: true, label: 'Pending sync', details: ['Status: Pending sync', 'Pending sync: yes']};
-    },
-    retry() {
-      calls.push(['retry']);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    },
-    enable() {
-      calls.push(['enable']);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    },
-    disable() {
-      calls.push(['disable']);
-      return {ok: true, label: 'Sync off', details: ['Status: Sync off']};
-    },
-    init(values) {
-      calls.push(['init', values]);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    }
-  };
-}
-
-test('terminal integration Sync LogView preserves readable ordered details with its default renderer', async () => {
-  await withTempHome(async () => {
-    const Ui = require(uiModulePath);
-    const details = Array.from({length: 20}, (_, index) => `Synthetic sync event ${String(index + 1).padStart(2, '0')}`);
-    const session = await Ui.createHeadlessSession({
-      snapshot: baseSnapshot(), state: {activeTab: 'Sync', utilities: {sync: {statusLoaded: true, details}}}
-    });
-    try {
-      const output = stripAnsi(session.output());
-      assert.ok(output.includes(details.at(-1)), 'the current tail of sync details must remain visible');
-      const visibleEvents = [...output.matchAll(/Synthetic sync event (\d+)/g)].map(match => Number(match[1]));
-      assert.ok(visibleEvents.length > 1, 'the log must display actual entry content');
-      assert.ok(visibleEvents.every((value, index) => index === 0 || value > visibleEvents[index - 1]), 'visible log entries must retain their order');
-      assert.doesNotMatch(output, /\[object Object\]/);
-    } finally {
-      await session.destroy();
-    }
+for (const [name, steps, fixture] of cases) {
+  test(name, async context => {
+    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {startupSync: {fixture: fixture ?? 'local-pending-private-remote', autoPull: false}, steps, externalIsolation: 'deny-unmatched', finish: 'normal-exit'}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
   });
-});
-
-test('Sync app opens from top nav and shows detailed status', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-
-  const output = session.output();
-  const lines = visibleLines(output);
-  const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line));
-
-  assert.deepEqual(calls, [['status']]);
-  assert.equal(session.state().activeTab, 'Sync');
-  assert.ok(navLine, 'expected global top nav');
-  assert.match(navLine, /Sync/);
-  assert.match(output, /Sync/);
-  assert.match(output, /Status: Pending sync/);
-  assert.match(output, /Retry sync/);
-  assert.match(output, /Enable sync/);
-  assert.match(output, /Disable sync/);
-  assert.match(output, /Set up sync/);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-
-test('Sync app renders action controls in the bottom action area', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  try {
-    session.click('tab-sync');
-
-    const lines = visibleLines(session.output());
-    const actionRow = lines.findIndex(line => /Retry sync/.test(line) && /Enable sync/.test(line) && /Disable sync/.test(line));
-    const setupRow = lines.findIndex(line => /Set up sync/.test(line));
-
-    assert.equal(actionRow, 22, `Sync primary actions must render in the fixed action area:
-${lines.join('\n')}`);
-    assert.equal(setupRow, 22, `Sync setup action must share the fixed action area:
-${lines.join('\n')}`);
-    assert.equal(lines.slice(2, 22).some(line => /Retry sync|Enable sync|Disable sync|Set up sync/.test(line)), false, `Sync panel body must stay for status/content only:
-${lines.join('\n')}`);
-    assert.equal(lines.filter(line => line.length > 80).length, 0);
-  } finally {
-    session.destroy();
-  }
-});
-
-test('Sync retry updates visible status through the utility command path', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-retry');
-
-  assert.deepEqual(calls, [['status'], ['retry']]);
-  assert.match(session.output(), /Status: Synced/);
-  assert.doesNotMatch(session.output(), /stack|\/home|token|secret/i);
-  session.destroy();
-});
-
-
-
-test('Sync setup overlay pins setup actions to the overlay bottom', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-setup');
-
-  const lines = visibleLines(session.output());
-  const actionRow = lines.findIndex(line => /Confirm setup/.test(line) && /Set up sync/.test(line) && /Cancel/.test(line));
-
-  assert.notEqual(actionRow, -1, `expected Sync setup actions:\n${lines.join('\n')}`);
-  assert.equal(actionRow, 20, `Sync setup actions must render on the last internal overlay row:\n${lines.join('\n')}`);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('Ctrl+C exits when Help is above Sync setup overlay', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  try {
-    session.click('tab-sync');
-    session.click('sync-setup');
-    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-
-    session.dispatchKey('CTRL_K');
-    assert.equal(session.state().overlay, 'help');
-    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-
-    session.dispatchKey('CTRL_C');
-
-    assert.equal(session.state().running, false);
-    assert.equal(session.state().overlay, 'help');
-    assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-  } finally {
-    session.destroy();
-  }
-});
-
-test('Sync init form requires explicit confirmation and keeps test remote under repo tmp', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-setup');
-
-  assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-  assert.match(session.output(), /Remote URL/);
-  assert.match(session.output(), /Branch/);
-  assert.match(session.output(), /Start sync with this remote and branch\?/);
-  assert.match(session.output(), /If this device and the remote already contain data,/);
-  assert.match(session.output(), /setup may stop to protect your files\./);
-
-  session.click('sync-init-start');
-
-  assert.deepEqual(calls, [['status']]);
-  assert.match(session.output(), /Remote URL is required\./);
-
-  session.focus('sync-init-remote');
-  session.dispatchText('./tmp/sync-ui-remote.git');
-  session.click('sync-init-confirm');
-  session.click('sync-init-start');
-
-  assert.deepEqual(calls.at(-1), ['init', {remoteUrl: './tmp/sync-ui-remote.git', branch: 'main', confirmed: true}]);
-  assert.equal(session.state().utilities.activeOverlay, null);
-  assert.match(session.output(), /Status: Synced/);
-  assert.doesNotMatch(session.output(), /api key|secret|provider|stack|\/home/i);
-  session.destroy();
-});
-
-test('Sync init blocks embedded credentials before calling the action', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    snapshot: baseSnapshot(),
-    state: {
-      utilities: {
-        sync: {
-          initForm: {
-            remoteUrl: 'https://user:token@example.test/repo.git',
-            branch: 'main',
-            confirmed: true
-          }
-        }
-      }
-    },
-    syncActions: createSyncActions(calls)
-  });
-
-  session.click('tab-sync');
-  session.click('sync-setup');
-  session.focus('sync-init-remote');
-  session.dispatchText('https://user:token@example.test/repo.git');
-  session.click('sync-init-confirm');
-  session.click('sync-init-start');
-
-  assert.deepEqual(calls, [['status']]);
-  assert.match(session.output(), /Remote URL must not include embedded credentials\./);
-  assert.doesNotMatch(session.output(), /token/);
-  session.destroy();
-});
-
-test('Sync init blocks SSH password before calling the action', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-setup');
-  session.focus('sync-init-remote');
-  session.dispatchText('ssh://git:token@example.test/repo.git');
-  session.click('sync-init-confirm');
-  session.click('sync-init-start');
-
-  assert.deepEqual(calls, [['status']]);
-  assert.match(session.output(), /Remote URL must not include embedded credentials\./);
-  assert.doesNotMatch(session.output(), /token/);
-  session.destroy();
-});
-
-test('Sync init form allows SSH remotes with a normal user', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-setup');
-  session.focus('sync-init-remote');
-  session.dispatchText('ssh://git@github.com/org/repo.git');
-  session.click('sync-init-confirm');
-  session.click('sync-init-start');
-
-  assert.deepEqual(calls.at(-1), ['init', {remoteUrl: 'ssh://git@github.com/org/repo.git', branch: 'main', confirmed: true}]);
-  assert.equal(session.state().utilities.activeOverlay, null);
-  assert.match(session.output(), /Status: Synced/);
-  session.destroy();
-});
-
-test('Esc keeps Sync app open when no secondary overlay is active', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.dispatchKey('ESCAPE');
-
-  assert.equal(session.state().utilities.activeOverlay, null);
-  assert.equal(session.state().running, true);
-  assert.match(session.output(), /Retry sync/);
-  session.destroy();
-});
-
-
-test('Sync enable and disable update status through visible utility controls', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions: createSyncActions(calls)});
-
-  session.click('tab-sync');
-  session.click('sync-enable');
-  assert.deepEqual(calls, [['status'], ['enable']]);
-  assert.match(session.output(), /Status: Synced/);
-
-  session.click('sync-disable');
-  assert.deepEqual(calls, [['status'], ['enable'], ['disable']]);
-  assert.match(session.output(), /Status: Sync off/);
-  session.destroy();
-});
-
-test('Sync utility prevents duplicate operation while a command is pending', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  let resolveRetry = null;
-  const syncActions = {
-    status() {
-      calls.push(['status']);
-      return {ok: true, label: 'Pending sync', details: ['Status: Pending sync']};
-    },
-    retry() {
-      calls.push(['retry']);
-      return new Promise(resolve => {
-        resolveRetry = () => resolve({ok: true, label: 'Synced', details: ['Status: Synced']});
-      });
-    },
-    enable() {
-      calls.push(['enable']);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    },
-    disable() {
-      calls.push(['disable']);
-      return {ok: true, label: 'Sync off', details: ['Status: Sync off']};
-    },
-    init(values) {
-      calls.push(['init', values]);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    }
-  };
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions});
-
-  session.click('tab-sync');
-  session.click('sync-retry');
-  session.click('sync-retry');
-
-  assert.deepEqual(calls, [['status'], ['retry']]);
-  assert.equal(session.state().utilities.sync.operation, 'retry');
-  assert.match(session.output(), /Pending sync/);
-
-  resolveRetry();
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.equal(session.state().utilities.sync.operation, null);
-  assert.match(session.output(), /Status: Synced/);
-  session.destroy();
-});
-
-test('Sync retry can replace the initial status load when status is still pending', async () => {
-  const Ui = require(uiModulePath);
-  const calls = [];
-  let resolveStatus = null;
-  const syncActions = {
-    status() {
-      calls.push(['status']);
-      return new Promise(resolve => {
-        resolveStatus = () => resolve({ok: true, label: 'Pending sync', details: ['Status: Pending sync']});
-      });
-    },
-    retry() {
-      calls.push(['retry']);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    },
-    enable() {
-      calls.push(['enable']);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    },
-    disable() {
-      calls.push(['disable']);
-      return {ok: true, label: 'Sync off', details: ['Status: Sync off']};
-    },
-    init(values) {
-      calls.push(['init', values]);
-      return {ok: true, label: 'Synced', details: ['Status: Synced']};
-    }
-  };
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot(), syncActions});
-
-  session.click('tab-sync');
-  assert.equal(session.state().utilities.sync.operation, 'status');
-
-  session.click('sync-retry');
-
-  assert.deepEqual(calls, [['status'], ['retry']]);
-  assert.equal(session.state().utilities.sync.operation, null);
-  assert.match(session.output(), /Status: Synced/);
-
-  resolveStatus();
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.equal(session.state().utilities.sync.operation, null);
-  assert.match(session.output(), /Status: Synced/);
-  assert.doesNotMatch(session.output(), /Status: Pending sync/);
-  session.destroy();
-});
+}

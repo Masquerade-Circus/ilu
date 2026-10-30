@@ -1,184 +1,58 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import * as __cjsImport103 from '../ui/modules/todos/actions';
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
 
-const { createTodoActions } = __cjsImport103;
-function createTodoModel() {
-  const calls = [];
-  const lists = [
-    {$id: 1, index: 1, title: 'Today', description: 'Now', current: true, labels: [], tasks: [
-      {title: 'Open task', description: 'Ship', done: false, labels: [{title: 'work'}]},
-      {title: 'Done task', description: '', done: true, labels: []}
-    ]},
-    {$id: 2, index: 2, title: 'Later', description: '', current: false, labels: [], tasks: []}
-  ];
+const lists = [
+  { title: "Today", description: "Now", current: true, tasks: [{ title: "Open task", description: "Ship", done: false, labels: [{ title: "work" }] }, { title: "Done task", description: "", done: true, labels: [] }] },
+  { title: "Later", description: "", current: false, tasks: [] }
+];
+const cases = [
+  {
+    name: "Todo adapter rejects invalid task input before model calls",
+    caseId: "todo-invalid-task",
+    journey: ["Submit Add task with a whitespace title", "Cancel the editor", "Open a separate empty list and attempt edit, completion and removal without an item", "Return to Today"],
+    expected: { invalidTaskSaved: false, originalTasksUnchanged: true, emptyListTasks: [] }
+  },
+  {
+    name: "Todo adapter rejects invalid reorder requests before model calls",
+    caseId: "todo-invalid-reorder",
+    journey: ["Focus Open task and press Shift+Up", "Open an empty list and press Shift+Down", "Use a non-move key, then return to Today"],
+    expected: { savedTaskTitles: ["Open task", "Done task"], emptyListTasks: [], unrelatedKeyMovedTask: false }
+  },
+  {
+    name: "Todo adapter reorders tasks through the model and treats end boundaries as no-ops",
+    caseId: "todo-reorder-boundaries",
+    journey: ["Move Done task up", "Assert visible and persisted order Done task, Open task", "Select the last Open task and move down", "Assert no change", "Move Open task up", "Restart and inspect Today"],
+    expected: { intermediateTaskTitles: ["Done task", "Open task"], lowerBoundaryUnchanged: true, savedTaskTitles: ["Open task", "Done task"], restoredTaskTitles: ["Open task", "Done task"] }
+  },
+  {
+    name: "Todo adapter calls model task APIs with trimmed values and preserves labels when editing",
+    caseId: "todo-crud-labels",
+    journey: ["Add '  Add UI  ' with '  Details  '", "Edit Open task to '  Edited  ' and '  New desc  '", "Inspect its labels before removal", "Complete Edited", "Reopen Done task", "Remove Edited", "Restart"],
+    expected: { addedTask: { title: "Add UI", description: "Details" }, editedTask: { title: "Edited", description: "New desc", labels: [{ title: "work" }] }, completedTitlesBeforeReopen: ["Edited", "Done task"], completedTitlesAfterReopen: ["Edited"], savedTaskTitles: ["Done task", "Add UI"], restoredTaskTitles: ["Done task", "Add UI"] }
+  },
+  {
+    name: "Todo adapter supports list use add rename remove with current-list fallback",
+    caseId: "todo-list-management",
+    journey: ["Select Later", "Create '  Inbox  ' with '  Capture  '", "Rename Later to '  Later renamed  ' with '  Queue  '", "Select Later renamed and remove it", "Restart"],
+    expected: { addedList: { title: "Inbox", description: "Capture" }, renamedListBeforeRemoval: { title: "Later renamed", description: "Queue" }, removedListPresent: false, currentListTitle: "Today", restoredCurrentListTitle: "Today" }
+  },
+  {
+    name: "Todo adapter converts thrown model failures into safe copy",
+    caseId: "todo-write-failure",
+    journey: ["Open Add task", "Make the real todos storage target unwritable", "Submit a valid title", "Observe the error and navigate away without a crash"],
+    expected: { saveRejected: true, originalTasksUnchanged: true, leakedPrivateDetails: false, applicationUsable: true }
+  }
+];
 
-  const model = {
-    find() {
-      return lists;
-    },
-    findOne(query: any = {}) {
-      if (Object.prototype.hasOwnProperty.call(query, 'index')) {
-        return lists.find(list => list.index === query.index);
-      }
-
-      return lists.find(list => list.current === true);
-    },
-    getCurrent() {
-      return lists.find(list => list.current === true);
-    },
-    getFirst() {
-      return lists[0];
-    },
-    get(id) {
-      return lists.find(list => list.$id === id);
-    },
-    add(values) {
-      calls.push(['add-list', values]);
-      const item = {$id: lists.length + 1, index: lists.length + 1, current: false, labels: [], tasks: [], ...values};
-      lists.push(item);
-      return item;
-    },
-    save(item) {
-      calls.push(['save-list', item.index, item.title, item.description]);
-      return item;
-    },
-    use(id) {
-      calls.push(['use-list', id]);
-      lists.forEach(list => {
-        list.current = list.$id === id;
-      });
-      return lists.find(list => list.current === true);
-    },
-    remove(item) {
-      calls.push(['remove-list', item && item.index]);
-      const index = lists.findIndex(list => list.$id === item.$id);
-      if (index >= 0) {
-        lists.splice(index, 1);
-      }
-      lists.forEach((list, offset) => {
-        list.index = offset + 1;
-      });
-    },
-    tasks: {
-      add(values) {
-        calls.push(['add-task', values]);
-        model.getCurrent().tasks.push({done: false, labels: [], ...values});
-        return values;
-      },
-      edit(position, values) {
-        calls.push(['edit-task', position, values]);
-        Object.assign(model.getCurrent().tasks[position - 1], values);
-        return model.getCurrent().tasks[position - 1];
-      },
-      check(checked) {
-        calls.push(['check-task', checked]);
-        model.getCurrent().tasks.forEach((task, index) => {
-          task.done = checked.includes(index);
-        });
-        return model.getCurrent();
-      },
-      remove(position) {
-        calls.push(['remove-task', position]);
-        model.getCurrent().tasks.splice(position - 1, 1);
-        return model.getCurrent();
-      },
-      reorder(values) {
-        calls.push(['reorder-task', values]);
-        const from = values.fromIndex - 1;
-        const to = values.toIndex - 1;
-        const [task] = model.getCurrent().tasks.splice(from, 1);
-        model.getCurrent().tasks.splice(to, 0, task);
-        return model.getCurrent();
-      }
+for (const entry of cases) {
+  test(entry.name, async context => {
+    const result = await captureIluScenario({ testName: context.name, scenario: "adapterBehavior", command: ["node", "bin/cli.js", "ui"], input: { area: "todo", caseId: entry.caseId, fixture: { lists, persistence: entry.caseId === "todo-write-failure" ? "blocked-target" : "real-files" }, journey: entry.journey }, viewport: { cols: 100, rows: 40 } });
+    assert.equal(result.exitCode, 0);
+    for (const [key, expected] of Object.entries(entry.expected)) {
+      assert.deepEqual(result.observed[key], expected, `${entry.caseId}: ${key}`);
     }
-  };
-
-  return {model, calls, lists};
+    assertCaptureArtifacts({ result, testName: context.name, checkpoints: ["condition", "outcome"], diagnostic: message => context.diagnostic(message) });
+  });
 }
-
-test('Todo adapter rejects invalid task input before model calls', () => {
-  const {model, calls} = createTodoModel();
-  const actions = createTodoActions({model});
-
-  assert.deepEqual(actions.addTask({title: '   ', description: 'x'}), {ok: false, error: 'Task title is required.'});
-  assert.deepEqual(actions.editTask({position: 0, title: 'x'}), {ok: false, error: 'Choose a task first.'});
-  assert.deepEqual(actions.markTaskDone({position: -1}), {ok: false, error: 'Choose a task first.'});
-  assert.deepEqual(actions.removeTask({position: Number.NaN}), {ok: false, error: 'Choose a task first.'});
-  assert.deepEqual(calls, []);
-});
-
-test('Todo adapter rejects invalid reorder requests before model calls', () => {
-  const {model, calls} = createTodoModel();
-  const actions = createTodoActions({model});
-
-  assert.deepEqual(actions.moveTask({position: 1, direction: 'up'}), {ok: true});
-  assert.deepEqual(actions.moveTask({position: 2, direction: 'sideways'}), {ok: false, error: 'Choose a move direction.'});
-  assert.deepEqual(actions.moveTask({position: Number.NaN, direction: 'down'}), {ok: false, error: 'Choose a task first.'});
-
-  assert.deepEqual(calls, []);
-});
-
-test('Todo adapter reorders tasks through the model and treats end boundaries as no-ops', () => {
-  const {model, calls, lists} = createTodoModel();
-  const actions = createTodoActions({model});
-
-  assert.equal(actions.moveTask({position: 2, direction: 'up'}).ok, true);
-  assert.equal(actions.moveTask({position: 2, direction: 'down'}).ok, true);
-  assert.equal(actions.moveTask({position: 2, toPosition: 1}).ok, true);
-
-  assert.deepEqual(calls, [
-    ['reorder-task', {fromIndex: 2, toIndex: 1}],
-    ['reorder-task', {fromIndex: 2, toIndex: 1}]
-  ]);
-  assert.deepEqual(lists[0].tasks.map(task => task.title), ['Open task', 'Done task']);
-});
-
-test('Todo adapter calls model task APIs with trimmed values and preserves labels when editing', () => {
-  const {model, calls, lists} = createTodoModel();
-  const actions = createTodoActions({model});
-
-  assert.equal(actions.addTask({title: '  Add UI  ', description: '  Details  '}).ok, true);
-  assert.equal(actions.editTask({position: 1, title: '  Edited  ', description: '  New desc  '}).ok, true);
-  assert.equal(actions.markTaskDone({position: 1}).ok, true);
-  assert.equal(actions.markTaskOpen({position: 2}).ok, true);
-  assert.equal(actions.removeTask({position: 1}).ok, true);
-
-  assert.deepEqual(calls, [
-    ['add-task', {title: 'Add UI', description: 'Details'}],
-    ['edit-task', 1, {title: 'Edited', description: 'New desc'}],
-    ['check-task', [0, 1]],
-    ['check-task', [0]],
-    ['remove-task', 1]
-  ]);
-  assert.deepEqual(lists[0].tasks[0].labels, []);
-});
-
-test('Todo adapter supports list use add rename remove with current-list fallback', () => {
-  const {model, calls, lists} = createTodoModel();
-  const actions = createTodoActions({model});
-
-  assert.equal(actions.useList({listId: 2}).ok, true);
-  assert.equal(actions.addList({title: '  Inbox  ', description: '  Capture  '}).ok, true);
-  assert.equal(actions.renameList({listId: 2, title: '  Later renamed  ', description: '  Queue  '}).ok, true);
-  assert.equal(actions.removeList({listId: 2}).ok, true);
-
-  assert.deepEqual(calls, [
-    ['use-list', 2],
-    ['add-list', {title: 'Inbox', description: 'Capture'}],
-    ['save-list', 2, 'Later renamed', 'Queue'],
-    ['remove-list', 2],
-    ['use-list', 1]
-  ]);
-  assert.equal(lists[0].current, true);
-});
-
-test('Todo adapter converts thrown model failures into safe copy', () => {
-  const actions = createTodoActions({model: {getCurrent() { throw new Error('db failed at /home/user/token stack'); }}});
-
-  const result = actions.addTask({title: 'Task'});
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'Task could not be saved. Try again.');
-  assert.doesNotMatch(result.error, /\/home|token|stack/i);
-});

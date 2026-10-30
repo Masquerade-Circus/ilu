@@ -1,173 +1,72 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import path from 'node:path';
-import Module, { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios";
 
-test('sync retry delegates to the ilu wrapper without requiring a core retry method', async () => {
-  const originalLoad = Module._load;
-  const calls = [];
-  const runtimeCreationArgs = [];
-  const syncIndex = {
-    async retry(context) {
-      calls.push(context);
-      return {status: 'healthy'};
+const workflows = [
+  {
+    name: "sync retry delegates to the ilu wrapper without requiring a core retry method",
+    fixture: { remote: "empty", initialize: true, config: { autoSync: false } },
+    steps: [
+      { action: "cli-ui", args: ["todo", "--add"], answers: { title: "Manual retry task", description: "" }, name: "pending" },
+      { action: "cli", args: ["sync", "retry"], name: "retried" },
+      { action: "cli", args: ["sync", "status"], name: "status" },
+    ],
+    check({ at }) {
+      assert.equal(at.pending.exitCode, 0);
+      assert.ok(at.pending.files[".config/sync-pending.json"]);
+      assert.doesNotMatch(at.pending.remoteFiles["todos.json"] ?? "", /Manual retry task/);
+      assert.equal(at.retried.exitCode, 0);
+      assert.match(at.retried.remoteFiles["todos.json"], /Manual retry task/);
+      assert.equal(at.retried.files[".config/sync-pending.json"], null);
+      assert.match(at.status.screen, /healthy/i);
     },
-    getSyncConfig() {
-      return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
-    }
-  };
-
-  delete require.cache[require.resolve(commandsModulePath)];
-
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './index') {
-      return syncIndex;
-    }
-
-    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
-      throw new Error(`commands.js should not import ${request} directly`);
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const commands = require(commandsModulePath);
-    commands.configureCommandDependencies({sync: syncIndex});
-    const result = await commands.retry();
-
-    assert.deepEqual(calls, [{reason: 'manual'}]);
-    assert.deepEqual(runtimeCreationArgs, []);
-    assert.deepEqual(result, {status: 'healthy'});
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(commandsModulePath)];
-  }
-});
-
-test('sync enable re-enables runtime state instead of leaving it disabled', async () => {
-  const originalLoad = Module._load;
-  const repoRoot = path.resolve(import.meta.dirname, '..');
-  const commandsModulePath = path.join(repoRoot, 'sync', 'commands.ts');
-  const savedConfigs = [];
-  const syncIndex = {
-    async enable() {
-      return {status: 'healthy', enabled: true};
+  },
+  {
+    name: "sync enable re-enables runtime state instead of leaving it disabled",
+    fixture: { remote: "empty", initialize: true },
+    steps: [
+      { action: "cli", args: ["sync", "disable"], name: "disabled" },
+      { action: "cli", args: ["sync", "enable"], name: "enabled" },
+      { action: "cli-ui", args: ["todo", "--add"], answers: { title: "Enabled task", description: "" }, name: "saved", waitRemote: true },
+      { action: "cli", args: ["sync", "status"], name: "status" },
+    ],
+    check({ at }) {
+      assert.equal(JSON.parse(at.disabled.files[".config/sync-config.json"]).enabled, false);
+      assert.equal(at.enabled.exitCode, 0);
+      assert.equal(JSON.parse(at.enabled.files[".config/sync-config.json"]).enabled, true);
+      assert.match(at.saved.remoteFiles["todos.json"], /Enabled task/);
+      assert.match(at.status.screen, /healthy/i);
     },
-    getSyncConfig() {
-      return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
-    }
-  };
-
-  delete require.cache[require.resolve(commandsModulePath)];
-
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './index') {
-      return syncIndex;
-    }
-
-    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
-      throw new Error(`commands.js should not import ${request} directly`);
-    }
-
-    if (request === '../utils/local-paths') {
-      return {syncDirPath() { return '/tmp/.ilu/.config'; }, syncConfigFilePath() { return '/tmp/.ilu/.config/sync-config.json'; }};
-    }
-
-    if (request === 'node:fs') {
-      return {
-        existsSync() { return false; },
-        mkdirSync() {},
-        readFileSync() { return '{}'; },
-        writeFileSync(file, value) { savedConfigs.push(JSON.parse(value)); }
-      };
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const commands = require(commandsModulePath);
-    commands.configureCommandDependencies({
-      sync: syncIndex,
-      configStore: {
-        saveSyncConfig(config) {
-          savedConfigs.push(config);
-          return config;
-        }
+  },
+  {
+    name: "sync enable reescribe solo sync-config sin depender de config de tts",
+    fixture: { remote: "empty", initialize: true, config: { autoSync: true, autoPull: false, autoPush: true }, excludedFiles: { ".config/tts-config.json": "{malformed synthetic TTS configuration" } },
+    steps: [
+      { action: "cli", args: ["sync", "disable"], name: "disabled" },
+      { action: "cli", args: ["sync", "enable"], name: "enabled" },
+      { action: "cli", args: ["sync", "status"], name: "status" },
+    ],
+    check({ at }) {
+      assert.equal(at.enabled.exitCode, 0);
+      const before = JSON.parse(at.disabled.files[".config/sync-config.json"]);
+      const after = JSON.parse(at.enabled.files[".config/sync-config.json"]);
+      assert.equal(after.enabled, true);
+      for (const key of ["remoteUrl", "branch", "autoSync", "autoPull", "autoPush"]) {
+        assert.equal(after[key], before[key], `enable must preserve sync policy ${key}`);
       }
-    });
-    const result = await commands.enable();
-    assert.deepEqual(result, {status: 'healthy', enabled: true});
-    assert.equal(savedConfigs.at(-1).enabled, true);
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(commandsModulePath)];
-  }
-});
-
-test('sync enable reescribe solo sync-config sin depender de config de tts', async () => {
-  const originalLoad = Module._load;
-
-  delete require.cache[require.resolve(commandsModulePath)];
-
-  const savedConfigs = [];
-  const syncIndex = {
-    async enable() {
-      return {status: 'healthy', enabled: true};
+      assert.equal(at.enabled.files[".config/tts-config.json"], at.disabled.files[".config/tts-config.json"]);
+      assert.match(at.status.screen, /healthy/i);
     },
-    getSyncConfig() {
-      return {enabled: false, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true};
-    }
-  };
+  },
+];
 
-  Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === './index') {
-      return syncIndex;
-    }
-
-    if (request === './ilu-adapter' || request === './state-store' || request === './git-cli-backend') {
-      throw new Error(`commands.js should not import ${request} directly`);
-    }
-
-    if (request === '../utils/config-store') {
-      return {
-        saveSyncConfig(config) {
-          savedConfigs.push(config);
-          return config;
-        }
-      };
-    }
-
-    if (request === '../utils/local-paths') {
-      return {syncDirPath() { return '/tmp/.ilu/.config'; }, syncConfigFilePath() { return '/tmp/.ilu/.config/sync-config.json'; }};
-    }
-
-    if (request === 'node:fs') {
-      return {mkdirSync() {}, writeFileSync() {}};
-    }
-
-    return originalLoad.apply(this, arguments);
-  };
-
-  try {
-    const commands = require(commandsModulePath);
-    commands.configureCommandDependencies({
-      sync: syncIndex,
-      configStore: {
-        saveSyncConfig(config) {
-          savedConfigs.push(config);
-          return config;
-        }
-      }
-    });
-    await commands.enable();
-    assert.deepEqual(savedConfigs.at(-1), {enabled: true, remoteUrl: '/tmp/remote.git', branch: 'main', autoSync: true, autoPull: true, autoPush: true});
-  } finally {
-    Module._load = originalLoad;
-    delete require.cache[require.resolve(commandsModulePath)];
-  }
-});
+for (const { name, fixture, steps, check } of workflows) {
+  test(name, async (t) => {
+    const checkpoints = steps.map(step => step.name);
+    const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: { fixture, steps: [...steps, { action: "exit" }] } });
+    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+    check(result);
+    assert.equal(result.exitCode, 0);
+  });
+}

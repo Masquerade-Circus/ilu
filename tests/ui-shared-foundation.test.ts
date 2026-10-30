@@ -1,515 +1,102 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const repoRoot = path.resolve(import.meta.dirname, '..');
-import 'tsx/cjs';
-const uiModulePath = path.join(repoRoot, 'ui', 'app.tsx');
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
 
-function stripAnsi(output) {
-  return output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-}
+// Required driver semantics: all steps exercise the real captured CLI. Geometry
+// and styles come from its current PTY, with PNG for inspection. External
+// failures are injected only at an isolated provider boundary, fail closed.
+const cases = [
+  ['shared action-result helper rejects unsafe raw error details', [
+    {provider: {kind: 'translation', response: {error: 'synthetic provider failure token=CANARY_SECRET at private-canary.ts'}}},
+    {key: 'CTRL_6'}, {fill: {label: 'Text to translate', text: 'Safe text'}}, {click: 'Translate', area: 'actions'},
+    {expect: {error: true, absent: ['CANARY_SECRET', 'private-canary.ts', 'stack']}},
+    {provider: {kind: 'translation', response: {sentences: [{trans: 'Texto seguro'}]}}},
+    {click: 'Translate', area: 'actions'}, {expect: {text: 'Texto seguro'}}, {screenshot: 'result'}
+  ]],
+  ['utility launcher actions are removed because utility apps live in top nav', [
+    {expect: {sameRowOrdered: ['Todo', 'Notes', 'Board', 'Clocks', 'Translate', 'Speech', 'Sync'], absent: ['Tools', 'Choose a tool'], withinViewport: true}}, {screenshot: 'result'}
+  ]],
+  ['top nav leaves one visual row before the active panel', [
+    {expect: {blankRowsAfter: {text: 'Todo', count: 1}, withinViewport: true}}, {screenshot: 'result'}
+  ]],
+  ['board action bar keeps board actions without utility launcher noise', [
+    {key: 'CTRL_3'}, {expect: {sameRow: ['Add card', 'Add column'], absent: 'Tools', withinViewport: true}}, {screenshot: 'result'}
+  ]],
+  ['utility app surfaces use approved app wording without tool overlay copy', [
+    {key: 'CTRL_5'}, {expect: {text: 'Set up sync'}}, {key: 'CTRL_6'}, {expect: {text: 'Text to translate'}},
+    {key: 'CTRL_7'}, {expect: {text: 'Text to Speech', absent: ['Tools', 'Choose a tool']}}, {screenshot: 'result'}
+  ]],
+  ['utility secondary overlays close with Escape while Ctrl+C stays delegated to focused inputs', [
+    {remember: ['sync-config']}, {key: 'CTRL_5'}, {click: 'Set up sync'}, {key: 'CTRL_C'},
+    {expect: {text: 'Remote URL'}}, {screenshot: 'result'}, {key: 'ESCAPE'},
+    {expect: {text: 'Retry sync', absent: 'Remote URL'}}, {unchanged: ['sync-config']}
+  ]],
+  ['Board, Todo details, and utility overlays fill the 80x24 surface without overdraw', [
+    {key: 'CTRL_3'}, {click: 'Add card'}, {expect: {overlayMargin: 0.1, overlayFullSurface: true, withinViewport: true}},
+    {key: 'ESCAPE'}, {key: 'CTRL_1'}, {click: 'Capture task'}, {key: 'o'},
+    {expect: {overlayMargin: 0.1, overlayFullSurface: true, withinViewport: true}},
+    {key: 'ESCAPE'}, {key: 'CTRL_5'}, {click: 'Set up sync'},
+    {expect: {overlayMargin: 0.1, overlayFullSurface: true, withinViewport: true}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['Board overlays keep the base board panel mounted by default', [
+    {key: 'CTRL_3'},
+    {boardOverlayTour: {overlays: ['add-card', 'card-action-error', 'card-details', 'edit-card', 'move-card', 'priority-card', 'remove-card-confirm', 'column-details', 'add-column', 'rename-column', 'add-board', 'rename-board', 'remove-board-confirm', 'set-wip-limit', 'reset-columns-confirm'], openViaVisibleControls: true, expectUnderlyingBoard: true, cancelWithoutMutations: true}},
+    {screenshot: 'result'}
+  ]],
+  ['Todo details overlay pins its action row to the internal bottom nav row', [
+    {click: 'Capture task'}, {key: 'o'}, {expect: {overlayBottomActions: ['Edit task', 'Mark done', 'Remove task', 'Close'], withinViewport: true}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['Note details overlay pins its action row to the internal bottom nav row', [
+    {key: 'CTRL_2'}, {click: 'Capture note'}, {key: 'ENTER'}, {expect: {overlayBottomActions: ['Edit note', 'Remove note', 'Close'], withinViewport: true}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['shared snapshot enrichment exposes list identities without calling mutators', [
+    {remember: ['todos', 'notes', 'boards', 'clocks']},
+    {expect: {text: 'Capture task'}}, {key: 'CTRL_2'}, {expect: {text: 'Capture note'}},
+    {expect: {sameRow: ['Capture Notes', 'Archive Notes']}}, {key: 'CTRL_4'},
+    {expect: {text: 'Etc/UTC'}}, {unchanged: ['todos', 'notes', 'boards', 'clocks']}, {screenshot: 'result'}
+  ], {clocks: [{name: 'UTC', timezone: 'Etc/UTC'}]}],
+  ['top nav exposes Translate and Speech as apps with Sync as a global control without Tools launcher copy', [
+    {expect: {sameRowOrdered: ['Translate', 'Speech', 'Sync'], absent: ['Tools', 'Choose a tool']}},
+    {click: 'Sync', area: 'nav'}, {expect: {text: 'Set up sync'}},
+    {click: 'Translate', area: 'nav'}, {expect: {text: 'Text to translate'}},
+    {click: 'Speech', area: 'nav'}, {expect: {text: 'Text to Speech'}}, {screenshot: 'result'}
+  ]],
+  ['Ctrl shortcuts can select the utility apps as top-level routes', [
+    {key: 'CTRL_5'}, {expect: {text: 'Retry sync'}}, {key: 'CTRL_6'}, {expect: {text: 'Text to translate'}},
+    {key: 'CTRL_7'}, {expect: {text: 'Text to Speech'}}, {screenshot: 'result'}
+  ]],
+  ['AppOverlay pins bottomNav to the internal bottom row with tall content', [
+    {click: 'Capture task'}, {key: 'o'}, {expect: {overlayBottomActions: ['Edit task', 'Remove task', 'Close'], overlayFullSurface: true, withinViewport: true}},
+    {scroll: {text: 'Row', direction: 'down', count: 30}},
+    {expect: {overlayBottomActions: ['Edit task', 'Remove task', 'Close'], overlayFullSurface: true, withinViewport: true}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['shared overlay props keep the 10 percent margin contract and modal defaults', [
+    {remember: ['todos']}, {locate: {text: 'Capture task', as: 'background'}}, {click: 'Add task'},
+    {expect: {overlayMargin: 0.1, overlayFullSurface: true}}, {clickRemembered: 'background'},
+    {traverseModal: {cycles: 2, direction: 'forward', forbidBackground: true}},
+    {expect: {text: 'Task title'}}, {unchanged: ['todos']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['StateText applies semantic tone styles to ANSI output without depending on global text state lookup', [
+    {key: 'CTRL_6'}, {expect: {semanticState: 'empty'}},
+    {provider: {kind: 'translation', response: {deferred: 'translation'}}},
+    {fill: {label: 'Text to translate', text: 'State text'}}, {click: 'Translate', area: 'actions'},
+    {expect: {semanticState: 'loading'}}, {releaseProvider: {id: 'translation', error: 'Synthetic offline error'}},
+    {expect: {semanticState: 'error'}}, {screenshot: 'result'}
+  ]],
+  ['utility app render paths do not start status or voice preparation side effects', [
+    {remember: ['tts-config', 'sync-config']}, {key: 'CTRL_5'}, {resize: {cols: 100, rows: 30}},
+    {resize: {cols: 80, rows: 24}}, {key: 'CTRL_7'}, {click: 'Choose voice'},
+    {resize: {cols: 100, rows: 30}}, {resize: {cols: 80, rows: 24}},
+    {expect: {text: 'Cancel'}}, {externalCalls: {translation: 0, speech: 0}},
+    {unchanged: ['tts-config', 'sync-config']}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]]
+] as const;
 
-function visibleLines(output) {
-  return stripAnsi(output).split(/\r?\n/);
-}
-
-function findNodeById(nodes, id) {
-  for (const node of nodes || []) {
-    if (node && node.type === 'element' && node.props && node.props.id === id) {
-      return node;
-    }
-
-    const child = findNodeById(node && node.children, id);
-
-    if (child) {
-      return child;
-    }
-  }
-
-  return null;
-}
-
-function overlayContractFor(cols, rows) {
-  const marginX = Math.round(cols * 0.1);
-  const marginY = Math.round(rows * 0.1);
-
-  return {
-    x: marginX,
-    y: marginY,
-    width: cols - marginX * 2,
-    height: rows - marginY * 2
-  };
-}
-
-function normalizeRenderedLines(lines) {
-  const normalizedLines = [...lines];
-
-  while (normalizedLines.length > 0 && normalizedLines[normalizedLines.length - 1].trimEnd() === '') {
-    normalizedLines.pop();
-  }
-
-  return normalizedLines;
-}
-
-function assertFullSurfaceOverlay(lines, label, cols = 80, rows = 24) {
-  const normalizedLines = normalizeRenderedLines(lines);
-  const contract = overlayContractFor(cols, rows);
-  const topLine = normalizedLines[contract.y] || '';
-  const bottomLine = normalizedLines[contract.y + contract.height - 1] || '';
-  const rightColumn = contract.x + contract.width - 1;
-
-  assert.equal(normalizedLines.filter(line => line.length > cols).length, 0, `${label} must not render lines wider than ${cols}`);
-  assert.ok(normalizedLines.length <= rows, `${label} must not render more than ${rows} rows`);
-  assert.equal(topLine[contract.x], '┌', `${label} must start overlay surface at the 10 percent horizontal and vertical margin`);
-  assert.equal(topLine[rightColumn], '┐', `${label} must end overlay top edge at the expected width`);
-  assert.equal(bottomLine[contract.x], '└', `${label} must fill overlay surface height`);
-  assert.equal(bottomLine[rightColumn], '┘', `${label} must end overlay bottom edge at the expected width`);
-
-  for (let index = contract.y + 1; index < contract.y + contract.height - 1; index += 1) {
-    assert.equal(normalizedLines[index]?.[contract.x], '│', `${label} must paint left surface edge on row ${index + 1}`);
-    assert.equal(normalizedLines[index]?.[rightColumn], '│', `${label} must paint right surface edge on row ${index + 1}`);
-  }
-}
-
-function baseSnapshot(overrides: any = {}) {
-  return {
-    todo: {title: 'Today', items: [], remaining: 0},
-    notes: {title: 'Notes list', items: [], remaining: 0},
-    board: {title: 'Board view', columns: [], totalCards: 0},
-    clocks: {items: [], remaining: 0},
-    ...overrides
-  };
-}
-
-function failMutator(name) {
-  return () => {
-    throw new Error(`mutator ${name} should not be called`);
-  };
-}
-
-test('shared action-result helper rejects unsafe raw error details', async () => {
-  const { createUiErrorResult, createUiSuccessResult } = await import('../ui/action-results');
-  const unsafe = new Error('provider failed at /home/user/.ssh/key with token=abc123\n    at internal stack');
-  const failure = createUiErrorResult(unsafe, 'Something went wrong. Try again.');
-  const success = createUiSuccessResult({id: 7, refreshed: true});
-
-  assert.deepEqual(failure, {ok: false, error: 'Something went wrong. Try again.'});
-  assert.deepEqual(success, {ok: true, id: 7, refreshed: true});
-  assert.doesNotMatch(failure.error, /\/home|\.ssh|token|abc123|stack|provider/i);
-});
-
-test('utility launcher actions are removed because utility apps live in top nav', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
-  const lines = visibleLines(session.output());
-  const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
-
-  assert.ok(navLine, 'expected global top nav with utility apps');
-  assert.match(navLine, /Todo.*Notes.*Board.*Clocks.*Translate.*Speech/);
-  assert.ok(navLine.indexOf('Speech') < navLine.indexOf('Sync'), `expected Sync after app group:\n${navLine}`);
-  assert.doesNotMatch(session.output(), /\bTools\b|Choose a tool\./);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('top nav leaves one visual row before the active panel', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
-  const output = session.output();
-  session.destroy();
-
-  const lines = visibleLines(output);
-  const navIndex = lines.findIndex(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
-
-  assert.ok(navIndex >= 0, `expected global top nav:
-${lines.join('\n')}`);
-  assert.equal(lines[navIndex + 1]?.trim(), '', `expected one blank visual row below top nav:
-${lines.join('\n')}`);
-  assert.ok(normalizeRenderedLines(lines).length <= 24, 'layout must stay within 24 rows');
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-});
-
-test('board action bar keeps board actions without utility launcher noise', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: baseSnapshot()});
-  const lines = visibleLines(session.output());
-  const actionLine = lines.findLast(line => /Add card/.test(line) && /Add column/.test(line));
-
-  assert.ok(actionLine, `expected Board actions in shared action bar:\n${lines.join('\n')}`);
-  assert.doesNotMatch(actionLine, /\bTools\b/);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('utility app surfaces use approved app wording without tool overlay copy', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
-
-  session.click('tab-sync');
-  assert.match(session.output(), /Sync/);
-  assert.match(session.output(), /Set up sync/);
-
-  session.click('tab-translate');
-  assert.match(session.output(), /Translate/);
-  assert.match(session.output(), /Text to translate/);
-
-  session.click('tab-speech');
-  assert.match(session.output(), /Text to Speech/);
-  assert.match(session.output(), /Create audio/);
-  assert.doesNotMatch(session.output(), /\bTools\b|Choose a tool\./);
-  session.destroy();
-});
-
-test('utility secondary overlays close with Escape while Ctrl+C stays delegated to focused inputs', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Sync'}, snapshot: baseSnapshot()});
-
-  session.click('sync-setup');
-
-  assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-  assert.match(session.output(), /Remote URL/);
-  assert.match(session.output(), /Esc: Close/);
-  assert.doesNotMatch(session.output(), /Ctrl\+C: Exit/);
-
-  session.dispatchKey('CTRL_C');
-
-  assert.equal(session.state().utilities.activeOverlay, 'sync-init');
-  assert.equal(session.state().running, true);
-  assert.match(session.output(), /Remote URL/);
-
-  session.dispatchKey('ESCAPE');
-
-  assert.equal(session.state().utilities.activeOverlay, null);
-  assert.equal(session.state().running, true);
-  session.destroy();
-});
-test('Board, Todo details, and utility overlays fill the 80x24 surface without overdraw', async () => {
-  const Ui = require(uiModulePath);
-
-  const boardSession = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Board'}, snapshot: baseSnapshot({
-    board: {
-      title: 'Launch board',
-      totalCards: 1,
-      columns: [{index: 1, title: 'Backlog', count: 1, cards: [{title: 'Write tests', description: '', position: 1}], remaining: 0}],
-      remainingColumns: 0
-    }
-  })});
-
-  boardSession.click('board-add-card');
-  assertFullSurfaceOverlay(visibleLines(boardSession.output()), 'Board Add card overlay');
-  boardSession.destroy();
-
-  const todoSession = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Todo', todo: {selectedTaskPosition: 1, overlay: 'task-details'}}, snapshot: baseSnapshot({
-    todo: {
-      title: 'Today',
-      currentListId: 1,
-      lists: [{id: 1, title: 'Today', current: true}],
-      items: [{id: 1, position: 1, text: 'Review Todo details', description: 'Keep the overlay inside the 80x24 surface', done: false, labels: ['ui']}],
-      remaining: 0
-    }
-  })});
-
-  assertFullSurfaceOverlay(visibleLines(todoSession.output()), 'Todo details overlay');
-  todoSession.destroy();
-
-  const utilitySession = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Sync'}, snapshot: baseSnapshot()});
-
-  utilitySession.click('sync-setup');
-  assertFullSurfaceOverlay(visibleLines(utilitySession.output()), 'Sync setup overlay');
-  utilitySession.destroy();
-});
-
-
-
-test('Board overlays keep the base board panel mounted by default', async () => {
-  const Ui = require(uiModulePath);
-  const board = {
-    id: 'launch',
-    title: 'Launch board',
-    totalCards: 1,
-    boards: [{id: 'launch', title: 'Launch board', current: true}],
-    columns: [{index: 1, title: 'Backlog', count: 1, cards: [{title: 'Write tests', description: '', position: 1}], remaining: 0}],
-    remainingColumns: 0
-  };
-  const overlays = [
-    'add-card',
-    'card-action-error',
-    'card-details',
-    'edit-card',
-    'move-card',
-    'priority-card',
-    'remove-card-confirm',
-    'column-details',
-    'add-column',
-    'rename-column',
-    'add-board',
-    'rename-board',
-    'remove-board-confirm',
-    'set-wip-limit',
-    'reset-columns-confirm'
-  ].map((overlay) => ({
-    name: overlay,
-    state: {
-      activeTab: 'Board',
-      board: {
-        overlay,
-        selectedBoardId: 'launch',
-        selectedCard: {columnIndex: 1, position: 1},
-        selectedColumnIndex: 1
-      }
-    }
-  }));
-
-  for (const overlay of overlays) {
-    const session = await Ui.createHeadlessSession({
-      cols: 80,
-      rows: 24,
-      state: overlay.state,
-      snapshot: baseSnapshot({board})
-    });
-    const output = session.output();
-
-    assert.match(output, /Backlo/, `${overlay.name} must keep board columns visible under overlay`);
-    assert.match(output, /Writ/, `${overlay.name} must keep board cards visible under overlay`);
-    session.destroy();
-  }
-});
-
-test('Todo details overlay pins its action row to the internal bottom nav row', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Todo', todo: {selectedTaskPosition: 1, overlay: 'task-details'}}, snapshot: baseSnapshot({
-    todo: {
-      title: 'Today',
-      currentListId: 1,
-      lists: [{id: 1, title: 'Today', current: true}],
-      items: [{id: 1, position: 1, text: 'Review Todo details', description: 'Keep the overlay inside the 80x24 surface', done: false, labels: ['ui']}],
-      remaining: 0
-    }
-  })});
-  const lines = visibleLines(session.output());
-  const contract = overlayContractFor(80, 24);
-  const internalBottomRow = contract.y + contract.height - 2;
-  const actionRow = lines.findIndex(line => /Edit task/.test(line) && /Mark done/.test(line) && /Remove task/.test(line) && /Close/.test(line));
-
-  assert.notEqual(actionRow, -1, `expected Todo details action row:\n${lines.join('\n')}`);
-  assert.equal(actionRow, internalBottomRow, `Todo details actions must render on the last internal overlay row:\n${lines.join('\n')}`);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-
-test('Note details overlay pins its action row to the internal bottom nav row', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Notes', notesState: {selectedNotePosition: 1, overlay: 'note-details'}}, snapshot: baseSnapshot({
-    notes: {
-      title: 'Notes',
-      currentListId: 'n1',
-      lists: [{id: 'n1', title: 'Notes', current: true}],
-      items: [{id: 1, position: 1, text: 'Review Note details', description: 'Keep actions pinned', done: false, labels: ['ui']}],
-      remaining: 0
-    }
-  })});
-  const lines = visibleLines(session.output());
-  const contract = overlayContractFor(80, 24);
-  const internalBottomRow = contract.y + contract.height - 2;
-  const actionRow = lines.findIndex(line => /Edit note/.test(line) && /Remove note/.test(line) && /Close/.test(line));
-
-  assert.notEqual(actionRow, -1, `expected Note details action row:\n${lines.join('\n')}`);
-  assert.equal(actionRow, internalBottomRow, `Note details actions must render on the last internal overlay row:\n${lines.join('\n')}`);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('shared snapshot enrichment exposes list identities without calling mutators', async () => {
-  const { buildReadSnapshot } = await import('../ui/read-model');
-  const todoLists = [
-    {$id: 1, title: 'Today', current: true, tasks: [{title: 'Ship UI', description: 'Foundation', done: false, labels: ['work']}]},
-    {$id: 2, title: 'Later', current: false, tasks: []}
-  ];
-  const noteLists = [
-    {$id: 'n1', title: 'Research', current: true, notes: [{title: 'Threat model', description: 'Keep reads safe', labels: ['sec']}]}
-  ];
-
-  const snapshot = buildReadSnapshot({
-    models: {
-      todos: {
-        getCurrent: () => todoLists[0],
-        getFirst: () => todoLists[0],
-        find: () => todoLists,
-        add: failMutator('todo.add'),
-        save: failMutator('todo.save'),
-        remove: failMutator('todo.remove'),
-        use: failMutator('todo.use')
-      },
-      notes: {
-        getCurrent: () => noteLists[0],
-        getFirst: () => noteLists[0],
-        find: () => noteLists,
-        add: failMutator('notes.add'),
-        save: failMutator('notes.save'),
-        remove: failMutator('notes.remove'),
-        use: failMutator('notes.use')
-      },
-      boards: {getCurrent: () => null, getFirst: () => null, find: () => []},
-      clocks: {find: () => [{name: 'UTC', timezone: 'UTC'}], add: failMutator('clock.add')}
-    },
-    now: new Date('2026-06-02T12:00:00Z')
+for (const [name, steps, seed] of cases) {
+  test(name, async context => {
+    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {seed: seed ?? {}, steps, externalIsolation: 'deny-unmatched', finish: 'normal-exit'}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
   });
-
-  assert.equal(snapshot.todo.currentListId, 1);
-  assert.deepEqual(snapshot.todo.lists, [
-    {id: 1, title: 'Today', current: true},
-    {id: 2, title: 'Later', current: false}
-  ]);
-  assert.deepEqual(snapshot.todo.items[0], {
-    id: 1,
-    position: 1,
-    text: 'Ship UI',
-    description: 'Foundation',
-    done: false,
-    labels: ['work']
-  });
-  assert.equal(snapshot.notes.currentListId, 'n1');
-  assert.deepEqual(snapshot.notes.items[0], {
-    id: 1,
-    position: 1,
-    text: 'Threat model',
-    description: 'Keep reads safe',
-    done: false,
-    labels: ['sec']
-  });
-  assert.equal(snapshot.clocks.items[0].timezone, 'UTC');
-  assert.equal(snapshot.clocks.items[0].position, 1);
-});
-
-test('top nav exposes Translate and Speech as apps with Sync as a global control without Tools launcher copy', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
-  const lines = visibleLines(session.output());
-  const navLine = lines.find(line => /Todo/.test(line) && /Notes/.test(line) && /Board/.test(line) && /Clocks/.test(line) && /Sync/.test(line) && /Translate/.test(line) && /Speech/.test(line));
-
-  assert.ok(navLine, `expected app labels and Sync global control in top nav:\n${lines.join('\n')}`);
-  assert.doesNotMatch(session.output(), /\bTools\b|Choose a tool\./);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-
-  session.click('tab-sync');
-  assert.equal(session.state().activeTab, 'Sync');
-  assert.match(session.output(), /Sync/);
-  assert.doesNotMatch(session.output(), /Choose a tool\./);
-
-  session.click('tab-translate');
-  assert.equal(session.state().activeTab, 'Translate');
-  assert.match(session.output(), /Text to translate/);
-
-  session.click('tab-speech');
-  assert.equal(session.state().activeTab, 'Speech');
-  assert.match(session.output(), /Text to Speech/);
-  session.destroy();
-});
-
-test('Ctrl shortcuts can select the utility apps as top-level routes', async () => {
-  const Ui = require(uiModulePath);
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, snapshot: baseSnapshot()});
-
-  session.dispatchKey('CTRL_5');
-  assert.equal(session.state().activeTab, 'Sync');
-
-  session.dispatchKey('CTRL_6');
-  assert.equal(session.state().activeTab, 'Translate');
-
-  session.dispatchKey('CTRL_7');
-  assert.equal(session.state().activeTab, 'Speech');
-  session.destroy();
-});
-test('AppOverlay pins bottomNav to the internal bottom row with tall content', async () => {
-  const { renderTerminal, Screen, Text } = await import('@valyrianjs/terminal');
-  const { AppOverlay } = await import('../ui/components/Overlay.tsx');
-  const content = Array.from({length: 30}, (_, index) => Text({}, [`Content ${index + 1}`]));
-  const output = renderTerminal(
-    Screen({}, [
-      Text({}, ['Base']),
-      AppOverlay({
-        title: Text({}, ['Overlay title']),
-        content,
-        bottomNav: Text({}, ['Bottom actions'])
-      })
-    ]),
-    {cols: 80, rows: 24}
-  );
-  const lines = visibleLines(output);
-  const contract = overlayContractFor(80, 24);
-  const internalBottomRow = contract.y + contract.height - 2;
-  const borderBottomRow = contract.y + contract.height - 1;
-
-  assert.match(lines[internalBottomRow], /Bottom actions/, 'bottomNav must render on the last internal overlay row');
-  assert.equal(lines[borderBottomRow][contract.x], '└', 'bottomNav must not displace the overlay bottom border');
-  assert.equal(lines.filter(line => line.length > 80).length, 0, 'AppOverlay bottomNav contract must not overdraw 80 columns');
-});
-
-test('shared overlay props keep the 10 percent margin contract and modal defaults', async () => {
-  const { createOverlayProps } = await import('../ui/components/Overlay.tsx');
-  assert.deepEqual(createOverlayProps().margin, {x: '10%', y: '10%'});
-  assert.equal(createOverlayProps().trapFocus, true);
-  assert.equal(createOverlayProps().backdrop, true);
-  assert.deepEqual(createOverlayProps({trapFocus: false, backdrop: false}).margin, {x: '10%', y: '10%'});
-  assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).trapFocus, false);
-  assert.equal(createOverlayProps({trapFocus: false, backdrop: false}).backdrop, false);
-});
-
-test('StateText applies semantic tone styles to ANSI output without depending on global text state lookup', async () => {
-  const { mountTerminal, Screen } = await import('@valyrianjs/terminal');
-  const { errorStateText, emptyStateText, loadingStateText } = await import('../ui/components/StateText.tsx');
-  const session = mountTerminal(Screen({}, [
-    errorStateText('Unsafe state'),
-    emptyStateText('Nothing here'),
-    loadingStateText('Loading data')
-  ]), {runtime: 'headless', cols: 80, rows: 8});
-  const ansi = session.ansiOutput();
-  const plain = session.output();
-  session.destroy();
-
-  assert.match(plain, /Unsafe state/);
-  assert.match(plain, /Nothing here/);
-  assert.match(plain, /Loading data/);
-  assert.match(ansi, /\x1b\[/, `expected StateText semantic styles to produce ANSI spans:\n${JSON.stringify(ansi)}`);
-});
-
-test('utility app render paths do not start status or voice preparation side effects', async () => {
-  const { renderTerminal, Screen } = await import('@valyrianjs/terminal');
-  const { createSyncMainView } = await import('../ui/modules/sync/MainView.tsx');
-  const { createTtsMainView, createTtsVoiceOverlay } = await import('../ui/modules/tts/MainView.tsx');
-  const syncActions = {
-    status: failMutator('sync.status'),
-    retry: failMutator('sync.retry'),
-    enable: failMutator('sync.enable'),
-    disable: failMutator('sync.disable'),
-    init: failMutator('sync.init')
-  };
-  const babelActions = {translate: failMutator('babel.translate'), copyResult: failMutator('babel.copyResult')};
-  const ttsActions = {
-    voices: ['nova'],
-    getDefaultVoice: failMutator('tts.getDefaultVoice'),
-    createAudio: failMutator('tts.createAudio'),
-    setDefaultVoice: failMutator('tts.setDefaultVoice')
-  };
-  const state = {
-    activeOverlay: 'tts-voice',
-    sync: {label: 'Not set up', details: ['Status: Not set up'], error: '', operation: null, statusLoaded: false, initForm: {remoteUrl: '', branch: 'main', confirmed: false, error: ''}},
-    babel: {text: '', source: 'auto', target: 'en', translation: '', dictionaryEntries: [], error: '', message: '', operation: null, inputVersion: 0},
-    tts: {inputFile: '', outputFile: '', voice: 'alloy', voices: ['alloy'], error: '', message: '', operation: null}
-  };
-
-  const output = renderTerminal(Screen({}, [
-    ...createSyncMainView(state, syncActions),
-    ...createTtsMainView(state, ttsActions),
-    createTtsVoiceOverlay(state, ttsActions, {width: 80, rows: 24})
-  ]), {cols: 80, rows: 24});
-
-  assert.match(output, /Sync/);
-  assert.match(output, /Text to/);
-  assert.match(output, /Choose voice/);
-  assert.deepEqual(state.tts.voices, ['alloy']);
-  assert.equal(state.tts.voice, 'alloy');
-});
+}

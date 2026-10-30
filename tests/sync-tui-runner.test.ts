@@ -1,491 +1,372 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((innerResolve, innerReject) => {
-    resolve = innerResolve;
-    reject = innerReject;
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios";
+
+// Gates and failures belong exclusively to the external Git executable or to
+// controlled fixture files. Never replace sync(), reconcileFile(), fork() or
+// process.exit(). Original names identify the source cases, not coverage claims
+// for injected callbacks or malformed IPC that users cannot produce in the TUI.
+const workflows = [
+  {
+    name: "TUI sync runner rejects malformed IPC messages without touching sync runtime",
+    // Observable replacement: invalid and cancelled drafts cannot mutate data
+    // or enqueue sync. This does not exercise the malformed-IPC parser branch.
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Invalid input unchanged" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "observe", name: "before" },
+      { action: "ui", operation: "add-task", title: "", submit: true },
+      { action: "observe", name: "missing" },
+      { action: "ui", operation: "cancel-dialog" },
+      { action: "ui", operation: "add-task", title: "   ", submit: true },
+      { action: "observe", name: "blank" },
+      { action: "ui", operation: "cancel-dialog" },
+      { action: "ui", operation: "add-task", title: "Cancelled invalid-operation probe", confirm: false },
+      { action: "observe", name: "cancelled" },
+    ],
+    check({ at }) {
+      for (const name of ["missing", "blank", "cancelled"]) {
+        assert.equal(at[name].transport.length, at.before.transport.length);
+        assert.equal(at[name].files["todos.json"], at.before.files["todos.json"]);
+        assert.equal(at[name].files[".config/sync-pending.json"], at.before.files[".config/sync-pending.json"]);
+        assert.equal(at[name].remoteHead, at.before.remoteHead);
+      }
+      assert.match(at.missing.screen, /required|empty|title/i);
+      assert.match(at.blank.screen, /required|empty|title/i);
+      assert.match(at.cancelled.screen, /Invalid input unchanged/);
+      assert.doesNotMatch(at.cancelled.screen, /Cancelled invalid-operation probe/);
+    },
+  },
+  {
+    name: "TUI sync runner keeps one active Git sync and coalesces mutations for the next run",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Active mutation" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-task", title: "Queued mutation one" },
+      { action: "ui", operation: "add-task", title: "Queued mutation two" },
+      { action: "wait-debounce" },
+      { action: "observe", name: "active" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "trailing" },
+      { action: "release-transport" },
+      { action: "settle-sync", name: "saved" },
+    ],
+    check({ at }) {
+      assert.equal(at.active.transport.filter(event => event.operation === "push").length, 1);
+      assert.doesNotMatch(at.trailing.screen, /synced|healthy/i);
+      const pushes = at.saved.transport.filter(event => event.operation === "push");
+      assert.equal(pushes.length, 2, "mutations queued behind the first publication must coalesce into one trailing publication");
+      assert.ok(pushes[1].startedAt >= pushes[0].finishedAt);
+      for (const title of ["Active mutation", "Queued mutation one", "Queued mutation two"]) {
+        assert.ok(at.saved.remoteFiles["todos.json"].includes(title));
+      }
+    },
+  },
+  {
+    name: "TUI sync runner does not start queued mutation after active sync fails",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Active write failure" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-task", title: "Retained queued write" },
+      { action: "wait-debounce" },
+      { action: "filesystem-fault", target: "runtime-state", mode: "not-directory" },
+      { action: "release-transport" },
+      { action: "wait-status", status: "failed", name: "failed" },
+      { action: "filesystem-fault", target: "runtime-state", mode: "restore" },
+    ],
+    check({ at }) {
+      assert.equal(at.failed.transport.filter(event => event.operation === "push").length, 1);
+      assert.match(at.failed.screen, /failed/i);
+      assert.doesNotMatch(at.failed.screen, /synced|healthy/i);
+      assert.match(at.failed.files["todos.json"], /Retained queued write/);
+      assert.doesNotMatch(at.failed.remoteFiles["todos.json"] ?? "", /Retained queued write/);
+      assert.ok(at.failed.files[".config/sync-pending.json"]);
+    },
+  },
+  {
+    name: "TUI sync runner reports failed instead of setup when a coalesced mutation hits a backend error with valid config",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Before backend failure" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-task", title: "After backend failure" },
+      { action: "wait-debounce" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2 },
+      { action: "transport", mode: "unknown-failure" },
+      { action: "release-transport" },
+      { action: "wait-status", status: "failed", name: "failed" },
+    ],
+    check({ at }) {
+      assert.match(at.failed.screen, /failed/i);
+      assert.doesNotMatch(at.failed.screen, /setup|synced|healthy/i);
+      assert.equal(JSON.parse(at.failed.files[".config/sync-config.json"]).enabled, true);
+      const state = JSON.parse(at.failed.files[".sync-core/state.json"]);
+      assert.equal(state.hasPendingRemote, true);
+      assert.equal(state.lastErrorKind, "unknown");
+      assert.match(at.failed.files["todos.json"], /After backend failure/);
+      assert.doesNotMatch(at.failed.remoteFiles["todos.json"] ?? "", /After backend failure/);
+    },
+  },
+  {
+    name: "TUI sync runner flush waits for active and queued mutation before shutdown result",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Shutdown active" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-task", title: "Shutdown queued" },
+      { action: "close-ui", background: true },
+      { action: "observe", name: "waiting" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "trailing" },
+      { action: "release-transport" },
+      { action: "wait-command", name: "closed" },
+    ],
+    check({ at }) {
+      assert.equal(at.waiting.applicationExited, false);
+      assert.equal(at.trailing.applicationExited, false);
+      assert.equal(at.closed.exitCode, 0);
+      assert.match(at.closed.remoteFiles["todos.json"], /Shutdown active/);
+      assert.match(at.closed.remoteFiles["todos.json"], /Shutdown queued/);
+      assert.equal(at.closed.files[".config/sync-pending.json"], null);
+    },
+  },
+  {
+    name: "TUI sync runner waits for active and trailing mutations before file recovery",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Recovery active" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-task", title: "Recovery trailing" },
+      { action: "wait-debounce" },
+      { action: "external-writer", domain: "todos", values: { description: "Current external snapshot" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Stale rejected" },
+      { action: "observe", name: "waiting" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "trailing" },
+      { action: "release-transport" },
+      { action: "wait-recovery", name: "recovered" },
+    ],
+    check({ at }) {
+      assert.equal(at.waiting.transport.filter(event => event.operation === "push").length, 1);
+      assert.doesNotMatch(at.waiting.files["todos.json"], /Stale rejected/);
+      assert.match(at.recovered.files["todos.json"], /Current external snapshot/);
+      assert.doesNotMatch(at.recovered.files["todos.json"], /Stale rejected/);
+      assert.match(at.recovered.screen, /repeat|retry|changed/i);
+      const pushes = at.recovered.transport.filter(event => event.operation === "push");
+      assert.ok(pushes.length >= 2);
+      for (let index = 1; index < pushes.length; index += 1) {
+        assert.ok(pushes[index].startedAt >= pushes[index - 1].finishedAt);
+      }
+    },
+  },
+  {
+    name: "TUI sync runner serializes recoveries for different files",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Recovery todo", notes: "Recovery note" }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "external-writer", domain: "todos", values: { description: "External todo" }, publish: false },
+      { action: "external-writer", domain: "notes", values: { description: "External note" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Rejected stale todo", background: true },
+      { action: "wait-transport", operation: "push", name: "first" },
+      { action: "ui", operation: "add-note", title: "Rejected stale note", content: "Unsaved stale content", background: true },
+      { action: "observe", name: "queued" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "second" },
+      { action: "release-transport" },
+      { action: "wait-recovery", domain: "notes", name: "recovered" },
+      { action: "ui", operation: "switch-view", view: "Todo" },
+      { action: "observe", name: "todo-recovered" },
+      { action: "ui", operation: "switch-view", view: "Notes" },
+      { action: "observe", name: "notes-recovered" },
+    ],
+    check({ at }) {
+      const pushes = at.recovered.transport.filter(event => event.operation === "push");
+      assert.equal(pushes.length, 2);
+      assert.ok(pushes[1].startedAt >= pushes[0].finishedAt);
+      assert.equal(at.queued.transport.filter(event => event.operation === "push").length, 1);
+      assert.match(at.recovered.files["todos.json"], /External todo/);
+      assert.match(at.recovered.files["notes.json"], /External note/);
+      assert.doesNotMatch(at.recovered.files["todos.json"], /Rejected stale todo/);
+      assert.doesNotMatch(at.recovered.files["notes.json"], /Rejected stale note|Unsaved stale content/);
+      assert.match(at["todo-recovered"].screen, /repeat|retry|changed/i);
+      assert.match(at["notes-recovered"].screen, /repeat|retry|changed/i);
+      assert.match(at.recovered.remoteFiles["todos.json"], /External todo/);
+      assert.match(at.recovered.remoteFiles["notes.json"], /External note/);
+    },
+  },
+  {
+    name: "TUI sync runner shutdown waits for an active recovery response before close",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Recovery inbox" }, transport: { gate: "push", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "external-writer", domain: "todos", values: { description: "Shutdown recovery" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Rejected stale" },
+      { action: "wait-transport", operation: "push" },
+      { action: "close-ui", background: true },
+      { action: "observe", name: "waiting" },
+      { action: "release-transport" },
+      { action: "wait-command", name: "closed" },
+    ],
+    check({ at }) {
+      assert.equal(at.waiting.applicationExited, false);
+      assert.equal(at.closed.exitCode, 0);
+      assert.match(at.closed.files["todos.json"], /Shutdown recovery/);
+      assert.doesNotMatch(at.closed.files["todos.json"], /Rejected stale/);
+      assert.match(at.closed.remoteFiles["todos.json"], /Shutdown recovery/);
+      assert.ok(at.closed.applicationExitedAt >= at.closed.transport.at(-1).finishedAt);
+    },
+  },
+  {
+    name: "TUI sync runner shutdown waits for recovery and its deferred mutation before close",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Recovery inbox", notes: "Notes inbox" }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "external-writer", domain: "todos", values: { description: "Recovery first" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Rejected stale" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-note", title: "Deferred note", content: "Keep after exit", background: true },
+      { action: "close-ui", background: true },
+      { action: "observe", name: "waiting" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "deferred" },
+      { action: "release-transport" },
+      { action: "wait-command", name: "closed" },
+    ],
+    check({ at }) {
+      assert.equal(at.waiting.applicationExited, false);
+      assert.equal(at.deferred.applicationExited, false);
+      assert.equal(at.closed.exitCode, 0);
+      assert.match(at.closed.remoteFiles["todos.json"], /Recovery first/);
+      assert.match(at.closed.remoteFiles["notes.json"], /Deferred note/);
+      assert.ok(at.closed.applicationExitedAt >= at.closed.transport.at(-1).finishedAt);
+    },
+  },
+  {
+    name: "TUI sync runner shutdown waits for deferred mutation after recovery failure",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Recovery inbox", notes: "Notes inbox" }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "external-writer", domain: "todos", values: { description: "Failed recovery snapshot" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Rejected stale" },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-note", title: "Deferred after failure", content: "Persist this", background: true },
+      { action: "close-ui", background: true },
+      { action: "transport", mode: "unknown-failure", count: 1 },
+      { action: "release-transport", count: 1 },
+      { action: "transport", mode: "healthy" },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "deferred" },
+      { action: "release-transport" },
+      { action: "wait-command", name: "closed" },
+    ],
+    check({ at }) {
+      assert.equal(at.deferred.applicationExited, false);
+      assert.match(at.closed.files["todos.json"], /Failed recovery snapshot/);
+      assert.doesNotMatch(at.closed.files["todos.json"], /Rejected stale/);
+      assert.match(at.closed.files["notes.json"], /Deferred after failure/);
+      assert.match(at.closed.remoteFiles["notes.json"], /Deferred after failure/);
+      assert.equal(at.closed.exitCode, 0);
+      assert.ok(at.closed.applicationExitedAt >= at.closed.transport.at(-1).finishedAt);
+    },
+  },
+  {
+    name: "TUI sync runner emits queued recovery responses before shutdown response and close",
+    // The user observes completed recovery and exit order, not IPC response IDs.
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { todos: "Recovery todo", notes: "Recovery note" }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "external-writer", domain: "todos", values: { description: "Queued todo recovery" }, publish: false },
+      { action: "external-writer", domain: "notes", values: { description: "Queued note recovery" }, publish: false },
+      { action: "ui", operation: "add-task", title: "Shutdown rejected todo", background: true },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "add-note", title: "Shutdown rejected note", content: "Unsaved shutdown note", background: true },
+      { action: "close-ui", background: true },
+      { action: "observe", name: "waiting" },
+      { action: "release-transport", count: 1 },
+      { action: "wait-transport", operation: "push", occurrence: 2, name: "second" },
+      { action: "release-transport" },
+      { action: "wait-command", name: "closed" },
+      { action: "open", view: "Todo" },
+      { action: "observe", name: "todo-visible" },
+      { action: "ui", operation: "switch-view", view: "Notes" },
+      { action: "observe", name: "notes-visible" },
+    ],
+    check({ at }) {
+      assert.equal(at.waiting.applicationExited, false);
+      assert.equal(at.second.applicationExited, false);
+      const closed = at.closed;
+      assert.equal(closed.exitCode, 0);
+      assert.match(closed.files["todos.json"], /Queued todo recovery/);
+      assert.match(closed.files["notes.json"], /Queued note recovery/);
+      assert.doesNotMatch(closed.files["todos.json"], /Shutdown rejected todo/);
+      assert.doesNotMatch(closed.files["notes.json"], /Shutdown rejected note|Unsaved shutdown note/);
+      assert.match(closed.remoteFiles["todos.json"], /Queued todo recovery/);
+      assert.match(closed.remoteFiles["notes.json"], /Queued note recovery/);
+      const pushes = closed.transport.filter(event => event.operation === "push");
+      assert.equal(pushes.length, 2);
+      assert.ok(pushes[1].startedAt >= pushes[0].finishedAt);
+      assert.ok(closed.applicationExitedAt >= pushes[1].finishedAt);
+      assert.match(at["todo-visible"].screen, /Recovery todo/);
+      assert.match(at["notes-visible"].screen, /Recovery note/);
+    },
+  },
+  {
+    name: "TUI sync runner closes after shutdown flush even when close throws",
+    // The old injected throwing close() callback is not reachable from the CLI.
+    // Preserve the valid user guarantee: orderly exit after a failed flush keeps
+    // durable work and does not hang or discard local data. No exit monkey patch.
+    fixture: { remote: "empty", initialize: true, config: { autoPull: false }, transport: { mode: "unknown-failure" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Failed flush retained" },
+      { action: "wait-status", status: "failed", name: "failed" },
+      { action: "close-ui", name: "closed" },
+      { action: "open", view: "Todo" },
+      { action: "observe", name: "reloaded" },
+    ],
+    check({ at }) {
+      assert.match(at.failed.screen, /failed/i);
+      assert.equal(at.closed.exitCode, 0);
+      assert.match(at.closed.files["todos.json"], /Failed flush retained/);
+      assert.ok(at.closed.files[".config/sync-pending.json"]);
+      assert.match(at.reloaded.screen, /Failed flush retained/);
+      assert.doesNotMatch(at.reloaded.remoteFiles["todos.json"] ?? "", /Failed flush retained/);
+    },
+  },
+  {
+    name: "TUI sync client forks runner with ignored stdout and stderr",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { mode: "unknown-failure", arm: "after-open", stderr: "SYNTHETIC_BACKEND_STDERR_CANARY", stdout: "SYNTHETIC_BACKEND_STDOUT_CANARY" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Output isolation task" },
+      { action: "wait-status", status: "failed", name: "isolated" },
+      { action: "ui", operation: "switch-view", view: "Notes" },
+      { action: "observe", name: "responsive" },
+    ],
+    check({ at, terminalOutput }) {
+      assert.match(at.isolated.files["todos.json"], /Output isolation task/);
+      assert.match(at.isolated.screen, /failed/i);
+      assert.doesNotMatch(terminalOutput, /SYNTHETIC_BACKEND_(STDERR|STDOUT)_CANARY/);
+      assert.ok(at.isolated.transport.some(event => event.stderr.includes("SYNTHETIC_BACKEND_STDERR_CANARY")));
+      assert.match(at.responsive.screen, /Add note/);
+    },
+  },
+];
+
+for (const { name, fixture, steps, check } of workflows) {
+  test(name, async (t) => {
+    const checkpoints = steps.filter(step => typeof step.name === "string").map(step => step.name);
+    const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: { fixture, steps: [...steps, { action: "exit" }] } });
+    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+    check(result);
+    assert.equal(result.exitCode, 0);
   });
-  return {promise, resolve, reject};
 }
-
-test('TUI sync runner rejects malformed IPC messages without touching sync runtime', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  let calls = 0;
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync() {
-        calls += 1;
-        return {status: 'healthy', hasPendingRemote: false};
-      }
-    },
-    send: (message) => sent.push(message)
-  });
-
-  await runner.handleMessage({type: 'sync:mutation', payload: {context: {domain: 'todo'}}});
-  await runner.handleMessage({type: 'sync:mutation', payload: {id: 'bad-missing-context'}});
-  await runner.handleMessage({type: 'unknown', payload: {id: 'bad-type'}});
-
-  assert.equal(calls, 0);
-  assert.deepEqual(sent, [
-    {type: 'sync:error', payload: {ok: false, message: 'Invalid sync message'}},
-    {type: 'sync:error', payload: {id: 'bad-missing-context', ok: false, message: 'Invalid sync message'}},
-    {type: 'sync:error', payload: {id: 'bad-type', ok: false, message: 'Invalid sync message'}}
-  ]);
-});
-
-test('TUI sync runner keeps one active Git sync and coalesces mutations for the next run', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  const first = deferred();
-  const second = deferred();
-  const calls = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync(context) {
-        calls.push(context);
-        return calls.length === 1 ? first.promise : second.promise;
-      }
-    },
-    send: (message) => sent.push(message)
-  });
-
-  const firstRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'todo', action: 'add'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls, [{domain: 'todo', action: 'add'}]);
-
-  const secondRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {domain: 'todo', action: 'edit'}}});
-  const thirdRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm3', context: {domain: 'board', action: 'move'}}});
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.equal(calls.length, 1);
-  first.resolve({status: 'healthy', hasPendingRemote: false});
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.deepEqual(calls, [
-    {domain: 'todo', action: 'add'},
-    {domain: 'board', action: 'move'}
-  ]);
-  second.resolve({status: 'pending_remote', hasPendingRemote: true});
-  await Promise.all([firstRequest, secondRequest, thirdRequest]);
-
-  const results = sent.filter(message => message.type === 'sync:result').map(message => message.payload);
-  assert.deepEqual(results, [
-    {id: 'm1', ok: true, status: {status: 'healthy', hasPendingRemote: false}},
-    {id: 'm2', ok: true, status: {status: 'pending_remote', hasPendingRemote: true}},
-    {id: 'm3', ok: true, status: {status: 'pending_remote', hasPendingRemote: true}}
-  ]);
-  assert.deepEqual(sent.filter(message => message.type === 'sync:event').map(message => message.payload.state), [
-    'syncing', 'pending'
-  ]);
-});
-
-
-test('TUI sync runner does not start queued mutation after active sync fails', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  const first = deferred();
-  const calls = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync(context) {
-        calls.push(context);
-        return first.promise;
-      }
-    },
-    send: (message) => sent.push(message)
-  });
-
-  const firstRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'todo', action: 'add'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const secondRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {domain: 'todo', action: 'edit'}}});
-  await new Promise(resolve => setImmediate(resolve));
-
-  first.reject(new Error('backend failed'));
-  await Promise.all([firstRequest, secondRequest]);
-
-  assert.deepEqual(calls, [
-    {domain: 'todo', action: 'add'}
-  ]);
-  assert.deepEqual(sent.filter(message => message.type === 'sync:event').map(message => message.payload.state), [
-    'syncing', 'failed'
-  ]);
-  assert.deepEqual(sent.filter(message => message.type === 'sync:error').map(message => message.payload), [
-    {id: 'm1', ok: false, message: 'Sync failed'},
-    {id: 'm2', ok: false, message: 'Sync failed'}
-  ]);
-});
-
-
-test('TUI sync runner reports failed instead of setup when a coalesced mutation hits a backend error with valid config', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const { createSyncRuntime } = await import('sync-core');
-  const sent = [];
-  const firstFetch = deferred();
-  let fetchCalls = 0;
-  const rootPath = './tmp/source';
-  fs.mkdirSync(rootPath, {recursive: true});
-  const runtime = await createSyncRuntime({
-    rootPath,
-    excludePatterns: ['.config/**'],
-    backend: {
-      async synchronize() {
-        fetchCalls += 1;
-        if (fetchCalls === 1) {
-          return firstFetch.promise;
-        }
-        throw new Error('simulated backend failure after queued mutation');
-      },
-      classifyError() {
-        return {kind: 'unknown', retryable: false, safeMessage: 'Sync failed'};
-      }
-    }
-  });
-  const runner = createTuiSyncRunner({
-    syncIndex: runtime,
-    send: (message) => sent.push(message)
-  });
-
-  const firstRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'todo', action: 'add'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const secondRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {domain: 'todo', action: 'edit'}}});
-  await new Promise(resolve => setImmediate(resolve));
-
-  firstFetch.resolve();
-  await Promise.all([firstRequest, secondRequest]);
-
-  assert.deepEqual(sent.filter(message => message.type === 'sync:event').map(message => message.payload.state), [
-    'syncing', 'failed'
-  ]);
-  assert.equal(sent.some(message => message.type === 'sync:event' && message.payload.state === 'setup'), false);
-  assert.equal(runtime.getSyncStatus().status, 'failed');
-  assert.equal(runtime.getSyncStatus().hasPendingRemote, true);
-  assert.equal(runtime.getSyncStatus().lastErrorKind, 'unknown');
-  fs.rmSync(rootPath, {recursive: true, force: true});
-});
-
-test('TUI sync runner flush waits for active and queued mutation before shutdown result', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  const first = deferred();
-  const second = deferred();
-  const calls = [];
-  let closed = false;
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync(context) {
-        calls.push(context);
-        return calls.length === 1 ? first.promise : second.promise;
-      },
-      getSyncStatus() {
-        return {status: 'healthy', hasPendingRemote: false};
-      }
-    },
-    send: (message) => sent.push(message),
-    close: () => { closed = true; }
-  });
-
-  const mutation = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'notes', action: 'add'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const queued = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {domain: 'notes', action: 'edit'}}});
-  const flush = runner.handleMessage({type: 'sync:flush', payload: {id: 'flush-1'}});
-  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
-
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(closed, false);
-  assert.deepEqual(calls, [{domain: 'notes', action: 'add'}]);
-
-  first.resolve({status: 'healthy', hasPendingRemote: false});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls, [
-    {domain: 'notes', action: 'add'},
-    {domain: 'notes', action: 'edit'}
-  ]);
-
-  second.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([mutation, queued, flush, shutdown]);
-
-  const resultIds = sent.filter(message => message.type === 'sync:result').map(message => message.payload.id);
-  assert.deepEqual(resultIds, ['m1', 'm2', 'flush-1', 'shutdown-1']);
-  assert.equal(closed, true);
-});
-
-test('TUI sync runner waits for active and trailing mutations before file recovery', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  const first = deferred();
-  const second = deferred();
-  const calls = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync(context) {
-        calls.push(['sync', context]);
-        return calls.length === 1 ? first.promise : second.promise;
-      },
-      async reconcileFile(input) {
-        calls.push(['reconcile', input]);
-        return {status: 'healthy', hasPendingRemote: false};
-      }
-    },
-    send: (message) => sent.push(message)
-  });
-
-  const active = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {action: 'active'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const trailing = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm2', context: {action: 'trailing'}}});
-  const recovery = runner.handleMessage({
-    type: 'sync:reconcile',
-    payload: {id: 'r1', filePath: './tmp/todos.json', snapshot: '{}', context: {action: 'recover'}}
-  });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(calls.length, 1);
-
-  first.resolve({status: 'healthy', hasPendingRemote: false});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(calls.length, 2);
-  second.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([active, trailing, recovery]);
-
-  assert.deepEqual(calls.map(([kind]) => kind), ['sync', 'sync', 'reconcile']);
-  assert.equal(sent.some(message => message.type === 'sync:result' && message.payload.id === 'r1'), true);
-});
-
-test('TUI sync runner serializes recoveries for different files', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  let concurrent = 0;
-  let maximum = 0;
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      async sync() {
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      async reconcileFile() {
-        concurrent += 1;
-        maximum = Math.max(maximum, concurrent);
-        await new Promise(resolve => setImmediate(resolve));
-        concurrent -= 1;
-        return {status: 'healthy', hasPendingRemote: false};
-      }
-    },
-    send: (message) => sent.push(message)
-  });
-
-  await Promise.all([
-    runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}}),
-    runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r2', filePath: './tmp/b.json', snapshot: '{}', context: {domain: 'notes'}}})
-  ]);
-
-  assert.equal(maximum, 1);
-  assert.deepEqual(sent.filter(message => message.type === 'sync:result').map(message => message.payload.id), ['r1', 'r2']);
-});
-
-test('TUI sync runner shutdown waits for an active recovery response before close', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const recovery = deferred();
-  const order = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      async sync() {
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      reconcileFile() {
-        return recovery.promise;
-      }
-    },
-    send: (message) => {
-      if (message.type === 'sync:result' || message.type === 'sync:error') {
-        order.push(message.payload.id);
-      }
-    },
-    close: () => order.push('close')
-  });
-
-  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(order, []);
-
-  recovery.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([recoveryRequest, shutdown]);
-
-  assert.deepEqual(order, ['r1', 'shutdown-1', 'close']);
-});
-
-test('TUI sync runner shutdown waits for recovery and its deferred mutation before close', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const recovery = deferred();
-  const mutation = deferred();
-  const order = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync() {
-        order.push('sync-start');
-        return mutation.promise;
-      },
-      reconcileFile() {
-        return recovery.promise;
-      }
-    },
-    send: (message) => {
-      if (message.type === 'sync:result' || message.type === 'sync:error') {
-        order.push(message.payload.id);
-      }
-    },
-    close: () => order.push('close')
-  });
-
-  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const mutationRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'notes'}}});
-  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
-
-  recovery.resolve({status: 'healthy', hasPendingRemote: false});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(order, ['r1', 'sync-start']);
-
-  mutation.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([recoveryRequest, mutationRequest, shutdown]);
-
-  assert.deepEqual(order, ['r1', 'sync-start', 'm1', 'shutdown-1', 'close']);
-});
-
-test('TUI sync runner shutdown waits for deferred mutation after recovery failure', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const recovery = deferred();
-  const mutation = deferred();
-  const order = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      sync() {
-        order.push('sync-start');
-        return mutation.promise;
-      },
-      reconcileFile() {
-        return recovery.promise;
-      }
-    },
-    send: (message) => {
-      if (message.type === 'sync:result' || message.type === 'sync:error') {
-        order.push(message.payload.id);
-      }
-    },
-    close: () => order.push('close')
-  });
-
-  const recoveryRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const mutationRequest = runner.handleMessage({type: 'sync:mutation', payload: {id: 'm1', context: {domain: 'notes'}}});
-  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
-
-  recovery.reject(new Error('recovery failed'));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(order, ['r1', 'sync-start']);
-
-  mutation.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([recoveryRequest, mutationRequest, shutdown]);
-
-  assert.deepEqual(order, ['r1', 'sync-start', 'm1', 'shutdown-1', 'close']);
-});
-
-test('TUI sync runner emits queued recovery responses before shutdown response and close', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const first = deferred();
-  const second = deferred();
-  const order = [];
-  let recoveryCalls = 0;
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      async sync() {
-        return {status: 'healthy', hasPendingRemote: false};
-      },
-      reconcileFile() {
-        recoveryCalls += 1;
-        return recoveryCalls === 1 ? first.promise : second.promise;
-      }
-    },
-    send: (message) => {
-      if (message.type === 'sync:result' || message.type === 'sync:error') {
-        order.push(message.payload.id);
-      }
-    },
-    close: () => order.push('close')
-  });
-
-  const firstRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r1', filePath: './tmp/a.json', snapshot: '{}', context: {domain: 'todos'}}});
-  const secondRequest = runner.handleMessage({type: 'sync:reconcile', payload: {id: 'r2', filePath: './tmp/b.json', snapshot: '{}', context: {domain: 'notes'}}});
-  await new Promise(resolve => setImmediate(resolve));
-  const shutdown = runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-1'}});
-
-  first.resolve({status: 'healthy', hasPendingRemote: false});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(order, ['r1']);
-  assert.equal(recoveryCalls, 2);
-
-  second.resolve({status: 'healthy', hasPendingRemote: false});
-  await Promise.all([firstRequest, secondRequest, shutdown]);
-
-  assert.deepEqual(order, ['r1', 'r2', 'shutdown-1', 'close']);
-});
-
-test('TUI sync runner closes after shutdown flush even when close throws', async () => {
-  const { createTuiSyncRunner } = await import('../sync/tui-sync-runner');
-  const sent = [];
-  const closeErrors = [];
-  const runner = createTuiSyncRunner({
-    syncIndex: {
-      getSyncStatus() {
-        return {status: 'healthy', hasPendingRemote: false};
-      }
-    },
-    send: (message) => sent.push(message),
-    onCloseError(error) {
-      closeErrors.push(error.message);
-    },
-    close() {
-      throw new Error('close failed');
-    }
-  });
-
-  await runner.handleMessage({type: 'sync:shutdown', payload: {id: 'shutdown-throws'}});
-
-  assert.deepEqual(sent.filter(message => message.type === 'sync:result').map(message => message.payload), [
-    {id: 'shutdown-throws', ok: true, status: {status: 'healthy', hasPendingRemote: false}}
-  ]);
-  assert.deepEqual(closeErrors, ['close failed']);
-});
-
-test('TUI sync client forks runner with ignored stdout and stderr', async () => {
-  const { createTuiSyncClient } = await import('../sync/tui-sync-client');
-  const forkCalls = [];
-  const fakeChild = {
-    connected: true,
-    on() {},
-    once() {},
-    send(message) {
-      this.lastMessage = message;
-      return true;
-    },
-    disconnect() {
-      this.connected = false;
-    }
-  };
-
-  const client = createTuiSyncClient({
-    fork(modulePath, args, options) {
-      forkCalls.push({modulePath, args, options});
-      return fakeChild;
-    }
-  });
-
-  assert.equal(forkCalls.length, 1);
-  assert.equal(path.basename(forkCalls[0].modulePath), 'tui-sync-runner.ts');
-  assert.deepEqual(forkCalls[0].options.stdio, ['ignore', 'ignore', 'ignore', 'ipc']);
-  assert.equal(forkCalls[0].options.env, process.env);
-  client.dispose();
-});

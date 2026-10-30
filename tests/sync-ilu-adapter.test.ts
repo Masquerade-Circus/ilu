@@ -1,115 +1,87 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import * as __cjsImport56 from '../support/home-sandbox';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { setTestHome, withTempHome } = __cjsImport56;
-const repoRoot = path.resolve(import.meta.dirname, '..');
-const adapterModulePath = path.join(repoRoot, 'sync', 'ilu-adapter.ts');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios";
 
-function loadAdapterWithHome(tempHome) {
-  const restoreHome = setTestHome(tempHome);
-  delete require.cache[require.resolve(adapterModulePath)];
+const workflows = [
+  {
+    name: "ilu adapter resolves source root and ignore patterns under ~/.ilu",
+    fixture: { remote: "empty", local: { todos: "Private root task" }, excludedFiles: { ".config/private.json": "synthetic-private" } },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "published" }],
+    check({ at, home }) {
+      assert.equal(at.published.exitCode, 0);
+      assert.equal(at.published.storageRoot, `${home}/.ilu`);
+      assert.match(at.published.remoteFiles["todos.json"], /Private root task/);
+      assert.equal(at.published.remoteFiles[".config/private.json"], null);
+      assert.equal(at.published.files[".config/private.json"], "synthetic-private");
+    },
+  },
+  {
+    name: "ilu adapter exposes normalized sync config and commit message builder",
+    fixture: { remote: "empty", local: { todos: "Commit inbox" } },
+    steps: [
+      { action: "cli", args: ["sync", "status"], name: "default" },
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" },
+      { action: "cli-ui", args: ["todo", "--add"], answers: { title: "Commit task", description: "" }, name: "saved", waitRemote: true },
+    ],
+    check({ at }) {
+      assert.match(at.default.screen, /disabled/i);
+      assert.equal(at.default.transport.length, 0);
+      const config = JSON.parse(at.initialized.files[".config/sync-config.json"]);
+      assert.equal(config.branch, "main");
+      assert.equal(config.autoSync, true);
+      assert.equal(config.autoPull, true);
+      assert.equal(config.autoPush, true);
+      assert.match(at.saved.remoteFiles["todos.json"], /Commit task/);
+      assert.ok(at.saved.remoteCommits.some(commit => /todos/i.test(commit.message)));
+    },
+  },
+  {
+    name: "ilu adapter expone solo el contrato vigente del consumer",
+    fixture: { remote: "empty", local: { todos: "Consumer inbox" } },
+    steps: [
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" },
+      { action: "cli", args: ["sync", "status"], name: "status" },
+      { action: "cli", args: ["sync", "retry"], name: "retried" },
+    ],
+    check({ at }) {
+      assert.equal(at.initialized.exitCode, 0);
+      assert.equal(at.status.exitCode, 0);
+      assert.match(at.status.screen, /healthy/i);
+      assert.equal(at.retried.exitCode, 0);
+      assert.match(at.retried.remoteFiles["todos.json"], /Consumer inbox/);
+    },
+  },
+  {
+    name: "ilu adapter ignora compatibilidad anterior y solo lee sync-config.json en .config",
+    fixture: {
+      remote: "empty", initialize: true,
+      config: { enabled: true, branch: "main", autoSync: true, autoPull: false, autoPush: true },
+      excludedFiles: { ".sync/config.json": JSON.stringify({ enabled: false, remoteUrl: "./tmp/nonexistent-old.git", branch: "old", autoSync: false, autoPull: false, autoPush: false }) },
+    },
+    steps: [
+      { action: "cli-ui", args: ["todo", "--add"], answers: { title: "Current configuration task", description: "" }, name: "saved", waitRemote: true },
+      { action: "cli", args: ["sync", "status"], name: "status" },
+    ],
+    check({ at }) {
+      assert.equal(at.saved.exitCode, 0);
+      assert.match(at.saved.remoteFiles["todos.json"], /Current configuration task/);
+      assert.match(at.status.screen, /healthy/i);
+      const config = JSON.parse(at.status.files[".config/sync-config.json"]);
+      assert.equal(config.branch, "main");
+      assert.equal(config.autoPull, false);
+      assert.equal(config.autoPush, true);
+      assert.equal(JSON.parse(at.status.files[".sync/config.json"]).enabled, false);
+    },
+  },
+];
 
-  const adapter = require(adapterModulePath);
-
-  return {
-    adapter,
-    restore() {
-      restoreHome();
-      delete require.cache[require.resolve(adapterModulePath)];
-    }
-  };
+for (const { name, fixture, steps, check } of workflows) {
+  test(name, async (t) => {
+    const checkpoints = steps.map(step => step.name);
+    const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: { fixture, steps: [...steps, { action: "exit" }] } });
+    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+    check(result);
+    assert.equal(result.exitCode, 0);
+  });
 }
-
-test('ilu adapter resolves source root and ignore patterns under ~/.ilu', () => {
-  return withTempHome(tempHome => {
-    const {adapter, restore} = loadAdapterWithHome(tempHome);
-    try {
-      assert.equal(adapter.getSourceRoot(), path.join(tempHome, '.ilu'));
-      assert.deepEqual(adapter.getIgnorePatterns(), ['.config/**']);
-    } finally {
-      restore();
-    }
-  }, {prefix: 'ilu-sync-adapter-'});
-});
-
-test('ilu adapter exposes normalized sync config and commit message builder', () => {
-  return withTempHome(tempHome => {
-    const {adapter, restore} = loadAdapterWithHome(tempHome);
-    try {
-      assert.deepEqual(adapter.getSyncConfig(), {
-        enabled: false,
-        remoteUrl: null,
-        branch: 'main',
-        autoSync: true,
-        autoPull: true,
-        autoPush: true
-      });
-      assert.match(adapter.buildCommitMessage({domain: 'todos', action: 'save'}), /todos/i);
-    } finally {
-      restore();
-    }
-  }, {prefix: 'ilu-sync-adapter-config-'});
-});
-
-test('ilu adapter expone solo el contrato vigente del consumer', () => {
-  return withTempHome(tempHome => {
-    const {adapter, restore} = loadAdapterWithHome(tempHome);
-    try {
-      assert.equal(typeof adapter.getSourceRoot, 'function');
-      assert.equal(typeof adapter.getIgnorePatterns, 'function');
-      assert.equal(typeof adapter.getSyncConfig, 'function');
-      assert.equal(typeof adapter.buildCommitMessage, 'function');
-      assert.equal('backend' in adapter, false);
-      assert.equal('stateStore' in adapter, false);
-      assert.equal('logger' in adapter, false);
-      assert.equal('now' in adapter, false);
-      assert.equal('listTrackedEntries' in adapter, false);
-      assert.equal('getStateStore' in adapter, false);
-    } finally {
-      restore();
-    }
-  }, {prefix: 'ilu-sync-adapter-surface-'});
-});
-
-test('ilu adapter ignora compatibilidad anterior y solo lee sync-config.json en .config', () => {
-  return withTempHome(tempHome => {
-    const oldConfigFile = path.join(tempHome, '.ilu', '.sync', 'config.json');
-    const currentConfigFile = path.join(tempHome, '.ilu', '.config', 'sync-config.json');
-    fs.mkdirSync(path.dirname(oldConfigFile), {recursive: true});
-    fs.mkdirSync(path.dirname(currentConfigFile), {recursive: true});
-    fs.writeFileSync(oldConfigFile, JSON.stringify({
-      enabled: true,
-      remoteUrl: '/tmp/old.git',
-      branch: 'old',
-    autoSync: false,
-    autoPull: false,
-    autoPush: false
-    }, null, 2), 'utf8');
-    fs.writeFileSync(currentConfigFile, JSON.stringify({
-      enabled: true,
-      remoteUrl: '/tmp/remote.git',
-      branch: 'main',
-    autoSync: true,
-    autoPull: false,
-    autoPush: true
-    }, null, 2), 'utf8');
-
-    const {adapter, restore} = loadAdapterWithHome(tempHome);
-    try {
-      assert.deepEqual(adapter.getSyncConfig(), {
-        enabled: true,
-        remoteUrl: '/tmp/remote.git',
-        branch: 'main',
-        autoSync: true,
-        autoPull: false,
-        autoPush: true
-      });
-    } finally {
-      restore();
-    }
-  }, {prefix: 'ilu-sync-adapter-old-'});
-});

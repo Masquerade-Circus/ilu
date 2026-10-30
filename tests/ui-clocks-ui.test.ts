@@ -1,469 +1,89 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import fs from 'node:fs';
-import { fork } from 'node:child_process';
-import { withTempHome } from '../support/home-sandbox.ts';
-import { dbFilePath } from '../utils/local-paths.ts';
-const repoRoot = path.resolve(import.meta.dirname, '..');
-import 'tsx/cjs';
-import Ui from '../ui/app.tsx';
-function visible(output) {
-  return output.replace(/\[[0-?]*[ -/]*[@-~]/g, '');
+import {captureIluScenario} from './test-helpers/terminal-capture.ts';
+import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
+
+const clocks = [{name: 'UTC', timezone: 'Etc/UTC'}, {name: 'Mexico City', timezone: 'America/Mexico_City'}];
+// Seed is real private JSON storage, never a substituted read snapshot. A
+// storage failure uses filesystem permissions or a real revision conflict.
+const cases = [
+  ['Clocks UI exposes approved empty state and direct action bar controls', [], [
+    {expect: {empty: true, sameRow: ['Add clock', 'Move up', 'Move down', 'Remove'], absent: ['adapter', 'snapshot', 'runtime', 'Reorder clocks']}}, {screenshot: 'result'}
+  ]],
+  ['Clocks tall terminal shows more clocks while preserving management controls', Array.from({length: 30}, (_, index) => ({name: `Clock-${index + 1}-end`, timezone: 'Etc/UTC'})), [
+    {rememberVisibleCount: {pattern: 'Clock-\\d+-end.*Etc/UTC', as: 'short'}}, {resize: {cols: 100, rows: 40}},
+    {expect: {moreVisibleThan: {name: 'short', pattern: 'Clock-\\d+-end.*Etc/UTC'}}},
+    {click: 'Add clock'}, {expect: {text: 'Cancel'}}, {click: 'Cancel'}, {screenshot: 'result'}
+  ]],
+  ['Clocks concurrent TUI writers preserve every accepted addition in legacy JSON storage', [{name: 'Legacy clock', timezone: 'Etc/UTC'}], [
+    {concurrentClockAdds: {sessions: 4, rounds: 8, nameTemplate: 'Writer {session} round {round}', timezone: 'Etc/UTC', synchronizeBeforeSave: true, assertEveryRound: {legacyArray: true, equalsAcceptedWrites: true, rejectedWritesShowError: true}, requireProgress: true, closeNormally: true}},
+    {expect: {text: 'Legacy clock'}}, {screenshot: 'result'}
+  ]],
+  ['Clocks UI shows names and timezones in the page and names with seconds in the footer', clocks, [
+    {expect: {texts: ['UTC', 'Etc/UTC', 'Mexico City', 'America/Mexico_City'], footerClockSeconds: ['UTC', 'Mexico City'], footerAbsent: ['Etc/UTC', 'America/Mexico_City']}}, {screenshot: 'result'}
+  ]],
+  ['Clocks footer keeps 80-column layout when clock names and seconds do not fit', ['One', 'Two', 'Three', 'Four'].map((word, index) => ({name: `Extremely Long Clock Name ${word}`, timezone: ['Etc/UTC', 'America/Mexico_City', 'Europe/Madrid', 'Asia/Tokyo'][index]})), [
+    {expect: {withinViewport: true, footerActionsVisible: true}}, {screenshot: 'result'}
+  ]],
+  ['Clocks footer renders deterministic ANSI colors per visible clock', clocks, [
+    {expect: {footerColors: {UTC: '#f87171', 'Mexico City': '#60a5fa'}}},
+    {resize: {cols: 100, rows: 30}}, {resize: {cols: 80, rows: 24}},
+    {expect: {footerColors: {UTC: '#f87171', 'Mexico City': '#60a5fa'}}}, {screenshot: 'result'}
+  ]],
+  ['Clocks footer refreshes automatically each second and stops after destroy', clocks, [
+    {rememberFooter: 'before-tick'}, {waitForClockTick: {name: 'UTC', timeoutMs: 2500}},
+    {expect: {footerChangedSince: 'before-tick'}}, {screenshot: 'result'},
+    {exitNormally: true}, {expectNoOutputAfterExit: {durationMs: 1200}}
+  ]],
+  ['Clocks add workflow exposes required name and timezone search copy before save', clocks, [
+    {remember: ['clocks']}, {click: 'Add clock'}, {click: 'Add clock', area: 'overlay', occurrence: -1},
+    {expect: {texts: ['Clock name', 'Time zone', 'Search time zones'], invalid: true}}, {unchanged: ['clocks']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Clocks add workflow requires a selected timezone before calling the action', clocks, [
+    {remember: ['clocks']}, {click: 'Add clock'}, {type: 'Local'}, {click: 'Add clock', area: 'overlay', occurrence: -1},
+    {expect: {invalid: true, text: 'Time zone'}}, {unchanged: ['clocks']}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Clocks list press opens clock details with per-clock actions', clocks, [
+    {click: 'UTC', area: 'content'}, {key: 'ENTER'}, {expect: {texts: ['Clock details', 'Etc/UTC', 'Move up', 'Move down', 'Remove', 'Close']}}, {screenshot: 'result'}, {key: 'ESCAPE'}
+  ]],
+  ['Clocks remove overlay pins destructive action and cancel to the overlay bottom', clocks, [
+    {click: 'Remove', area: 'actions'}, {expect: {overlayBottomActions: ['Remove clock', 'Cancel'], withinViewport: true}}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Clocks remove workflow requires explicit visible confirmation for the selected clock', clocks, [
+    {remember: ['clocks']}, {click: 'Remove', area: 'actions'}, {expect: {text: 'UTC'}}, {unchanged: ['clocks']},
+    {screenshot: 'result'}, {click: 'Remove clock'}, {data: {domain: 'clocks', names: ['Mexico City'], exactOrder: true}}
+  ]],
+  ['Clocks priority workflow moves the selected clock through direct action bar controls', clocks, [
+    {click: 'Move down', area: 'actions'}, {data: {domain: 'clocks', names: ['Mexico City', 'UTC'], exactOrder: true}}, {screenshot: 'result'}
+  ]],
+  ['Clocks overlay closes visually when switching away from Clocks by keyboard shortcut', clocks, [
+    {remember: ['clocks']}, {click: 'Add clock'}, {expect: {text: 'Clock name'}}, {key: 'CTRL_1'},
+    {expect: {text: 'Capture task', absent: ['Clock name', 'Search time zones']}}, {unchanged: ['clocks']}, {screenshot: 'result'}
+  ]],
+  ['Clocks remove workflow shows safe errors without closing the confirmation', clocks, [
+    {remember: ['clocks']}, {click: 'Remove', area: 'actions'}, {storageFault: {domain: 'clocks', kind: 'deny-write'}},
+    {click: 'Remove clock'}, {expect: {text: 'UTC', error: true, absent: ['stack', 'CANARY_SECRET']}},
+    {unchanged: ['clocks']}, {screenshot: 'result'}, {storageFault: {domain: 'clocks', kind: 'restore'}}, {click: 'Cancel'}
+  ]],
+  ['Clocks add and remove overlays use the full overlay surface without inset margins', clocks, [
+    {click: 'Add clock'}, {expect: {overlayFullSurface: true, withinViewport: true}}, {click: 'Cancel'},
+    {click: 'Remove', area: 'actions'}, {expect: {overlayFullSurface: true, withinViewport: true}}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Clocks remove overlay wraps long clock names and time zones without truncation inside 80 columns', [{name: `Clock ${'A'.repeat(110)}`, timezone: `America/${'B'.repeat(110)}`}], [
+    {click: 'Remove', area: 'actions'}, {expect: {wrappedComplete: [`Clock ${'A'.repeat(110)}`, `America/${'B'.repeat(110)}`], withinViewport: true}}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]],
+  ['Clocks remove workflow normalizes stale selection after removing the selected last position', clocks, [
+    {click: 'Mexico City', area: 'content'}, {key: 'ESCAPE'}, {click: 'Remove', area: 'actions'},
+    {expect: {text: 'Mexico City'}}, {click: 'Remove clock'},
+    {data: {domain: 'clocks', names: ['UTC'], exactOrder: true}}, {click: 'Remove', area: 'actions'},
+    {expect: {text: 'UTC', absent: 'Choose a clock first'}}, {screenshot: 'result'}, {click: 'Cancel'}
+  ]]
+] as const;
+
+for (const [name, seedClocks, steps] of cases) {
+  test(name, async context => {
+    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {seed: {clocks: seedClocks}, steps: [{key: 'CTRL_4'}, ...steps], finish: 'normal-exit'}});
+    assert.equal(result.exitCode, 0);
+    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
+  });
 }
-
-function visibleLines(output) {
-  return visible(output).split(/\r?\n/);
-}
-
-function snapshot(clocks = [
-  {name: 'UTC', timezone: 'Etc/UTC', time: '12:00', position: 1},
-  {name: 'Mexico City', timezone: 'America/Mexico_City', time: '06:00', position: 2}
-]) {
-  return {
-    todo: {title: 'Today', items: [], remaining: 0},
-    notes: {title: 'Notes', items: [], remaining: 0},
-    board: {title: 'Board', columns: [], totalCards: 0},
-    clocks: {items: clocks, remaining: 0}
-  };
-}
-
-test('Clocks UI exposes approved empty state and direct action bar controls', async () => {
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot([])});
-  const output = visible(session.output());
-
-  assert.match(output, /No clocks yet\. Add a clock to see it here\./);
-  assert.equal(visibleLines(session.output()).some(line => line.trim() === 'Clocks'), false);
-  assert.match(output, /Add clock/);
-  assert.match(output, /Move up/);
-  assert.match(output, /Move down/);
-  assert.match(output, /Remove/);
-  assert.doesNotMatch(output, /Reorder clocks/);
-  assert.doesNotMatch(output, /clocks command|adapter|snapshot|runtime|criteria/i);
-  session.destroy();
-});
-
-test('Clocks tall terminal shows more clocks while preserving management controls', async () => {
-  const clocks = Array.from({length: 30}, (_, index) => ({name: `Clock-${index + 1}-end`, timezone: 'Etc/UTC', time: '12:00', position: index + 1}));
-  const sessions = [];
-  try {
-    for (const rows of [24, 40]) {
-      sessions.push(await Ui.createHeadlessSession({cols: 100, rows, state: {activeTab: 'Clocks'}, snapshot: snapshot(clocks)}));
-    }
-    // Page rows include the zone. Footer clocks do not, so they cannot inflate this count.
-    const count = session => visibleLines(session.output()).filter(line => /Clock-\d+-end/.test(line) && /Etc\/UTC/.test(line)).length;
-    assert.ok(count(sessions[1]) > count(sessions[0]));
-    for (const session of sessions) {
-      assert.ok(session.focus('clock-add-open'));
-      session.dispatchKey('ENTER');
-      assert.ok(session.focus('clock-add-cancel'));
-    }
-  } finally {
-    for (const session of sessions) {
-      await session.destroy();
-    }
-  }
-});
-
-test('Clocks concurrent TUI writers preserve every accepted addition in legacy JSON storage', async () => {
-  await withTempHome(async home => {
-    const file = dbFilePath('clocks');
-    fs.mkdirSync(path.dirname(file), {recursive: true});
-    fs.writeFileSync(file, JSON.stringify([{name: 'Legacy clock', timezone: 'Etc/UTC'}]));
-    const writers = [];
-    const ready = [];
-    const accepted = ['Legacy clock'];
-    const nextMessage = child => new Promise((resolve, reject) => {
-      const onMessage = message => {
-        child.removeListener('exit', onExit);
-        child.removeListener('error', onError);
-        if (message.type === 'error') {
-          reject(new Error(message.message));
-        } else {
-          resolve(message);
-        }
-      };
-      const onExit = code => {
-        child.removeListener('message', onMessage);
-        child.removeListener('error', onError);
-        reject(new Error(`Clock writer exited before its response: ${code}`));
-      };
-      const onError = error => {
-        child.removeListener('message', onMessage);
-        child.removeListener('exit', onExit);
-        reject(error);
-      };
-      child.once('message', onMessage);
-      child.once('exit', onExit);
-      child.once('error', onError);
-    });
-    try {
-      for (let index = 0; index < 4; index += 1) {
-        const child = fork(path.join(repoRoot, 'tests/test-helpers/run-clock-writer.ts'), [], {
-          cwd: repoRoot,
-          execArgv: ['--import', 'tsx', '--import', './support/test-home-guard.ts'],
-          env: {...process.env, HOME: home},
-          stdio: ['ignore', 'ignore', 'inherit', 'ipc']
-        });
-        writers.push(child);
-        ready.push(nextMessage(child));
-      }
-      await Promise.all(ready);
-      for (let round = 0; round < 8; round += 1) {
-        const names = writers.map((_writer, index) => `Writer ${index} round ${round}`);
-        await Promise.all(writers.map((writer, index) => {
-          const prepared = nextMessage(writer);
-          writer.send({type: 'prepare', name: names[index]});
-          return prepared;
-        }));
-        const outcomes = await Promise.all(writers.map(writer => {
-          const saved = nextMessage(writer);
-          writer.send({type: 'save'});
-          return saved;
-        }));
-        for (const [index, outcome] of outcomes.entries()) {
-          if (outcome.accepted) {
-            accepted.push(names[index]);
-          } else {
-            assert.ok(outcome.error.length > 0, 'a rejected write must expose an error');
-          }
-        }
-        const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
-        assert.ok(Array.isArray(persisted), 'existing clocks must retain their readable array format');
-        assert.deepEqual(persisted.map(clock => clock.name).sort(), [...accepted].sort());
-      }
-      assert.ok(accepted.length > 1, 'concurrent writers must make progress');
-    } finally {
-      await Promise.all(writers.map(writer => new Promise(resolve => {
-        if (writer.exitCode !== null || writer.signalCode !== null) {
-          resolve();
-          return;
-        }
-        writer.once('exit', resolve);
-        if (writer.connected) {
-          writer.send({type: 'close'});
-        }
-      })));
-    }
-  }, {prefix: 'ilu-clocks-concurrent-'});
-});
-
-test('Clocks UI shows names and timezones in the page and names with seconds in the footer', async () => {
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot([
-    {name: 'UTC', timezone: 'Etc/UTC', time: '12:00:03', position: 1},
-    {name: 'Mexico City', timezone: 'America/Mexico_City', time: '06:00:04', position: 2}
-  ])});
-  const output = visible(session.output());
-  const footerLine = output.split(/\r?\n/).find(line => line.includes('Ctrl+K: Help  Ctrl+C: Exit')) || '';
-
-  assert.match(output, /UTC/);
-  assert.match(output, /Etc\/UTC/);
-  assert.match(output, /Mexico City/);
-  assert.match(output, /America\/Mexico_City/);
-  assert.match(footerLine, /UTC 12:00:03/);
-  assert.match(footerLine, /Mexico City 06:00:04/);
-  assert.doesNotMatch(footerLine, /Etc\/UTC|America\/Mexico_City/);
-  session.destroy();
-});
-
-test('Clocks footer keeps 80-column layout when clock names and seconds do not fit', async () => {
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot([
-      {name: 'Extremely Long Clock Name One', timezone: 'Etc/UTC', time: '12:00:03', position: 1},
-      {name: 'Extremely Long Clock Name Two', timezone: 'America/Mexico_City', time: '06:00:04', position: 2},
-      {name: 'Extremely Long Clock Name Three', timezone: 'Europe/Madrid', time: '18:00:05', position: 3},
-      {name: 'Extremely Long Clock Name Four', timezone: 'Asia/Tokyo', time: '02:00:06', position: 4}
-    ])
-  });
-  const lines = visibleLines(session.output());
-  const footerLine = lines.find(line => line.includes('Ctrl+K: Help  Ctrl+C: Exit')) || '';
-
-  assert.ok(footerLine.length <= 80, `expected compact footer within 80 columns, got ${footerLine.length}: ${footerLine}`);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('Clocks footer renders deterministic ANSI colors per visible clock', async () => {
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot([
-    {name: 'UTC', timezone: 'Etc/UTC', time: '12:00:03', position: 1},
-    {name: 'Mexico City', timezone: 'America/Mexico_City', time: '06:00:04', position: 2}
-  ])});
-
-  try {
-    const ansi = session.ansiOutput();
-    const ansiSpan = String.raw`(?:\x1b\[[0-?]*[ -/]*[@-~])*`;
-
-    assert.match(ansi, new RegExp(String.raw`\x1b\[38;2;248;113;113m${ansiSpan}UTC 12:00:03`));
-    assert.match(ansi, new RegExp(String.raw`\x1b\[38;2;96;165;250m${ansiSpan}Mexico City 06:00:04`));
-  } finally {
-    session.destroy();
-  }
-});
-
-test('Clocks footer refreshes automatically each second and stops after destroy', async () => {
-  let second = 0;
-  let calls = 0;
-  const buildSnapshot = () => {
-    calls += 1;
-    return snapshot([{
-      name: 'UTC',
-      timezone: 'Etc/UTC',
-      time: `12:00:${String(second).padStart(2, '0')}`,
-      position: 1
-    }]);
-  };
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, buildSnapshot});
-
-  assert.match(visible(session.output()), /UTC 12:00:00/);
-  second = 1;
-  await new Promise(resolve => setTimeout(resolve, 1100));
-  assert.match(visible(session.output()), /UTC 12:00:01/);
-
-  session.destroy();
-  const callsAfterDestroy = calls;
-  second = 2;
-  await new Promise(resolve => setTimeout(resolve, 1100));
-  assert.equal(calls, callsAfterDestroy);
-});
-
-test('Clocks add workflow exposes required name and timezone search copy before save', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot(),
-    clockActions: {
-      addClock(values) {
-        calls.push(values);
-        return {ok: false, error: 'Clock name is required.'};
-      }
-    }
-  });
-
-  session.click('clock-add-open');
-  session.click('clock-add-save');
-
-  const output = visible(session.output());
-  assert.match(output, /Add clock/);
-  assert.match(output, /Clock name/);
-  assert.match(output, /Time zone/);
-  assert.match(output, /Search time zones/);
-  assert.doesNotMatch(output, /\bTimezone\b/);
-  assert.doesNotMatch(output, /Search timezone/);
-  assert.match(output, /Clock name is required\./);
-  assert.deepEqual(calls, []);
-  session.destroy();
-});
-
-test('Clocks add workflow requires a selected timezone before calling the action', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot(),
-    clockActions: {
-      addClock(values) {
-        calls.push(values);
-        return {ok: true};
-      }
-    }
-  });
-
-  session.click('clock-add-open');
-  session.focus('clock-add-name');
-  session.dispatchText('Local');
-  session.click('clock-add-save');
-
-  assert.match(visible(session.output()), /Choose a time zone from the list\./);
-  assert.deepEqual(calls, []);
-  session.destroy();
-});
-
-test('Clocks list press opens clock details with per-clock actions', async () => {
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot()});
-
-  session.focus('clock-items');
-  session.dispatchKey('ENTER');
-
-  const output = visible(session.output());
-  assert.match(output, /Clock details/);
-  assert.match(output, /UTC/);
-  assert.match(output, /Time zone: Etc\/UTC/);
-  assert.match(output, /Move up/);
-  assert.match(output, /Move down/);
-  assert.match(output, /Remove/);
-  assert.match(output, /Close/);
-  session.destroy();
-});
-
-
-
-test('Clocks remove overlay pins destructive action and cancel to the overlay bottom', async () => {
-  const session = await Ui.createHeadlessSession({cols: 80, rows: 24, state: {activeTab: 'Clocks'}, snapshot: snapshot()});
-
-  session.click('clock-remove-open');
-
-  const lines = visibleLines(session.output());
-  const actionRow = lines.findIndex(line => /Remove clock/.test(line) && /Cancel/.test(line));
-
-  assert.notEqual(actionRow, -1, `expected Clocks remove actions:\n${lines.join('\n')}`);
-  assert.equal(actionRow, 20, `Clocks remove actions must render on the last internal overlay row:\n${lines.join('\n')}`);
-  assert.equal(lines.filter(line => line.length > 80).length, 0);
-  session.destroy();
-});
-
-test('Clocks remove workflow requires explicit visible confirmation for the selected clock', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot(),
-    clockActions: {
-      removeClocks(values) {
-        calls.push(values);
-        return {ok: true};
-      }
-    }
-  });
-
-  session.click('clock-remove-open');
-  assert.match(visible(session.output()), /Remove “UTC”\?/);
-  session.click('clock-remove-confirm');
-
-  assert.deepEqual(calls, [{positions: [1]}]);
-  session.destroy();
-});
-
-test('Clocks priority workflow moves the selected clock through direct action bar controls', async () => {
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot(),
-    clockActions: {
-      moveClock(values) {
-        calls.push(values);
-        return {ok: true};
-      }
-    }
-  });
-
-  assert.doesNotMatch(visible(session.output()), /Choose a clock to move\./);
-  session.click('clock-move-down');
-
-  assert.deepEqual(calls, [{fromPosition: 1, toPosition: 2}]);
-  session.destroy();
-});
-
-test('Clocks overlay closes visually when switching away from Clocks by keyboard shortcut', async () => {
-  const session = await Ui.createHeadlessSession({state: {activeTab: 'Clocks'}, snapshot: snapshot()});
-
-  session.click('clock-add-open');
-  assert.match(visible(session.output()), /Clock name/);
-  session.dispatchKey('CTRL_1');
-
-  const output = visible(session.output());
-  assert.match(output, /Todo/);
-  assert.doesNotMatch(output, /Clock name|Search time zones|Search timezone/);
-  session.destroy();
-});
-
-test('Clocks remove workflow shows safe errors without closing the confirmation', async () => {
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot(),
-    clockActions: {
-      removeClocks() {
-        return {ok: false, error: 'Clock could not be removed. Try again.'};
-      }
-    }
-  });
-
-  session.click('clock-remove-open');
-  session.click('clock-remove-confirm');
-
-  const output = visible(session.output());
-  assert.match(output, /Remove “UTC”\?/);
-  assert.match(output, /Clock could not be removed\. Try again\./);
-  session.destroy();
-});
-
-test('Clocks add and remove overlays use the full overlay surface without inset margins', async () => {
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot()
-  });
-
-  session.click('clock-add-open');
-  const addLines = visibleLines(session.output());
-  assert.equal(addLines.filter(line => line.length > 80).length, 0, `expected no overdraw in add overlay:\n${addLines.join('\n')}`);
-  assert.equal(addLines.some(line => line.startsWith('          ') && line.includes('Add clock')), false, 'expected add overlay content not to be inset by the old 10% margin');
-
-  session.click('clock-add-cancel');
-  session.click('clock-remove-open');
-  const removeLines = visibleLines(session.output());
-  assert.equal(removeLines.filter(line => line.length > 80).length, 0, `expected no overdraw in remove overlay:\n${removeLines.join('\n')}`);
-  assert.equal(removeLines.some(line => line.startsWith('          ') && line.includes('Remove “UTC”?')), false, 'expected remove overlay content not to be inset by the old 10% margin');
-  session.destroy();
-});
-
-test('Clocks remove overlay wraps long clock names and time zones without truncation inside 80 columns', async () => {
-  const longName = `Clock ${'A'.repeat(110)}`;
-  const longTimezone = `America/${'B'.repeat(110)}`;
-  const session = await Ui.createHeadlessSession({
-    cols: 80,
-    rows: 24,
-    state: {activeTab: 'Clocks'},
-    snapshot: snapshot([
-      {name: longName, timezone: longTimezone, time: '09:00', position: 1}
-    ])
-  });
-
-  session.click('clock-remove-open');
-
-  const output = visible(session.output());
-  const lines = visibleLines(session.output());
-  assert.match(output, /Remove “Clock/);
-  assert.doesNotMatch(output, /…/);
-  assert.match(output, /AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/);
-  assert.match(output, /BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB/);
-  assert.equal(lines.filter(line => line.length > 80).length, 0, `expected no overdraw in remove overlay:\n${lines.join('\n')}`);
-  session.destroy();
-});
-
-test('Clocks remove workflow normalizes stale selection after removing the selected last position', async () => {
-  let currentClocks = [
-    {name: 'UTC', timezone: 'Etc/UTC', time: '12:00', position: 1},
-    {name: 'Mexico City', timezone: 'America/Mexico_City', time: '06:00', position: 2}
-  ];
-  const calls = [];
-  const session = await Ui.createHeadlessSession({
-    state: {activeTab: 'Clocks', clocksState: {selectedClockPosition: 2}},
-    buildSnapshot() {
-      return snapshot(currentClocks);
-    },
-    clockActions: {
-      removeClocks(values) {
-        calls.push(values);
-        currentClocks = currentClocks
-          .filter(clock => !values.positions.includes(clock.position))
-          .map((clock, index) => ({...clock, position: index + 1}));
-        return {ok: true};
-      }
-    }
-  });
-
-  session.click('clock-remove-open');
-  assert.match(visible(session.output()), /Remove “Mexico City”\?/);
-  session.click('clock-remove-confirm');
-
-  assert.deepEqual(calls, [{positions: [2]}]);
-  assert.equal(session.state().clocksState.selectedClockPosition, 1);
-
-  session.click('clock-remove-open');
-  const output = visible(session.output());
-  assert.match(output, /Remove “UTC”\?/);
-  assert.doesNotMatch(output, /Choose a clock first\./);
-  session.destroy();
-});

@@ -1,484 +1,494 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import * as __cjsImport58 from 'node:child_process';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { execFileSync } = __cjsImport58;
-import * as __cjsImport59 from '../support/home-sandbox';
-const { withTempHome } = __cjsImport59;
-const repoRoot = path.resolve(import.meta.dirname, '..');
-import createTempGitRemote from './test-helpers/create-temp-git-remote';
-function clearRuntimeCaches() {
-  [
-    path.join(repoRoot, 'sync', 'commands.ts'),
-    path.join(repoRoot, 'sync', 'index.ts'),
-    path.join(repoRoot, 'sync', 'iludb-recovery.ts'),
-    path.join(repoRoot, 'sync', 'ilu-adapter.ts'),
-    path.join(repoRoot, 'sync', 'ilu-hooks.ts'),
-    path.join(repoRoot, 'sync', 'state-store.ts'),
-    path.join(repoRoot, 'sync', 'git-cli-backend.ts'),
-    path.join(repoRoot, 'utils', 'local-paths.ts'),
-    path.join(repoRoot, 'utils', 'load-db.ts'),
-    path.join(repoRoot, 'utils', 'persistence-sync.ts'),
-    path.join(repoRoot, 'utils', 'create-list-model.ts'),
-    path.join(repoRoot, 'todos', 'model.ts')
-  ].forEach(modulePath => {
-    try {
-      delete (require.cache as any)[require.resolve(modulePath)];
-    } catch (error) {
-      // ignore cache misses
-    }
-  });
-}
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { captureIluScenario } from "./test-helpers/terminal-capture";
+import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios";
 
-function loadFresh(modulePath) {
-  clearRuntimeCaches();
-  return require(modulePath);
-}
-
-function git(args, options: any = {}) {
-  return execFileSync('git', args, {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: 'ilu test',
-      GIT_AUTHOR_EMAIL: 'test@ilu.local',
-      GIT_COMMITTER_NAME: 'ilu test',
-      GIT_COMMITTER_EMAIL: 'test@ilu.local'
-    },
-    ...options
-  }).trim();
-}
-
-function runCli(args, options: any = {}) {
-  return require('node:child_process').spawnSync(process.execPath, args, {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    ...options
-  });
-}
-
-async function waitForCondition(predicate, attempts = 100) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (predicate()) {
-      return;
-    }
-    await new Promise(resolve => setImmediate(resolve));
-  }
-  throw new Error('Timed out waiting for sync condition');
-}
-
-test('bootstrap local data to empty local bare remote', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async tempHome => {
-    const TodosModel = loadFresh(path.join(repoRoot, 'todos', 'model.ts'));
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-
-    TodosModel.add({title: 'Inbox', description: ''});
-    await SyncCommands.init([], {remote: remote.remotePath});
-
-    const heads = git(['ls-remote', '--heads', remote.remotePath]);
-    assert.match(heads, /main/);
-    assert.equal(fs.existsSync(localPaths.syncConfigFilePath()), true);
-    assert.equal(fs.existsSync(path.join(tempHome, '.ilu', '.sync-core', 'state.json')), true);
-    assert.equal(fs.existsSync(path.join(tempHome, '.ilu', '.git')), true);
-    const tracked = git(['-C', path.join(tempHome, '.ilu'), 'ls-files'], {cwd: repoRoot});
-    assert.equal(/\.config\//.test(tracked), false);
-  }, {prefix: 'ilu-sync-home-'});
-
-  remote.cleanup();
-});
-
-test('bootstrap empty local storage from remote with history', async () => {
-  const remote = createTempGitRemote({
-    seedFiles: {
-      'todos.json': JSON.stringify([{title: 'Seed', description: '', tasks: [], labels: [], current: true, index: 1}], null, 2)
-    }
-  });
-
-  await withTempHome(async () => {
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-
-    await SyncCommands.init([], {remote: remote.remotePath});
-
-    const todosFile = localPaths.dbFilePath('todos');
-    assert.equal(fs.existsSync(todosFile), true);
-    assert.match(fs.readFileSync(todosFile, 'utf8'), /Seed/);
-  }, {prefix: 'ilu-sync-home-'});
-
-  remote.cleanup();
-});
-
-test('cli sync init no deja bootstrap parcial cuando HOME inicia vacío y el remoto ya tiene historia', () => {
-  const remote = createTempGitRemote({
-    seedFiles: {
-      'todos.json': JSON.stringify([{title: 'Seed', description: '', tasks: [], labels: [], current: true, index: 1}], null, 2),
-      'notes.json': JSON.stringify([{title: 'Seed note', notes: [], labels: [], current: true, index: 1}], null, 2),
-      'boards.json': JSON.stringify([{title: 'Seed board', description: '', current: true, index: 1, defaultColumnId: 'backlog', columns: [{id: 'backlog', title: 'Backlog', wipLimit: null, cards: [], index: 1}]}], null, 2),
-      'clocks.json': JSON.stringify([{name: 'CDMX', timezone: 'America/Mexico_City'}], null, 2)
-    }
-  });
-
-  return withTempHome(async tempHome => {
-    const result = runCli(['bin/cli.js', 'sync', 'init', '--remote', remote.remotePath, '--branch', 'main'], {
-      env: {...process.env, HOME: tempHome}
-    });
-    const iluRoot = path.join(tempHome, '.ilu');
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(fs.existsSync(localPaths.dbFilePath('todos')), true);
-    assert.equal(fs.existsSync(localPaths.dbFilePath('notes')), true);
-    assert.equal(fs.existsSync(localPaths.dbFilePath('boards')), true);
-    assert.equal(fs.existsSync(localPaths.dbFilePath('clocks')), true);
-    assert.equal(fs.existsSync(localPaths.syncConfigFilePath()), true);
-    assert.equal(fs.existsSync(path.join(iluRoot, '.sync-core', 'state.json')), true);
-    assert.match(fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8'), /Seed/);
-    assert.match(fs.readFileSync(localPaths.dbFilePath('notes'), 'utf8'), /Seed note/);
-    assert.match(fs.readFileSync(localPaths.dbFilePath('boards'), 'utf8'), /Seed board/);
-    assert.match(fs.readFileSync(localPaths.dbFilePath('clocks'), 'utf8'), /Mexico_City/);
-    assert.equal(fs.existsSync(path.join(iluRoot, '.git')), true);
-  }, {prefix: 'ilu-sync-home-'}).finally(() => {
-    remote.cleanup();
-  });
-});
-
-test('auto-sync after mutation pushes to local bare remote', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async () => {
-    const TodosModel = loadFresh(path.join(repoRoot, 'todos', 'model.ts'));
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-
-    await SyncCommands.init([], {remote: remote.remotePath});
-    TodosModel.add({title: 'Inbox', description: ''});
-
-    await new Promise(resolve => setTimeout(resolve, 250));
-    const heads = git(['ls-remote', '--heads', remote.remotePath]);
-    assert.match(heads, /main/);
-    const status = await syncIndex.getSyncStatus();
-    assert.equal(status.status, 'healthy', JSON.stringify(status));
-    assert.equal(status.hasPendingRemote, false);
-  }, {prefix: 'ilu-sync-home-'});
-
-  remote.cleanup();
-});
-
-test('iludb recovery integrates the current external snapshot before the user repeats a stale mutation', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async tempHome => {
-    clearRuntimeCaches();
-    const TodosModel = require(path.join(repoRoot, 'todos', 'model.ts'));
-    const SyncCommands = require(path.join(repoRoot, 'sync', 'commands.ts'));
-    const localPaths = require(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const loadDb = require(path.join(repoRoot, 'utils', 'load-db.ts')).default;
-    const recovery = require(path.join(repoRoot, 'sync', 'iludb-recovery.ts'));
-
-    TodosModel.add({title: 'Inbox', description: ''});
-    await SyncCommands.init([], {remote: remote.remotePath});
-
-    const external = loadDb('todos');
-    const externalTodos = external.getCollection('todos');
-    const current = externalTodos.findOne({current: true});
-    externalTodos.update({...current, description: 'External revision'});
-    const currentSnapshot = fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8');
-
-    const externalClone = path.join(tempHome, 'external-writer');
-    git(['clone', remote.remotePath, externalClone], {cwd: repoRoot});
-    fs.writeFileSync(path.join(externalClone, 'todos.json'), currentSnapshot);
-    git(['-C', externalClone, 'add', 'todos.json'], {cwd: repoRoot});
-    git(['-C', externalClone, 'commit', '-m', 'external writer revision'], {cwd: repoRoot});
-    git(['-C', externalClone, 'push', 'origin', 'main'], {cwd: repoRoot});
-
-    let conflict = null;
-    try {
-      TodosModel.tasks.add({title: 'Repeat after recovery'});
-    } catch (error) {
-      conflict = error;
-    }
-
-    assert.ok(conflict instanceof recovery.DataConflictError);
-    assert.equal((await conflict.reconciliation).status, 'reconciled');
-    assert.equal(TodosModel.getCurrent().description, 'External revision');
-    assert.deepEqual(TodosModel.getCurrent().tasks, []);
-
-    TodosModel.tasks.add({title: 'Repeat after recovery'});
-    await waitForCondition(() => {
-      const status = git(['--git-dir', remote.remotePath, 'show', 'main:todos.json']);
-      return status.includes('External revision') && status.includes('Repeat after recovery');
-    });
-
-    const persisted = JSON.parse(fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8'));
-    assert.equal(persisted.collections.todos.data[0].description, 'External revision');
-    assert.equal(persisted.collections.todos.data[0].tasks[0].title, 'Repeat after recovery');
-  }, {prefix: 'ilu-sync-recovery-'});
-
-  remote.cleanup();
-});
-
-test('sync consumer createSyncRuntime() sin argumentos sigue funcionando después de bootstrap', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async () => {
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-
-    await SyncCommands.init([], {remote: remote.remotePath});
-
-    const runtime = await syncIndex.createSyncRuntime();
-    const status = runtime.getSyncStatus();
-
-    assert.equal(typeof runtime.sync, 'function');
-    assert.equal(status.status, 'healthy');
-  }, {prefix: 'ilu-sync-home-'});
-
-  remote.cleanup();
-});
-
-test('remote unavailable does not remove local data', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async () => {
-    const TodosModel = loadFresh(path.join(repoRoot, 'todos', 'model.ts'));
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-
-    await SyncCommands.init([], {remote: remote.remotePath});
-    fs.rmSync(remote.remotePath, {recursive: true, force: true});
-
-    TodosModel.add({title: 'Inbox', description: ''});
-    await new Promise(resolve => setTimeout(resolve, 250));
-
-    assert.equal(fs.existsSync(localPaths.dbFilePath('todos')), true);
-    assert.match(fs.readFileSync(localPaths.dbFilePath('todos'), 'utf8'), /Inbox/);
-  }, {prefix: 'ilu-sync-home-'});
-
-  remote.cleanup();
-});
-
-test('sync enable and disable are idempotent with the real runtime', async () => {
-  const remote = createTempGitRemote();
-
-  await withTempHome(async () => {
-    const SyncCommands = loadFresh(path.join(repoRoot, 'sync', 'commands.ts'));
-    await SyncCommands.init([], {remote: remote.remotePath});
-
-    assert.deepEqual(
-      {status: (await SyncCommands.disable()).status, enabled: (await SyncCommands.status()).enabled},
-      {status: 'disabled', enabled: false}
+// Inspect the real fixture workspace, not a driver-provided list of paths.
+// Git object directories may legitimately change with each new revision.
+function inspectSyncWorkspace(result) {
+  const tmpRoot = fs.realpathSync(path.resolve(import.meta.dirname, "..", "tmp"));
+  const workspaceRoot = fs.realpathSync(result.workspaceRoot);
+  const relativeRoot = path.relative(tmpRoot, workspaceRoot);
+  assert.ok(relativeRoot.length > 0 && !relativeRoot.startsWith("..") && !path.isAbsolute(relativeRoot));
+  const repositoryPaths = {
+    local: fs.realpathSync(result.at.repeated.storageRoot),
+    remote: fs.realpathSync(result.at.repeated.remotePath),
+    externalWriter: fs.realpathSync(result.at.external.externalWriterPath)
+  };
+  const home = fs.realpathSync(result.home);
+  for (const directory of [home, ...Object.values(repositoryPaths)]) {
+    const relative = path.relative(workspaceRoot, directory);
+    assert.ok(
+      relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative),
+      "the captured HOME and every Git fixture must belong to this test's private workspace"
     );
-    assert.equal((await SyncCommands.disable()).status, 'disabled');
-    assert.equal((await SyncCommands.enable()).status, 'healthy');
-    assert.equal((await SyncCommands.enable()).status, 'healthy');
-  }, {prefix: 'ilu-sync-enable-disable-'});
-
-  remote.cleanup();
-});
-
-test('legacy sync state migrates once into private core state without carrying enabled', async () => {
-  await withTempHome(async tempHome => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const legacyPath = localPaths.syncStateFilePath();
-    fs.mkdirSync(path.dirname(legacyPath), {recursive: true});
-    fs.writeFileSync(legacyPath, JSON.stringify({
-      enabled: false,
-      status: 'degraded_network',
-      hasPendingRemote: true,
-      pendingOperationId: 'legacy-operation',
-      retryCount: 9,
-      backoffUntil: Date.now() + 5000,
-      lastErrorKind: 'network',
-      lastErrorMessage: 'Network unavailable'
-    }));
-    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
-    const rootPath = path.join(tempHome, '.ilu');
-    const statePath = path.join(rootPath, '.sync-core', 'state.json');
-
-    assert.equal(migration.migrateLegacySyncState(rootPath), true);
-    const migrated = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.equal(migrated.pendingOperationId, 'legacy-operation');
-    assert.equal(migrated.hasPendingRemote, true);
-    assert.equal(migrated.retryCount, 0);
-    assert.equal(migrated.lastErrorMessage, 'Network unavailable');
-    assert.equal('enabled' in migrated, false);
-
-    fs.writeFileSync(legacyPath, JSON.stringify({pendingOperationId: 'must-not-overwrite'}));
-    assert.equal(migration.migrateLegacySyncState(rootPath), false);
-    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).pendingOperationId, 'legacy-operation');
-  }, {prefix: 'ilu-sync-migration-'});
-});
-
-test('legacy network pending state remains retryable without a backoff timestamp', async () => {
-  await withTempHome(async (home) => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const rootPath = path.join(home, 'data');
-    fs.mkdirSync(rootPath, {recursive: true});
-    fs.mkdirSync(path.dirname(localPaths.syncStateFilePath()), {recursive: true});
-    fs.writeFileSync(localPaths.syncStateFilePath(), JSON.stringify({
-      status: 'degraded_network',
-      hasPendingRemote: true,
-      pendingOperationId: 'legacy-network',
-      lastErrorKind: 'network'
-    }));
-    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
-
-    assert.equal(migration.migrateLegacySyncState(rootPath), true);
-    const migrated = JSON.parse(fs.readFileSync(path.join(rootPath, '.sync-core', 'state.json'), 'utf8'));
-    assert.equal(migrated.retryable, true);
-    assert.equal(migrated.backoffUntil, null);
-  }, {prefix: 'ilu-sync-migration-network-'});
-});
-
-test('legacy auth pending state remains terminal even when it has a backoff timestamp', async () => {
-  await withTempHome(async (home) => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const rootPath = path.join(home, 'data');
-    fs.mkdirSync(rootPath, {recursive: true});
-    fs.mkdirSync(path.dirname(localPaths.syncStateFilePath()), {recursive: true});
-    fs.writeFileSync(localPaths.syncStateFilePath(), JSON.stringify({
-      status: 'degraded_auth',
-      hasPendingRemote: true,
-      pendingOperationId: 'legacy-auth',
-      lastErrorKind: 'auth',
-      backoffUntil: Date.now() + 5000
-    }));
-    const migration = loadFresh(path.join(repoRoot, 'sync', 'state-store.ts'));
-
-    assert.equal(migration.migrateLegacySyncState(rootPath), true);
-    const migrated = JSON.parse(fs.readFileSync(path.join(rootPath, '.sync-core', 'state.json'), 'utf8'));
-    assert.equal(migrated.retryable, false);
-  }, {prefix: 'ilu-sync-migration-auth-'});
-});
-
-test('autoSync false persists pending policy across module reload and retry clears it only after success', async () => {
-  await withTempHome(async () => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
-    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: false});
-    let backendCalls = 0;
-    let syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-
-    const pending = await syncIndex.sync({domain: 'todos', action: 'save'});
-    assert.equal(pending.status, 'pending_remote');
-    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), true);
-
-    syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-    const status = await syncIndex.getSyncStatus();
-    assert.equal(status.status, 'pending_remote');
-    const runtime = await syncIndex.createSyncRuntime({
-      backend: {
-        async synchronize() { backendCalls += 1; },
-        classifyError() { return {kind: 'unknown', retryable: false}; }
-      },
-      rootPath: localPaths.storageDirPath()
-    });
-    const result = await runtime.sync({reason: 'manual'});
-
-    assert.equal(result.status, 'healthy');
-    assert.equal(backendCalls, 1);
-    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), false);
-  }, {prefix: 'ilu-sync-policy-pending-'});
-});
-
-test('disable during backoff prevents another backend call and enable reconciles pending work', async () => {
-  await withTempHome(async () => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
-    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-    let backendCalls = 0;
-    let fail = true;
-    const backend = {
-      async synchronize() {
-        backendCalls += 1;
-        if (fail) throw new Error('controlled transport failure');
-      },
-      classifyError() {
-        return {kind: 'network', retryable: true, safeMessage: 'Remote unavailable'};
+    assert.ok(fs.statSync(directory).isDirectory());
+  }
+  const configuredRemote = JSON.parse(result.at.repeated.files[".config/sync-config.json"]).remoteUrl;
+  assert.equal(
+    fs.realpathSync(configuredRemote),
+    repositoryPaths.remote,
+    "inspect the remote actually selected by the CLI"
+  );
+  assert.ok(fs.statSync(path.join(repositoryPaths.local, ".git")).isDirectory());
+  assert.ok(fs.statSync(path.join(repositoryPaths.externalWriter, ".git")).isDirectory());
+  assert.ok(fs.statSync(path.join(repositoryPaths.remote, "HEAD")).isFile());
+  assert.ok(fs.statSync(path.join(repositoryPaths.remote, "objects")).isDirectory());
+  const directories: string[] = [];
+  const pending = [workspaceRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      assert.equal(
+        entry.isSymbolicLink(),
+        false,
+        "fixture inspection must not follow links outside its owned workspace"
+      );
+      if (!entry.isDirectory()) {
+        continue;
       }
-    };
-    const options = {backend, rootPath: localPaths.storageDirPath(), retryDelayMs: 25, maxRetryDelayMs: 25};
-    const runtime = await syncIndex.createSyncRuntime(options);
-    const active = runtime.sync({domain: 'todos', action: 'save'});
-    await waitForCondition(() => runtime.getSyncStatus().backoffUntil !== null);
+      const child = path.join(directory, entry.name);
+      directories.push(path.relative(workspaceRoot, child));
+      if (entry.name !== ".git" && child !== repositoryPaths.remote) {
+        pending.push(child);
+      }
+    }
+  }
+  return {
+    workspaceRoot,
+    home,
+    repositoryPaths,
+    directories: directories.sort(),
+    siblings: fs.readdirSync(path.dirname(workspaceRoot)).sort(),
+    tmpEntries: fs.readdirSync(tmpRoot).sort()
+  };
+}
 
-    configStore.saveSyncConfig({enabled: false, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    const disabled = await syncIndex.disable();
-    assert.equal(disabled.status, 'disabled');
-    assert.equal(backendCalls, 1);
+const workflows = [
+  {
+    name: "bootstrap local data to empty local bare remote",
+    fixture: { remote: "empty", local: { todos: "Inbox" } },
+    steps: [{ action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "published" }],
+    check({ at }) {
+      assert.equal(at.published.exitCode, 0);
+      assert.match(at.published.remoteFiles["todos.json"], /Inbox/);
+      assert.ok(at.published.remoteHead);
+      assert.ok(at.published.files[".sync-core/state.json"]);
+      assert.equal(at.published.isGitRepository, true);
+      assert.equal(at.published.remoteFiles[".config/sync-config.json"], null);
+      assert.equal(at.published.remoteFiles[".sync-core/state.json"], null);
+    }
+  },
+  {
+    name: "bootstrap empty local storage from remote with history",
+    fixture: { remote: "seeded", remoteData: { todos: "Seed" } },
+    steps: [
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "adopted" },
+      { action: "cli", args: ["todo"], name: "visible" }
+    ],
+    check({ at }) {
+      assert.equal(at.adopted.exitCode, 0);
+      assert.match(at.adopted.files["todos.json"], /Seed/);
+      assert.equal(at.visible.exitCode, 0);
+      assert.match(at.visible.screen, /Seed/);
+    }
+  },
+  {
+    name: "cli sync init no deja bootstrap parcial cuando HOME inicia vacío y el remoto ya tiene historia",
+    fixture: {
+      remote: "seeded",
+      remoteData: {
+        todos: "Seed",
+        notes: "Seed note",
+        boards: "Seed board",
+        clocks: [{ name: "CDMX", timezone: "America/Mexico_City" }]
+      }
+    },
+    steps: [
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE", "--branch", "main"], name: "adopted" },
+      { action: "open", view: "Todo" },
+      { action: "observe", name: "todo" },
+      { action: "ui", operation: "switch-view", view: "Notes" },
+      { action: "observe", name: "notes" },
+      { action: "ui", operation: "switch-view", view: "Board" },
+      { action: "observe", name: "boards" },
+      { action: "ui", operation: "switch-view", view: "Clocks" },
+      { action: "observe", name: "clocks" }
+    ],
+    check({ at }) {
+      assert.equal(at.adopted.exitCode, 0);
+      for (const file of [
+        "todos.json",
+        "notes.json",
+        "boards.json",
+        "clocks.json",
+        ".config/sync-config.json",
+        ".sync-core/state.json"
+      ]) {
+        assert.equal(typeof at.adopted.files[file], "string", `bootstrap must adopt ${file}`);
+      }
+      assert.equal(at.adopted.isGitRepository, true);
+      assert.match(at.todo.screen, /Seed/);
+      assert.match(at.notes.screen, /Seed note/);
+      assert.match(at.boards.screen, /Seed board/);
+      assert.match(at.clocks.screen, /CDMX/);
+    }
+  },
+  {
+    name: "auto-sync after mutation pushes to local bare remote",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: false } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-list", title: "Auto Inbox" },
+      { action: "settle-sync", name: "saved" }
+    ],
+    check({ at }) {
+      assert.match(at.saved.remoteFiles["todos.json"], /Auto Inbox/);
+      assert.match(at.saved.screen, /synced|healthy/i);
+      assert.equal(at.saved.files[".config/sync-pending.json"], null);
+    }
+  },
+  {
+    name: "iludb recovery integrates the current external snapshot before the user repeats a stale mutation",
+    repeat: 2,
+    fixture: { remote: "empty", initialize: true, local: { todos: "Inbox" }, config: { autoPull: true } },
+    steps({ iteration }) {
+      return [
+        { action: "open", view: "Todo" },
+        { action: "observe", name: "before" },
+        {
+          action: "external-writer",
+          domain: "todos",
+          values: { description: `External revision ${iteration}` },
+          publish: true,
+          name: "external"
+        },
+        { action: "ui", operation: "add-task", title: `Repeat after recovery ${iteration}` },
+        { action: "wait-recovery", name: "recovered" },
+        { action: "ui", operation: "dismiss-notice" },
+        { action: "ui", operation: "add-task", title: `Repeat after recovery ${iteration}` },
+        { action: "settle-sync", name: "repeated" }
+      ];
+    },
+    check({ at }, { iteration }) {
+      const revision = `External revision ${iteration}`;
+      const title = `Repeat after recovery ${iteration}`;
+      assert.doesNotMatch(
+        at.before.files["todos.json"],
+        /External revision|Repeat after recovery/,
+        "reusing a fixture must restore a reproducible starting state, not replay stale evidence"
+      );
+      assert.doesNotMatch(at.before.remoteFiles["todos.json"], /External revision|Repeat after recovery/);
+      assert.match(at.recovered.screen, /repeat|retry|changed|conflict/i);
+      assert.ok(at.recovered.files["todos.json"].includes(revision));
+      assert.doesNotMatch(at.recovered.files["todos.json"], /Repeat after recovery/);
+      assert.equal(JSON.parse(at.recovered.files[".sync-core/state.json"]).status, "healthy");
+      assert.equal(at.recovered.files[".config/sync-pending.json"], null);
+      assert.ok(at.recovered.remoteFiles["todos.json"].includes(revision));
+      assert.doesNotMatch(at.recovered.remoteFiles["todos.json"], /Repeat after recovery/);
+      assert.ok(at.repeated.remoteFiles["todos.json"].includes(revision));
+      assert.ok(at.repeated.remoteFiles["todos.json"].includes(title));
+      assert.ok(
+        at.repeated.screen.includes(title),
+        "the captured application must display the task created in this execution"
+      );
+      assert.notEqual(at.repeated.remoteHead, at.before.remoteHead, "this execution must publish its own mutation");
+      const snapshot = JSON.parse(at.repeated.files["todos.json"]);
+      const lists = Array.isArray(snapshot) ? snapshot : snapshot.collections.todos.data;
+      assert.equal(lists.flatMap((list) => list.tasks).filter((task) => task.title === title).length, 1);
+      assert.equal(
+        lists.flatMap((list) => list.tasks).filter((task) => task.title.startsWith("Repeat after recovery")).length,
+        1
+      );
+    }
+  },
+  {
+    name: "sync consumer createSyncRuntime() sin argumentos sigue funcionando después de bootstrap",
+    fixture: { remote: "empty", local: { todos: "Bootstrap inbox" } },
+    steps: [
+      { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "initialized" },
+      { action: "cli", args: ["sync", "status"], name: "fresh-process" },
+      { action: "cli", args: ["sync", "retry"], name: "retried" }
+    ],
+    check({ at }) {
+      assert.equal(at.initialized.exitCode, 0);
+      assert.equal(at["fresh-process"].exitCode, 0);
+      assert.match(at["fresh-process"].screen, /healthy/i);
+      assert.equal(at.retried.exitCode, 0);
+      assert.match(at.retried.remoteFiles["todos.json"], /Bootstrap inbox/);
+    }
+  },
+  {
+    name: "remote unavailable does not remove local data",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: false } },
+    steps: [
+      { action: "transport", mode: "network-failure" },
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Offline inbox" },
+      { action: "wait-status", status: "degraded_network", name: "offline" },
+      { action: "close-ui" },
+      { action: "open", view: "Todo" },
+      { action: "observe", name: "reloaded" }
+    ],
+    check({ at }) {
+      assert.match(at.offline.files["todos.json"], /Offline inbox/);
+      assert.match(at.reloaded.screen, /Offline inbox/);
+      assert.match(at.reloaded.files["todos.json"], /Offline inbox/);
+      assert.doesNotMatch(at.reloaded.remoteFiles["todos.json"] ?? "", /Offline inbox/);
+      assert.ok(at.reloaded.files[".config/sync-pending.json"]);
+    }
+  },
+  {
+    name: "sync enable and disable are idempotent with the real runtime",
+    fixture: { remote: "empty", initialize: true },
+    steps: [
+      { action: "cli", args: ["sync", "disable"], name: "disabled-one" },
+      { action: "cli", args: ["sync", "disable"], name: "disabled-two" },
+      { action: "cli", args: ["sync", "status"], name: "disabled-status" },
+      { action: "cli", args: ["sync", "enable"], name: "enabled-one" },
+      { action: "cli", args: ["sync", "enable"], name: "enabled-two" },
+      { action: "cli", args: ["sync", "status"], name: "enabled-status" }
+    ],
+    check({ at }) {
+      assert.equal(Object.keys(at).length, 6);
+      for (const observation of Object.values(at) as any[]) {
+        assert.equal(observation.exitCode, 0);
+      }
+      assert.match(at["disabled-status"].screen, /disabled/i);
+      assert.match(at["enabled-status"].screen, /healthy/i);
+      assert.equal(JSON.parse(at["disabled-two"].files[".config/sync-config.json"]).enabled, false);
+      assert.equal(JSON.parse(at["enabled-two"].files[".config/sync-config.json"]).enabled, true);
+      assert.equal(at["disabled-one"].remoteHead, at["enabled-two"].remoteHead);
+    }
+  },
+  {
+    name: "legacy sync state migrates once into private core state without carrying enabled",
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      removeCoreState: true,
+      legacyState: {
+        enabled: false,
+        status: "degraded_network",
+        hasPendingRemote: true,
+        pendingOperationId: "legacy-operation",
+        retryCount: 9,
+        backoffUntil: 4102444800000,
+        lastErrorKind: "network",
+        lastErrorMessage: "Network unavailable"
+      }
+    },
+    steps: [
+      { action: "cli", args: ["sync", "status"], name: "migrated" },
+      { action: "write-legacy-state", state: { pendingOperationId: "must-not-overwrite" } },
+      { action: "cli", args: ["sync", "status"], name: "again" }
+    ],
+    check({ at }) {
+      const state = JSON.parse(at.migrated.files[".sync-core/state.json"]);
+      assert.equal(state.pendingOperationId, "legacy-operation");
+      assert.equal(state.hasPendingRemote, true);
+      assert.equal(state.retryCount, 0);
+      assert.equal(state.lastErrorMessage, "Network unavailable");
+      assert.equal(Object.hasOwn(state, "enabled"), false, "legacy enabled must not disable current configured sync");
+      assert.equal(JSON.parse(at.again.files[".sync-core/state.json"]).pendingOperationId, "legacy-operation");
+      assert.doesNotMatch(at.again.screen, /disabled/i);
+    }
+  },
+  {
+    name: "legacy network pending state remains retryable without a backoff timestamp",
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      removeCoreState: true,
+      legacyState: {
+        status: "degraded_network",
+        hasPendingRemote: true,
+        pendingOperationId: "legacy-network",
+        lastErrorKind: "network"
+      },
+      transport: { gate: "push" }
+    },
+    steps: [
+      { action: "open", view: "Sync" },
+      { action: "wait-transport", operation: "push", name: "retrying" },
+      { action: "release-transport" },
+      { action: "settle-sync", name: "recovered" }
+    ],
+    check({ at }) {
+      assert.ok(at.retrying.transport.some((event) => event.operation === "push"));
+      assert.equal(JSON.parse(at.retrying.files[".sync-core/state.json"]).retryable, true);
+      assert.equal(JSON.parse(at.retrying.files[".sync-core/state.json"]).backoffUntil, null);
+      assert.match(at.recovered.screen, /healthy|synced/i);
+      assert.equal(at.recovered.files[".config/sync-pending.json"], null);
+    }
+  },
+  {
+    name: "legacy auth pending state remains terminal even when it has a backoff timestamp",
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      removeCoreState: true,
+      config: { autoPull: false },
+      legacyState: {
+        status: "degraded_auth",
+        hasPendingRemote: true,
+        pendingOperationId: "legacy-auth",
+        lastErrorKind: "auth",
+        backoffUntil: 1
+      },
+      transport: { mode: "auth-failure" }
+    },
+    steps: [
+      { action: "open", view: "Sync" },
+      { action: "observe", name: "terminal" },
+      { action: "observe-after-retry-window", name: "still-terminal" }
+    ],
+    check({ at }) {
+      const state = JSON.parse(at.terminal.files[".sync-core/state.json"]);
+      assert.equal(state.retryable, false);
+      assert.equal(state.hasPendingRemote, true);
+      assert.match(at.terminal.screen, /auth|failed|pending/i);
+      assert.equal(at["still-terminal"].transport.length, at.terminal.transport.length);
+      assert.equal(at["still-terminal"].remoteHead, at.terminal.remoteHead);
+    }
+  },
+  {
+    name: "autoSync false persists pending policy across module reload and retry clears it only after success",
+    fixture: { remote: "empty", initialize: true, config: { autoSync: false, autoPull: false } },
+    steps: [
+      {
+        action: "cli-ui",
+        args: ["todo", "--add"],
+        answers: { title: "Durable pending", description: "" },
+        name: "pending"
+      },
+      { action: "cli", args: ["sync", "status"], name: "reloaded" },
+      { action: "transport", mode: "auth-failure" },
+      { action: "cli", args: ["sync", "retry"], name: "failed" },
+      { action: "transport", mode: "healthy" },
+      { action: "cli", args: ["sync", "retry"], name: "retried" },
+      { action: "cli", args: ["sync", "status"], name: "healthy" }
+    ],
+    check({ at }) {
+      assert.ok(at.pending.files[".config/sync-pending.json"]);
+      assert.match(at.reloaded.screen, /pending_remote/i);
+      assert.equal(at.reloaded.transport.length, 0);
+      assert.ok(at.failed.files[".config/sync-pending.json"]);
+      assert.doesNotMatch(at.failed.remoteFiles["todos.json"] ?? "", /Durable pending/);
+      assert.match(at.retried.remoteFiles["todos.json"], /Durable pending/);
+      assert.equal(at.retried.files[".config/sync-pending.json"], null);
+      assert.match(at.healthy.screen, /healthy/i);
+    }
+  },
+  {
+    name: "disable during backoff prevents another backend call and enable reconciles pending work",
+    fixture: { remote: "empty", initialize: true, config: { autoPull: false }, transport: { mode: "network-failure" } },
+    steps: [
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Backoff task" },
+      { action: "wait-backoff" },
+      { action: "ui", operation: "sync-disable" },
+      { action: "observe", name: "disabled" },
+      { action: "observe-after-retry-window", name: "quiet" },
+      { action: "transport", mode: "healthy" },
+      { action: "ui", operation: "sync-enable" },
+      { action: "settle-sync", name: "enabled" }
+    ],
+    check({ at }) {
+      assert.equal(at.quiet.transport.length, at.disabled.transport.length);
+      assert.equal(JSON.parse(at.disabled.files[".config/sync-config.json"]).enabled, false);
+      assert.ok(at.disabled.files[".config/sync-pending.json"]);
+      assert.match(at.enabled.remoteFiles["todos.json"], /Backoff task/);
+      assert.equal(at.enabled.files[".config/sync-pending.json"], null);
+      assert.match(at.enabled.screen, /healthy|synced/i);
+    }
+  },
+  {
+    name: "disable waits for an automatic rehydrated backend before rapid enable starts another runtime",
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      pendingData: { todos: "Rehydrated task" },
+      coreState: {
+        status: "degraded_network",
+        hasPendingRemote: true,
+        pendingOperationId: "automatic-rehydrated",
+        retryCount: 0,
+        backoffUntil: null,
+        lastErrorKind: "network",
+        retryable: true,
+        pendingContext: { action: "save" }
+      },
+      transport: { gate: "push" }
+    },
+    steps: [
+      { action: "open", view: "Sync", background: true },
+      { action: "wait-transport", operation: "push" },
+      { action: "ui", operation: "sync-disable", background: true },
+      { action: "ui", operation: "sync-enable", background: true },
+      { action: "observe", name: "blocked" },
+      { action: "release-transport" },
+      { action: "settle-sync", name: "enabled" }
+    ],
+    check({ at }) {
+      const pushes = at.blocked.transport.filter((event) => event.operation === "push");
+      assert.equal(pushes.length, 1, "rapid enable must not overlap the rehydrated transport");
+      assert.doesNotMatch(at.blocked.remoteFiles["todos.json"] ?? "", /Rehydrated task/);
+      assert.match(at.enabled.remoteFiles["todos.json"], /Rehydrated task/);
+      const intervals = at.enabled.transport.filter((event) => event.operation === "push");
+      for (let index = 1; index < intervals.length; index += 1) {
+        assert.ok(intervals[index].startedAt >= intervals[index - 1].finishedAt);
+      }
+      assert.match(at.enabled.screen, /healthy|synced/i);
+    }
+  }
+];
 
-    fail = false;
-    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    const enabled = await syncIndex.enable(options);
-    await active;
-    assert.equal(enabled.status, 'healthy');
-    assert.equal(backendCalls, 2);
-    assert.equal(fs.existsSync(localPaths.syncPendingFilePath()), false);
-  }, {prefix: 'ilu-sync-disable-backoff-'});
-});
-
-test('disable waits for an automatic rehydrated backend before rapid enable starts another runtime', async () => {
-  await withTempHome(async () => {
-    const localPaths = loadFresh(path.join(repoRoot, 'utils', 'local-paths.ts'));
-    const configStore = loadFresh(path.join(repoRoot, 'utils', 'config-store.ts'));
-    const rootPath = localPaths.storageDirPath();
-    const stateDirectory = path.join(rootPath, '.sync-core');
-    fs.mkdirSync(stateDirectory, {recursive: true, mode: 0o700});
-    fs.writeFileSync(path.join(stateDirectory, 'state.json'), JSON.stringify({
-      status: 'degraded_network',
-      hasPendingRemote: true,
-      pendingOperationId: 'automatic-rehydrated',
-      retryCount: 0,
-      backoffUntil: null,
-      lastErrorKind: 'network',
-      lastErrorMessage: 'Remote unavailable',
-      lastSyncReason: 'save',
-      lastPhase: null,
-      lastSnapshotId: null,
-      lastSyncedSnapshotId: null,
-      retryable: true,
-      pendingContext: {action: 'save'}
-    }), {mode: 0o600});
-    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    const syncIndex = loadFresh(path.join(repoRoot, 'sync', 'index.ts'));
-    let backendCalls = 0;
-    let releaseFirstBackend;
-    const firstBackend = new Promise(resolve => {
-      releaseFirstBackend = resolve;
-    });
-    const backend = {
-      async synchronize() {
-        backendCalls += 1;
-        if (backendCalls === 1) {
-          await firstBackend;
+for (const { name, fixture, steps, check, repeat = 1 } of workflows) {
+  test(name, async (t) => {
+    let firstWorkspace = null;
+    let firstMedia = null;
+    for (let iteration = 1; iteration <= repeat; iteration += 1) {
+      const runSteps = typeof steps === "function" ? steps({ iteration }) : steps;
+      const checkpoints = runSteps.filter((step) => typeof step.name === "string").map((step) => step.name);
+      const result = await captureIluScenario({
+        testName: t.name,
+        command: ["bash", "--noprofile", "--norc"],
+        scenario: "syncWorkflow",
+        input: { fixture, steps: [...runSteps, { action: "exit" }] }
+      });
+      assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: (message) => t.diagnostic(message) });
+      check(result, { iteration });
+      assert.equal(result.exitCode, 0);
+      if (repeat > 1) {
+        const workspace = inspectSyncWorkspace(result);
+        const media = [result.screenshots.repeated, result.videoPath].map((file) => ({
+          file,
+          hash: createHash("sha256").update(fs.readFileSync(file)).digest("hex")
+        }));
+        if (iteration === 1) {
+          firstWorkspace = workspace;
+          firstMedia = media;
+        } else {
+          assert.deepEqual(
+            workspace,
+            firstWorkspace,
+            "repeating the same real Sync case must reuse its HOME, repositories and workspace without accumulating random directories"
+          );
+          for (const [index, artifact] of media.entries()) {
+            assert.equal(artifact.file, firstMedia[index].file, "the same test must overwrite its stable media paths");
+            assert.notEqual(
+              artifact.hash,
+              firstMedia[index].hash,
+              "the new execution must replace the old capture bytes"
+            );
+          }
         }
-      },
-      classifyError() {
-        return {kind: 'network', retryable: true};
+        t.diagnostic(`Sync iteration ${iteration}: ${JSON.stringify({ ...workspace, media })}`);
       }
-    };
-    const options = {backend, rootPath, retryDelayMs: 1, maxRetryDelayMs: 1};
-    await syncIndex.createSyncRuntime(options);
-    await waitForCondition(() => backendCalls === 1);
-
-    configStore.saveSyncConfig({enabled: false, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    await syncIndex.disable();
-    configStore.saveSyncConfig({enabled: true, remoteUrl: '/tmp/controlled.git', branch: 'main', autoSync: true});
-    const enabling = syncIndex.enable(options);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(backendCalls, 1);
-
-    releaseFirstBackend();
-    const enabled = await enabling;
-    assert.equal(enabled.status, 'healthy');
-    assert.equal(backendCalls, 2);
-  }, {prefix: 'ilu-sync-rehydrated-backend-'});
-});
+    }
+  });
+}
