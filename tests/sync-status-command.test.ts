@@ -6,22 +6,24 @@ import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenario
 test("sync status returns current runtime status for healthy and degraded cases", async (t) => {
   const checkpoints = ["healthy", "degraded"];
   const result = await captureIluScenario({
-    testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow",
+    testName: t.name,
+    command: ["bash", "--noprofile", "--norc"],
+    scenario: "syncWorkflow",
     input: {
       fixture: { remote: "empty", initialize: true },
       steps: [
         { action: "cli", args: ["sync", "status"], name: "healthy" },
-        { action: "transport", mode: "network-failure" },
         { action: "open", view: "Todo" },
+        { action: "transport", mode: "network-failure" },
         { action: "ui", operation: "add-task", title: "Offline status task" },
         { action: "wait-status", status: "degraded_network" },
         { action: "close-ui" },
         { action: "cli", args: ["sync", "status"], name: "degraded" },
-        { action: "exit" },
-      ],
-    },
+        { action: "exit" }
+      ]
+    }
   });
-  assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+  assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: (message) => t.diagnostic(message) });
   assert.equal(result.at.healthy.exitCode, 0);
   assert.match(result.at.healthy.screen, /healthy/i);
   assert.equal(result.at.degraded.exitCode, 0);
@@ -36,11 +38,16 @@ test("sync status returns current runtime status for healthy and degraded cases"
 
 test("sync status prints user-facing status output", async (t) => {
   const checkpoints = ["status"];
-  const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: {
-    fixture: { remote: "empty", initialize: true },
-    steps: [{ action: "cli", args: ["sync", "status"], name: "status" }, { action: "exit" }],
-  } });
-  assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+  const result = await captureIluScenario({
+    testName: t.name,
+    command: ["bash", "--noprofile", "--norc"],
+    scenario: "syncWorkflow",
+    input: {
+      fixture: { remote: "empty", initialize: true },
+      steps: [{ action: "cli", args: ["sync", "status"], name: "status" }, { action: "exit" }]
+    }
+  });
+  assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: (message) => t.diagnostic(message) });
   assert.equal(result.at.status.exitCode, 0);
   assert.match(result.at.status.screen, /healthy/i);
   assert.equal(result.at.status.transport.length, 0, "status must not publish new data");

@@ -25,11 +25,6 @@ const cases = [
     domain: "todos"
   },
   {
-    name: "recovery is deduplicated by file and every stale instance receives the same typed conflict",
-    kind: "two-windows",
-    domain: "notes"
-  },
-  {
     name: "enabled recovery uses the configured TUI authority and rejects terminal sync status",
     kind: "terminal-ui",
     domain: "boards"
@@ -58,6 +53,294 @@ const cases = [
 // model/recovery methods. Screenshots always show the actual CLI/TUI window.
 for (const entry of cases) {
   test(entry.name, { concurrency: false }, async (context) => {
+    if (entry.kind === "queue") {
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 120, rows: 40 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: { todos: "Inbox", boards: "Legacy" },
+            config: { autoPull: true },
+            transport: { gate: "fetch", arm: "after-open" }
+          },
+          steps: [
+            { action: "open", view: "Board" },
+            { action: "ui", operation: "add-card", title: "Trigger automatic sync" },
+            {
+              action: "external-writer",
+              domain: "boards",
+              readLocalFirst: true,
+              values: { description: "External" },
+              publish: true,
+              name: "external-file"
+            },
+            { action: "wait-debounce" },
+            { action: "wait-transport", operation: "fetch", gated: true },
+            { action: "ui", operation: "add-card", title: "Unsaved local item", expectRecovery: true },
+            { action: "observe", name: "queued-recovery" },
+            { action: "ui", operation: "dismiss-notice" },
+            { action: "ui", operation: "sync-retry" },
+            { action: "observe", name: "retry-during-recovery" },
+            { action: "release-transport", operation: "fetch" },
+            { action: "settle-sync", name: "retry-result" },
+            { action: "ui", operation: "sync-enable" },
+            { action: "settle-sync", name: "enabled-result" },
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const active = result.at["retry-during-recovery"].transport.filter((event) => event.finishedAt === null);
+      assert.equal(active.length, 1, "Public retry and queued recovery must not overlap backend work");
+      const recovered = result.at["enabled-result"];
+      assert.equal(JSON.parse(recovered.files["boards.json"]).collections.boards.data[0].description, "External");
+      assert.doesNotMatch(recovered.files["boards.json"], /Unsaved local item/);
+      assert.equal(recovered.files["boards.json"], recovered.remoteFiles["boards.json"]);
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: ["external-file", "queued-recovery", "retry-during-recovery", "retry-result", "enabled-result"],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
+    if (entry.kind === "newer") {
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 120, rows: 40 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: { todos: "Legacy", notes: "Notes" },
+            config: { autoPull: true },
+            transport: { gate: "fetch", arm: "after-open" }
+          },
+          steps: [
+            { action: "open", view: "Todo" },
+            { action: "ui", operation: "add-task", title: "Trigger automatic sync" },
+            {
+              action: "external-writer",
+              domain: "todos",
+              readLocalFirst: true,
+              values: { description: "Revision B" },
+              publish: true,
+              name: "revision-b"
+            },
+            { action: "wait-debounce" },
+            { action: "wait-transport", operation: "fetch", gated: true },
+            {
+              action: "external-writer",
+              domain: "todos",
+              values: { description: "Revision C" },
+              publish: true,
+              copyToLocal: false,
+              name: "revision-c-remote"
+            },
+            { action: "ui", operation: "add-task", title: "Unsaved local item" },
+            { action: "observe", name: "queued-recovery" },
+            { action: "release-transport", operation: "fetch" },
+            { action: "wait-recovery", domain: "todos", name: "recovery-result" },
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const queued = result.at["queued-recovery"];
+      assert.equal(JSON.parse(queued.files["todos.json"]).collections.todos.data[0].description, "Revision B");
+      assert.equal(JSON.parse(queued.remoteFiles["todos.json"]).collections.todos.data[0].description, "Revision C");
+      assert.ok(
+        queued.transport.some(
+          (event) => event.operation === "fetch" && event.gated === true && event.finishedAt === null
+        )
+      );
+      const recovered = result.at["recovery-result"];
+      const saved = JSON.parse(recovered.files["todos.json"]);
+      assert.equal(saved.collections.todos.data[0].description, "Revision C");
+      assert.equal(saved.revision, JSON.parse(queued.remoteFiles["todos.json"]).revision);
+      assert.ok(saved.collections.todos.data[0].tasks.some((task) => task.title === "Trigger automatic sync"));
+      assert.doesNotMatch(recovered.files["todos.json"], /Unsaved local item/);
+      assert.equal(recovered.files["todos.json"], recovered.remoteFiles["todos.json"]);
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: ["revision-b", "revision-c-remote", "queued-recovery", "recovery-result"],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
+    if (entry.kind === "reload-failure") {
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 120, rows: 40 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: { todos: "Legacy", notes: "Notes" },
+            config: { autoPull: true },
+            transport: { gate: "push", arm: "after-open" }
+          },
+          steps: [
+            { action: "open", view: "Todo" },
+            { action: "observe", name: "before-external" },
+            {
+              action: "external-writer",
+              domain: "todos",
+              values: { description: "External" },
+              publish: false,
+              name: "external-file"
+            },
+            { action: "ui", operation: "add-task", title: "Unsaved local item" },
+            { action: "wait-transport", operation: "push", gated: true },
+            { action: "write-domain", domain: "todos", content: '{"invalid":', name: "corrupted-during-recovery" },
+            { action: "release-transport", operation: "push" },
+            { action: "wait-recovery-blocked", name: "recovery-result" },
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const recovered = result.at["recovery-result"];
+      assert.equal(recovered.files["todos.json"], '{"invalid":');
+      assert.equal(JSON.parse(recovered.remoteFiles["todos.json"]).collections.todos.data[0].description, "External");
+      assert.doesNotMatch(recovered.remoteFiles["todos.json"], /Unsaved local item/);
+      assert.doesNotMatch(recovered.screen, /\/home\/|\bat \S+\s*\(|stack trace/i);
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: ["before-external", "external-file", "corrupted-during-recovery", "recovery-result"],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
+    if (["stale", "failed-save", "ui-copy", "terminal-ui", "rollback"].includes(entry.kind)) {
+      const failedSave = entry.kind === "failed-save";
+      const rollback = entry.kind === "rollback";
+      const terminal = entry.kind === "terminal-ui" || rollback;
+      const terminalStatus = rollback ? "conflict" : "degraded_auth";
+      const domain = entry.domain;
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 120, rows: 40 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: failedSave
+              ? { todos: "Legacy", notes: "Notes" }
+              : entry.kind === "ui-copy" || rollback
+                ? { todos: "Inbox", notes: "Legacy" }
+                : { todos: "Inbox", boards: "Legacy" },
+            config: { autoPull: true }
+          },
+          steps: [
+            { action: "open", view: domain === "todos" ? "Todo" : domain === "notes" ? "Notes" : "Board" },
+            { action: "observe", name: "before-external" },
+            {
+              action: "external-writer",
+              domain,
+              values: { description: "External" },
+              publish: !rollback,
+              name: "external-file"
+            },
+            ...(rollback
+              ? [
+                  {
+                    action: "external-writer",
+                    domain,
+                    values: { description: "Remote conflicting edit" },
+                    publish: true,
+                    copyToLocal: false,
+                    name: "divergent-remote"
+                  }
+                ]
+              : []),
+            ...(terminal && !rollback ? [{ action: "transport", mode: "auth-failure" }] : []),
+            {
+              action: "ui",
+              operation: domain === "todos" ? "add-task" : domain === "notes" ? "add-note" : "add-card",
+              title: "Unsaved local item",
+              expectRecovery: true
+            },
+            ...(terminal
+              ? [{ action: "wait-status", status: terminalStatus, name: "recovery-result" }]
+              : [{ action: "wait-recovery", domain, name: "recovery-result" }]),
+            ...(failedSave
+              ? [
+                  { action: "ui", operation: "dismiss-notice" },
+                  { action: "wait-debounce" },
+                  { action: "observe", name: "after-failed-save" }
+                ]
+              : []),
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const recovered = result.at["recovery-result"];
+      const file = `${domain}.json`;
+      const before = JSON.parse(result.at["before-external"].files[file]);
+      const external = JSON.parse(result.at["external-file"].files[file]);
+      const saved = JSON.parse(recovered.files[file]);
+      assert.equal(saved.collections[domain].data[0].description, "External");
+      assert.ok(saved.revision >= external.revision && external.revision > before.revision);
+      assert.doesNotMatch(recovered.files[file], /Unsaved local item/);
+      assert.match(
+        recovered.screen,
+        terminal ? /preserv|blocked|could not|failed/i : /repeat|retry|changed|conflict|reload/i
+      );
+      assert.equal(JSON.parse(recovered.files[".sync-core/state.json"]).status, terminal ? terminalStatus : "healthy");
+      if (terminal) {
+        assert.doesNotMatch(recovered.screen, /\/home\/|\bat \S+\s*\(|stack trace|DataRecoveryError/i);
+        assert.equal(
+          recovered.files[file],
+          result.at["external-file"].files[file],
+          "Terminal recovery must preserve the file byte for byte"
+        );
+      } else {
+        assert.equal(recovered.files[".config/sync-pending.json"], null);
+      }
+      assert.match(recovered.remoteFiles[file], rollback ? /Remote conflicting edit/ : /External/);
+      assert.doesNotMatch(recovered.remoteFiles[file], /Unsaved local item/);
+      if (entry.kind === "ui-copy") {
+        assert.doesNotMatch(recovered.screen, /\/home\/|\bat \S+\s*\(|stack trace/i);
+      }
+      if (failedSave) {
+        const settled = result.at["after-failed-save"];
+        assert.equal(
+          settled.transport.length,
+          recovered.transport.length,
+          "A rejected model save must not schedule another automatic transport after recovery"
+        );
+        assert.doesNotMatch(settled.screen, /Unsaved local item/);
+        assert.equal(settled.files[file], recovered.files[file]);
+        assert.equal(settled.remoteFiles[file], recovered.remoteFiles[file]);
+      }
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: [
+          "before-external",
+          "external-file",
+          ...(rollback ? ["divergent-remote"] : []),
+          "recovery-result",
+          ...(failedSave ? ["after-failed-save"] : [])
+        ],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
     await withTempHome(
       async (home) => {
         const bin = path.resolve(import.meta.dirname, "..", "bin/cli.js");

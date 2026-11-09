@@ -18,6 +18,61 @@ const cases = [
 
 for (const entry of cases) {
   test(entry.name, { concurrency: false }, async (context) => {
+    if (entry.kind === "invalid-reorder") {
+      const notes = ["Alpha", "Beta", "Gamma"].map((title, index) => ({
+        title,
+        content: ["One", "Two", "Three"][index],
+        done: false,
+        labels: [{ title: index % 2 === 0 ? "Importante" : "Urgente", color: index % 2 === 0 ? "bgRed" : "bgBlue" }]
+      }));
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 120, rows: 42 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: { todos: "Today", notes: [{ title: "Research", current: true, notes }] },
+            config: { autoPull: true }
+          },
+          steps: [
+            { action: "open", view: "Notes" },
+            { action: "ui", operation: "reorder-note", title: "Beta", direction: "down" },
+            { action: "wait-debounce" },
+            { action: "settle-sync", name: "valid-order" },
+            { action: "ui", operation: "reorder-note", title: "Alpha", direction: "up" },
+            { action: "observe", name: "upper-boundary" },
+            { action: "ui", operation: "reorder-note", title: "Beta", direction: "down" },
+            { action: "wait-debounce" },
+            { action: "observe", name: "lower-boundary" },
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const before = result.at["valid-order"];
+      const saved = JSON.parse(before.files["notes.json"]).collections.notes.data[0].notes;
+      assert.deepEqual(
+        saved.map(({ title, content, done, labels }) => ({ title, content, done, labels })),
+        [notes[0], notes[2], notes[1]]
+      );
+      for (const checkpoint of ["upper-boundary", "lower-boundary"]) {
+        const after = result.at[checkpoint];
+        assert.equal(after.files["notes.json"], before.files["notes.json"]);
+        assert.equal(after.remoteHead, before.remoteHead);
+        assert.equal(after.transport.length, before.transport.length);
+        assert.equal(after.files[".config/sync-pending.json"], null);
+      }
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: ["valid-order", "upper-boundary", "lower-boundary"],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
     await withTempHome(
       async (home) => {
         const root = path.join(home, ".ilu");
@@ -134,7 +189,7 @@ for (const entry of cases) {
             { type: "Absent task 999" },
             { waitFor: "No matching", flags: "i" },
             { checkpoint: "invalid-task" },
-            { press: "ESCAPE" }
+            { press: "CTRL_C" }
           );
         }
         if (entry.kind === "check") {
@@ -149,6 +204,7 @@ for (const entry of cases) {
           ];
           steps.push(
             { waitFor: "Check/uncheck finished tasks" },
+            { press: "UP" },
             { press: "SPACE" },
             { checkpoint: "todo-check" },
             { press: "ENTER" }

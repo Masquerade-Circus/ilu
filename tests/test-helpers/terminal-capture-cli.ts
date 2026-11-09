@@ -97,13 +97,32 @@ export async function runCliSequence({ app, screen, home, workspaceRoot, expectS
     );
   const initialFiles = readFiles();
   const observations = [];
+  const frames = {};
   await app.type("stty -echo; PS1=''; printf '\\033[2J\\033[H'");
   await app.press("ENTER");
   await screen();
   for (const [index, command] of input.commands.entries()) {
     for (const operation of command.before ?? []) {
-      assert.ok(sync !== null && typeof operation.advanceRemote === "object", "Expected a private remote update");
-      advanceCliRemote({ sync, ...operation.advanceRemote });
+      if (Object.hasOwn(operation, "files")) {
+        assert.equal(Object.keys(operation).length, 1);
+        for (const [relative, contents] of Object.entries(operation.files)) {
+          const file = path.resolve(home, relative);
+          assert.ok(
+            !path.isAbsolute(relative) &&
+              path.relative(home, file).length > 0 &&
+              !path.relative(home, file).startsWith("..")
+          );
+          assert.equal(typeof contents, "string");
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          if (fs.existsSync(file)) {
+            assert.equal(fs.lstatSync(file).isFile(), true);
+          }
+          fs.writeFileSync(file, contents, { mode: 0o600 });
+        }
+      } else {
+        assert.ok(sync !== null && typeof operation.advanceRemote === "object", "Expected a private remote update");
+        advanceCliRemote({ sync, ...operation.advanceRemote });
+      }
     }
     const statusPath = path.join(workspaceRoot, `cli-${index + 1}.status`);
     const environment = Object.entries(input.env).map(([key, value]) => {
@@ -125,14 +144,21 @@ export async function runCliSequence({ app, screen, home, workspaceRoot, expectS
     await app.press("ENTER");
     for (const step of command.steps ?? []) {
       assert.equal(Object.keys(step).length, 1, "CLI sequence steps require one operation");
-      if (typeof step.waitFor === "string") {
-        await expectScreen((text) => text.includes(step.waitFor), `Expected current CLI state: ${step.waitFor}`);
+      if (Object.hasOwn(step, "waitFor")) {
+        const wait = typeof step.waitFor === "string" ? { text: step.waitFor, timeoutMs: 8000 } : step.waitFor;
+        assert.equal(typeof wait.text, "string");
+        assert.ok(Number.isInteger(wait.timeoutMs) && wait.timeoutMs > 0 && wait.timeoutMs <= 60000);
+        await expectScreen(
+          (text) => text.includes(wait.text),
+          `Expected current CLI state: ${wait.text}`,
+          wait.timeoutMs
+        );
       } else if (typeof step.key === "string") {
         await app.press(step.key);
       } else if (typeof step.text === "string") {
         await app.type(step.text);
       } else if (typeof step.capture === "string") {
-        await screen();
+        frames[step.capture] = await screen();
         await app.screenshot({ name: step.capture });
       } else {
         throw new Error(`Unsupported CLI sequence step: ${JSON.stringify(step)}`);
@@ -152,6 +178,7 @@ export async function runCliSequence({ app, screen, home, workspaceRoot, expectS
   }
   await app.type("exit");
   await app.press("ENTER");
-  assert.equal(await app.waitForExit(), 0);
-  return { home, initialFiles, observations };
+  const exitCode = await app.waitForExit();
+  assert.equal(exitCode, 0);
+  return { home, initialFiles, observations, frames, exitCode };
 }

@@ -1,4 +1,5 @@
 import type { ActionFactoryOptions, BoardActions } from "../../action-contracts";
+import { createUiErrorResult } from "../../action-results";
 import BoardModel from '../../../scrumban/model';
 import type { BoardId, BoardItem } from '../../../scrumban/model';
 
@@ -182,8 +183,8 @@ function createBoardActions(options: ActionFactoryOptions = {}): BoardActions {
       }
 
       return {ok: true, value: callback(model, current)};
-    } catch {
-      return safeModelError(failureMessage);
+    } catch (error) {
+      return createUiErrorResult(error, failureMessage);
     }
   }
 

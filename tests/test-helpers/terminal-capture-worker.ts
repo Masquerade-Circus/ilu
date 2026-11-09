@@ -6,6 +6,7 @@ import { captureScenarios } from "./terminal-capture-scenarios.ts";
 import { createCaptureScreenReader } from "./terminal-capture-screen.ts";
 import { prepareSyncCapture } from "./terminal-capture-sync.ts";
 import { prepareCliSequence, runCliSequence } from "./terminal-capture-cli.ts";
+import { createCaptureDiagnostics } from "./terminal-capture-diagnostics.ts";
 
 const [requestPath, responsePath] = process.argv.slice(2);
 const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
@@ -21,9 +22,12 @@ let outcome = null;
 let artifacts = null;
 let directory = null;
 const screenshots = {};
+const additionalCaptureDirectories = [];
 let syncFixture = null;
 let cliHome = null;
 let cliSync = null;
+const diagnostics = createCaptureDiagnostics({ directory: outputDir });
+diagnostics.stage("preparing");
 try {
   let command = request.command;
   const environment = { ...request.env };
@@ -72,8 +76,14 @@ try {
       Object.assign(environment, gitEnvironment);
     }
   }
-  if (request.scenario === "syncWorkflow") {
-    syncFixture = prepareSyncCapture({ workspaceRoot: outputDir, fixture: request.input.fixture });
+  if (
+    request.scenario === "syncWorkflow" ||
+    (request.scenario === "tuiInteraction" && Object.hasOwn(request.input, "syncFixture"))
+  ) {
+    syncFixture = prepareSyncCapture({
+      workspaceRoot: outputDir,
+      fixture: request.scenario === "syncWorkflow" ? request.input.fixture : request.input.syncFixture
+    });
     const { HOME, ...gitEnvironment } = syncFixture.environment;
     Object.assign(environment, gitEnvironment);
   }
@@ -215,7 +225,7 @@ if (operation) {
         { mode: 0o700 }
       );
     }
-    environment.PATH = `${fixtureDirectory}:${process.env.PATH}`;
+    environment.PATH = `${fixtureDirectory}:${tui && syncFixture !== null ? environment.PATH : process.env.PATH}`;
     if (cliSequence || tui) {
       environment.NODE_OPTIONS = `--import tsx --import ${path.join(import.meta.dirname, "terminal-capture-http.ts")}`;
     } else if (Object.hasOwn(config, "commands")) {
@@ -235,7 +245,7 @@ if (operation) {
   }
   if (request.scenario === "tuiInteraction") {
     for (const key of Object.keys(request.input)) {
-      if (!["seed", "steps", "finish", "externalIsolation"].includes(key)) {
+      if (!["seed", "steps", "finish", "externalIsolation", "syncFixture"].includes(key)) {
         throw new Error(`Unsupported TUI setup requirement: ${key}`);
       }
     }
@@ -246,6 +256,7 @@ if (operation) {
   const cwd =
     cliHome ??
     request.cwd ??
+    syncFixture?.workspaceRoot ??
     (speech !== null ? path.join(outputDir, "external-services") : path.resolve(import.meta.dirname, "..", ".."));
   if (traceAudioEncoder) {
     command = [
@@ -261,6 +272,7 @@ if (operation) {
       ...command
     ];
   }
+  diagnostics.stage("launch-requested");
   app = await launchTerminal({
     backend: "kitty",
     command,
@@ -276,6 +288,7 @@ if (operation) {
     video: "on",
     timeoutMs: 8000
   });
+  diagnostics.stage("launch-returned");
   directory = path.join(outputDir, "capture");
   const outputPath = path.join(directory, "terminal-output.bin");
   const reader = createCaptureScreenReader({ directory });
@@ -316,6 +329,7 @@ if (operation) {
       await screen();
     }
   };
+  diagnostics.stage("scenario-running");
   if (cliSequence) {
     outcome = await runCliSequence({
       app: interactions,
@@ -324,8 +338,8 @@ if (operation) {
       workspaceRoot: outputDir,
       input: request.input,
       sync: cliSync,
-      expectScreen: async (predicate, message) => {
-        const deadline = Date.now() + 8000;
+      expectScreen: async (predicate, message, timeoutMs = 8000) => {
+        const deadline = Date.now() + timeoutMs;
         let current = "";
         do {
           current = await screen();
@@ -352,6 +366,18 @@ if (operation) {
         app: interactions,
         home: path.join(directory, "home"),
         externalDirectory: path.join(outputDir, "external-services"),
+        additionalCaptureDirectories,
+        registerAdditionalScreenshot({ name, file }) {
+          if (
+            !/^[a-z0-9-]+$/.test(name) ||
+            Object.hasOwn(screenshots, name) ||
+            path.relative(outputDir, file).startsWith("..") ||
+            !fs.lstatSync(file).isFile()
+          ) {
+            throw new Error("Invalid additional physical screenshot");
+          }
+          screenshots[name] = file;
+        },
         syncFixture,
         restartCommand: restartableTui ? request.command : null,
         cwd,
@@ -362,9 +388,18 @@ if (operation) {
       },
       request.input
     );
+    if (tui && syncFixture !== null) {
+      outcome.syncTransport = fs
+        .readFileSync(syncFixture.transportLog, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    }
   }
+  diagnostics.stage("scenario-completed");
 } catch (error) {
   failure = error;
+  diagnostics.stage(app === null ? "launch-or-preparation-failed" : "scenario-failed");
   if (app !== null) {
     try {
       screenshots["scenario-failure"] = await app.screenshot({ name: "scenario-failure" });
@@ -374,12 +409,16 @@ if (operation) {
   }
 } finally {
   if (app !== null) {
+    diagnostics.beforeClose();
     try {
       await app.close();
+      diagnostics.stage("public-close-completed");
     } catch (error) {
       failure = failure === null ? error : new AggregateError([failure, error], "Scenario and capture cleanup failed");
+      diagnostics.stage("public-close-failed");
     }
   }
+  diagnostics.stop();
 }
 // The library owns recorder finalization and resource cleanup. Publish only
 // after close(), including diagnostics and checkpoints from a failed scenario.
@@ -391,6 +430,19 @@ try {
     }
   }
   if (directory !== null) {
+    if (additionalCaptureDirectories.length > 0) {
+      const actionsFile = path.join(directory, "actions.json");
+      const actions = JSON.parse(fs.readFileSync(actionsFile, "utf8"));
+      for (const captureDirectory of additionalCaptureDirectories) {
+        const peerActionsFile = path.join(captureDirectory, "actions.json");
+        if (fs.existsSync(peerActionsFile)) {
+          const peer = JSON.parse(fs.readFileSync(peerActionsFile, "utf8"));
+          actions.actions.push(...peer.actions.map((action) => ({ ...action, captureDirectory })));
+          actions.cleanupErrors.push(...peer.cleanupErrors);
+        }
+      }
+      fs.writeFileSync(actionsFile, JSON.stringify(actions), { mode: 0o600 });
+    }
     const publishedScreenshots = {};
     for (const [index, [name, file]] of Object.entries(screenshots).entries()) {
       const destination = path.join(finalDirectory, `${stem}-${index + 1}.png`);

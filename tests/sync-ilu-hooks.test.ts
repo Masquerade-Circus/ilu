@@ -8,17 +8,22 @@ const workflows = [
     name: "ilu sync hook logs syncing before notifying a local mutation",
     fixture: { remote: "empty", initialize: true, config: { autoPull: false }, transport: { gate: "push" } },
     steps: [
-      { action: "cli-ui", args: ["todo", "--add"], answers: { title: "Visible progress", description: "" }, background: true },
+      {
+        action: "cli-ui",
+        args: ["todo", "--add"],
+        answers: { title: "Visible progress", description: "" },
+        background: true
+      },
       { action: "wait-transport", operation: "push", name: "syncing" },
       { action: "release-transport" },
-      { action: "wait-command", name: "saved" },
+      { action: "wait-command", name: "saved" }
     ],
     check({ at }) {
       assert.match(at.syncing.screen, /sync/i);
       assert.doesNotMatch(at.syncing.remoteFiles["todos.json"] ?? "", /Visible progress/);
       assert.equal(at.saved.exitCode, 0);
       assert.match(at.saved.remoteFiles["todos.json"], /Visible progress/);
-    },
+    }
   },
   {
     name: "ilu sync hook keeps direct auto sync when only a status subscriber is present",
@@ -26,13 +31,13 @@ const workflows = [
     steps: [
       { action: "open", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Subscriber mutation" },
-      { action: "settle-sync", name: "saved" },
+      { action: "settle-sync", name: "saved" }
     ],
     check({ at }) {
       assert.match(at.saved.screen, /synced|healthy/i);
       assert.match(at.saved.remoteFiles["todos.json"], /Subscriber mutation/);
       assert.equal(at.saved.files[".config/sync-pending.json"], null);
-    },
+    }
   },
   {
     name: "ilu sync hook does not debounce direct auto sync with status subscriber only",
@@ -42,7 +47,7 @@ const workflows = [
       { action: "ui", operation: "add-task", title: "Direct first" },
       { action: "settle-sync", beforeDebounce: true, name: "first" },
       { action: "ui", operation: "add-task", title: "Direct second" },
-      { action: "settle-sync", beforeDebounce: true, name: "second" },
+      { action: "settle-sync", beforeDebounce: true, name: "second" }
     ],
     check({ at }) {
       assert.match(at.first.remoteFiles["todos.json"], /Direct first/);
@@ -50,9 +55,12 @@ const workflows = [
       assert.match(at.second.remoteFiles["todos.json"], /Direct first/);
       assert.match(at.second.remoteFiles["todos.json"], /Direct second/);
       assert.notEqual(at.first.remoteHead, at.second.remoteHead);
-      assert.ok(at.first.elapsedSinceMutationMs < 5000, "a status-only subscriber must not introduce the TUI runner debounce");
+      assert.ok(
+        at.first.elapsedSinceMutationMs < 5000,
+        "a status-only subscriber must not introduce the TUI runner debounce"
+      );
       assert.ok(at.second.elapsedSinceMutationMs < 5000);
-    },
+    }
   },
   {
     name: "ilu sync hook flushPending is a no-op when only status subscriber exists",
@@ -62,14 +70,21 @@ const workflows = [
       { action: "ui", operation: "add-task", title: "Single publication" },
       { action: "settle-sync", beforeDebounce: true, name: "saved" },
       { action: "close-ui" },
-      { action: "cli", args: ["sync", "status"], name: "idle" },
+      { action: "cli", args: ["sync", "status"], name: "idle" }
     ],
     check({ at }) {
       assert.match(at.saved.remoteFiles["todos.json"], /Single publication/);
-      assert.equal(at.idle.remoteHead, at.saved.remoteHead, "reading status after command shutdown must not duplicate the publication");
-      assert.equal(at.idle.transport.filter(event => event.operation === "push").length, at.saved.transport.filter(event => event.operation === "push").length);
+      assert.equal(
+        at.idle.remoteHead,
+        at.saved.remoteHead,
+        "reading status after command shutdown must not duplicate the publication"
+      );
+      assert.equal(
+        at.idle.transport.filter((event) => event.operation === "push").length,
+        at.saved.transport.filter((event) => event.operation === "push").length
+      );
       assert.match(at.idle.screen, /healthy/i);
-    },
+    }
   },
   {
     name: "ilu sync hook reports failed instead of synced when runtime persists a degraded state",
@@ -77,7 +92,7 @@ const workflows = [
     steps: [
       { action: "open", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Degraded task" },
-      { action: "wait-status", status: "degraded_network", name: "failed" },
+      { action: "wait-status", status: "degraded_network", name: "failed" }
     ],
     check({ at }) {
       assert.match(at.failed.screen, /failed|unavailable|pending/i);
@@ -85,7 +100,7 @@ const workflows = [
       assert.match(at.failed.files["todos.json"], /Degraded task/);
       assert.doesNotMatch(at.failed.remoteFiles["todos.json"] ?? "", /Degraded task/);
       assert.equal(JSON.parse(at.failed.files[".sync-core/state.json"]).hasPendingRemote, true);
-    },
+    }
   },
   {
     name: "ilu sync hook does not report active syncing when autoSync is disabled",
@@ -93,7 +108,7 @@ const workflows = [
     steps: [
       { action: "open", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Deferred task" },
-      { action: "wait-status", status: "pending_remote", name: "pending" },
+      { action: "wait-status", status: "pending_remote", name: "pending" }
     ],
     check({ at }) {
       assert.match(at.pending.screen, /pending/i);
@@ -102,22 +117,60 @@ const workflows = [
       assert.match(at.pending.files["todos.json"], /Deferred task/);
       assert.doesNotMatch(at.pending.remoteFiles["todos.json"] ?? "", /Deferred task/);
       assert.ok(at.pending.files[".config/sync-pending.json"]);
-    },
+    }
   },
   {
     name: "ilu sync hook reports setup instead of failed when sync is enabled without remote config",
-    fixture: { remote: "none", config: { enabled: true, remoteUrl: null, autoSync: true } },
+    fixture: {
+      remote: "none",
+      denyExternalTransport: true,
+      local: { todos: "Inbox", notes: "Local notes", boards: "Local board", clocks: [] }
+    },
     steps: [
+      { action: "observe", name: "unconfigured" },
       { action: "open", view: "Todo" },
+      { action: "ui", operation: "add-task", title: "Local task without Sync" },
+      { action: "ui", operation: "add-note", title: "Local note without Sync", content: "Persist without a remote" },
+      { action: "ui", operation: "switch-view", view: "Board" },
+      { action: "ui", operation: "add-board", title: "Local board without Sync" },
+      { action: "ui", operation: "switch-view", view: "Clocks" },
+      { action: "ui", operation: "add-clock", name: "Local clock without Sync", timezone: "America/Mexico_City" },
+      { action: "observe", name: "local-saved" },
+      { action: "close-ui" },
+      { action: "cli", args: ["todo"], name: "local-todo" },
+      { action: "cli", args: ["note"], name: "local-note" },
+      { action: "cli", args: ["board", "--list-boards"], name: "local-board" },
+      { action: "cli", args: ["clock"], name: "local-clock" },
+      { action: "open", view: "Todo" },
+      { action: "ui", operation: "sync-enable" },
+      { action: "ui", operation: "switch-view", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Setup task" },
       { action: "wait-status", status: "setup", name: "setup" },
+      { action: "ui", operation: "switch-view", view: "Sync" },
+      { action: "observe", name: "setup-details" }
     ],
     check({ at }) {
-      assert.match(at.setup.screen, /setup/i);
+      for (const name of ["unconfigured", "local-saved", "local-todo", "local-note", "local-board", "local-clock"]) {
+        assert.equal(at[name].files[".config/sync-config.json"], null);
+        assert.equal(at[name].files[".sync-core/state.json"], null);
+        assert.equal(at[name].files[".config/sync-pending.json"], null);
+        assert.equal(at[name].isGitRepository, false);
+        assert.equal(at[name].transport.length, 0);
+      }
+      for (const domain of ["todo", "note", "board", "clock"]) {
+        assert.equal(at[`local-${domain}`].exitCode, 0);
+        assert.match(
+          at[`local-${domain}`].screen,
+          new RegExp(`Local ${domain === "todo" ? "task" : domain} without Sync`)
+        );
+      }
+      assert.match(at.setup.screen, /set\s*up\s+sync/i);
       assert.doesNotMatch(at.setup.screen, /failed|synced/i);
       assert.match(at.setup.files["todos.json"], /Setup task/);
       assert.equal(at.setup.transport.length, 0);
-    },
+      assert.match(at["setup-details"].screen, /not\s+set\s*up|set\s*up\s+sync/i);
+      assert.doesNotMatch(at["setup-details"].screen, /failed|synced/i);
+    }
   },
   {
     name: "ilu sync hook debounces configured TUI runner even without status subscribers",
@@ -129,23 +182,31 @@ const workflows = [
       { action: "observe", name: "idle" },
       { action: "ui", operation: "add-task", title: "Exit flush task" },
       { action: "observe", name: "pending", beforeDebounce: true },
-      { action: "close-ui", name: "flushed" },
+      { action: "close-ui", name: "flushed" }
     ],
     check({ at }) {
       assert.match(at.pending.files["todos.json"], /Exit flush task/);
       assert.match(at.pending.screen, /pending/i);
       assert.ok(at.pending.elapsedSinceMutationMs < 5000);
-      assert.equal(at.pending.transport.filter(event => event.operation === "push").length, at.idle.transport.filter(event => event.operation === "push").length);
+      assert.equal(
+        at.pending.transport.filter((event) => event.operation === "push").length,
+        at.idle.transport.filter((event) => event.operation === "push").length
+      );
       assert.equal(at.pending.remoteHead, at.idle.remoteHead);
       assert.doesNotMatch(at.pending.remoteFiles["todos.json"] ?? "", /Exit flush task/);
       assert.equal(at.flushed.exitCode, 0);
       assert.match(at.flushed.remoteFiles["todos.json"], /Exit flush task/);
       assert.equal(at.flushed.files[".config/sync-pending.json"], null);
-    },
+    }
   },
   {
     name: "ilu sync hook sends interactive mutations through configured TUI runner instead of direct runtime",
-    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", arm: "after-open" } },
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      config: { autoPull: true },
+      transport: { gate: "push", arm: "after-open" }
+    },
     steps: [
       { action: "open", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Background task" },
@@ -153,14 +214,14 @@ const workflows = [
       { action: "ui", operation: "switch-view", view: "Notes" },
       { action: "observe", name: "responsive" },
       { action: "release-transport" },
-      { action: "settle-sync", name: "saved" },
+      { action: "settle-sync", name: "saved" }
     ],
     check({ at }) {
       assert.match(at.responsive.screen, /Add note/);
       assert.doesNotMatch(at.responsive.remoteFiles["todos.json"] ?? "", /Background task/);
       assert.match(at.saved.remoteFiles["todos.json"], /Background task/);
       assert.match(at.saved.screen, /synced|healthy/i);
-    },
+    }
   },
   {
     name: "ilu sync hook preserves setup classification from configured TUI runner errors",
@@ -172,36 +233,57 @@ const workflows = [
       { action: "open", view: "Board" },
       { action: "ui", operation: "add-board", title: "Unconfigured board" },
       { action: "wait-status", status: "setup", name: "setup" },
+      { action: "ui", operation: "switch-view", view: "Sync" },
+      { action: "observe", name: "setup-details" }
     ],
     check({ at }) {
-      assert.match(at.setup.screen, /setup/i);
+      assert.match(at.setup.screen, /set\s*up\s+sync/i);
       assert.doesNotMatch(at.setup.screen, /failed|synced/i);
       assert.match(at.setup.files["boards.json"], /Unconfigured board/);
       assert.equal(at.setup.transport.length, 0);
-    },
+      assert.equal(at.setup.isGitRepository, false);
+      assert.match(at["setup-details"].screen, /not\s+set\s*up|set\s*up\s+sync/i);
+      assert.doesNotMatch(at["setup-details"].screen, /failed|synced/i);
+    }
   },
   {
     name: "ilu sync hook completes debounced board move status when runner resolves without a terminal event",
     // Preserve the completed move and its terminal visible status. The real
     // runner owns event delivery, so this case does not suppress its events or
     // claim coverage of the synthetic missing-event fallback branch.
-    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, local: { boards: "Move board", card: "Move card" } },
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      config: { autoPull: true },
+      local: { boards: "Move board", card: "Move card" }
+    },
     steps: [
       { action: "open", view: "Board" },
       { action: "ui", operation: "move-card", title: "Move card", column: "Ready" },
-      { action: "settle-sync", name: "saved" },
+      { action: "settle-sync", name: "saved" }
     ],
     check({ at }) {
       assert.match(at.saved.screen, /synced|healthy/i);
       const snapshot = JSON.parse(at.saved.remoteFiles["boards.json"]);
       const boards = Array.isArray(snapshot) ? snapshot : snapshot.collections.boards.data;
-      assert.ok(boards.some(board => board.columns.some(column => column.title === "Ready" && column.cards.some(card => card.title === "Move card"))));
+      assert.ok(
+        boards.some((board) =>
+          board.columns.some(
+            (column) => column.title === "Ready" && column.cards.some((card) => card.title === "Move card")
+          )
+        )
+      );
       assert.equal(at.saved.files[".config/sync-pending.json"], null);
-    },
+    }
   },
   {
     name: "ilu sync hook does not synthesize synced while runner has queued work",
-    fixture: { remote: "empty", initialize: true, config: { autoPull: true }, transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" } },
+    fixture: {
+      remote: "empty",
+      initialize: true,
+      config: { autoPull: true },
+      transport: { gate: "push", releases: "one-at-a-time", arm: "after-open" }
+    },
     steps: [
       { action: "open", view: "Todo" },
       { action: "ui", operation: "add-task", title: "Queued first" },
@@ -211,7 +293,7 @@ const workflows = [
       { action: "release-transport", count: 1 },
       { action: "wait-transport", operation: "push", occurrence: 2, name: "queued" },
       { action: "release-transport" },
-      { action: "settle-sync", name: "saved" },
+      { action: "settle-sync", name: "saved" }
     ],
     check({ at }) {
       assert.doesNotMatch(at.queued.screen, /synced|healthy/i);
@@ -219,15 +301,22 @@ const workflows = [
       assert.match(at.saved.remoteFiles["todos.json"], /Queued first/);
       assert.match(at.saved.remoteFiles["todos.json"], /Queued second/);
       assert.match(at.saved.screen, /synced|healthy/i);
-    },
-  },
+    }
+  }
 ];
 
 for (const { name, fixture, steps, check } of workflows) {
   test(name, async (t) => {
-    const checkpoints = steps.filter(step => typeof step.name === "string").map(step => step.name);
-    const result = await captureIluScenario({ testName: t.name, command: ["bash", "--noprofile", "--norc"], scenario: "syncWorkflow", input: { fixture, steps: [...steps, { action: "exit" }] } });
-    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: message => t.diagnostic(message) });
+    const checkpoints = steps
+      .filter((step) => step.action !== "ui" && typeof step.name === "string")
+      .map((step) => step.name);
+    const result = await captureIluScenario({
+      testName: t.name,
+      command: ["bash", "--noprofile", "--norc"],
+      scenario: "syncWorkflow",
+      input: { fixture, steps: [...steps, { action: "exit" }] }
+    });
+    assertCaptureArtifacts({ result, checkpoints, testName: t.name, diagnostic: (message) => t.diagnostic(message) });
     check(result);
     assert.equal(result.exitCode, 0);
   });

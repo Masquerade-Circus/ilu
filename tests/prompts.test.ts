@@ -93,7 +93,7 @@ for (const entry of cases) {
               steps.push(
                 { waitFor: "whole|integer|least|minimum|invalid|number", flags: "i" },
                 { checkpoint: `invalid-number-${index}` },
-                { press: "ESCAPE" }
+                { press: "CTRL_C" }
               );
             }
           }

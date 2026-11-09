@@ -86,7 +86,13 @@ export async function captureIluScenario(options) {
   const hasResponse = fs.existsSync(response);
   // Publish only files owned by this invocation. rename replaces old bytes and
   // symlinks rather than following a destination into an unrelated file.
-  for (const name of ["request.json", "response.json", "controller.stdout.log", "controller.stderr.log"]) {
+  for (const name of [
+    "request.json",
+    "response.json",
+    "controller.stdout.log",
+    "controller.stderr.log",
+    "capture-diagnostics.json"
+  ]) {
     const file = path.join(directory, name);
     if (fs.existsSync(file)) {
       fs.renameSync(file, path.join(artifacts, `${artifactStem}.${name}`));
@@ -100,5 +106,10 @@ export async function captureIluScenario(options) {
   if (code !== 0 || result.ok !== true) {
     throw new Error(`Physical capture failed. Diagnostics: ${artifacts}/${artifactStem}\n${result.error}`);
   }
-  return { ...result.value, workspaceRoot: directory, home: path.join(directory, "capture", "home") };
+  return {
+    ...result.value,
+    diagnosticsPath: path.join(artifacts, `${artifactStem}.capture-diagnostics.json`),
+    workspaceRoot: directory,
+    home: path.join(directory, "capture", "home")
+  };
 }

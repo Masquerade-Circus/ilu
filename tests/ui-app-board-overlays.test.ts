@@ -1,57 +1,503 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import {captureIluScenario} from './test-helpers/terminal-capture.ts';
-import {captureCommand, assertCaptureArtifacts} from './test-helpers/terminal-capture-scenarios.ts';
+import test from "node:test";
+import assert from "node:assert/strict";
+import { captureIluScenario } from "./test-helpers/terminal-capture.ts";
+import { captureCommand, assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenarios.ts";
 
-const description = 'Cover the card overlay flows';
-const boards = [{title: 'Launch board', current: true, columns: [{title: 'Backlog', cards: [{title: 'Write tests', description}, {title: 'Wire UI'}]}, {title: 'Doing', cards: []}]}, {title: 'Ops board', description: 'Ops details', columns: [{title: 'Inbox', cards: []}]}];
-const openCard = [{click: 'Write tests'}, {key: 'o'}];
-const editCard = [...openCard, {click: 'Edit', area: 'overlay'}];
+const description = "Cover the card overlay flows";
+const boards = [
+  {
+    title: "Launch board",
+    current: true,
+    columns: [
+      { title: "Backlog", cards: [{ title: "Write tests", description }, { title: "Wire UI" }] },
+      { title: "Doing", cards: [] }
+    ]
+  },
+  { title: "Ops board", description: "Ops details", columns: [{ title: "Inbox", cards: [] }] }
+];
+const openCard = [{ click: "Write tests" }, { key: "o" }];
+const editCard = [...openCard, { click: "Edit", area: "overlay" }];
 const cases = [
-  ...['add-card', 'edit-card', 'add-board', 'rename-board'].map(form => ({
+  ...["add-card", "edit-card", "add-board", "rename-board"].map((form) => ({
     name: `Board ${form} editor uses available height across resize without losing cancel or save`,
-    steps: [{editorResizeRoundTrip: {domain: 'boards', form, openViaVisibleControls: true, targetBoard: 'Launch board', targetCard: 'Write tests', draftTitle: 'Draft title', documentLines: 44, sizes: [{cols: 80, rows: 24}, {cols: 100, rows: 40}, {cols: 80, rows: 24}], requireMoreLinesOnGrowth: true, requireSameLinesOnShrink: true, cancelPreservesBytes: true, saveExactDocument: true}}]
+    steps: [
+      {
+        editorResizeRoundTrip: {
+          domain: "boards",
+          form,
+          openViaVisibleControls: true,
+          targetBoard: "Launch board",
+          targetCard: "Write tests",
+          draftTitle: "Draft title",
+          documentLines: 44,
+          sizes: [
+            { cols: 80, rows: 24 },
+            { cols: 100, rows: 40 },
+            { cols: 80, rows: 24 }
+          ],
+          requireMoreLinesOnGrowth: true,
+          requireSameLinesOnShrink: true,
+          cancelPreservesBytes: true,
+          saveExactDocument: true
+        }
+      }
+    ]
   })),
-  {name: 'Board doublepress del mismo card vuelve a abrir despues de cerrar overlay sin supresor local', steps: [{doubleClick: 'Write tests'}, {expect: {text: 'Backlog | Write tests'}}, {key: 'CTRL_C'}, {expect: {absent: 'Backlog | Write tests'}}, {doubleClick: 'Write tests'}, {expect: {text: 'Backlog | Write tests'}}, {key: 'ESCAPE'}]},
-  {name: 'Board doublepress sigue activo en mismo y otros cards despues de cerrar overlay y mantiene scroll', seed: [{title: 'Launch board', current: true, columns: [{title: 'Backlog', cards: Array.from({length: 18}, (_, index) => ({title: `Card ${index + 1}`}))}]}], steps: [{doubleClick: 'Card 1'}, {click: 'Close', area: 'overlay'}, {doubleClick: 'Card 1'}, {expect: {text: 'Backlog | Card 1'}}, {click: 'Close', area: 'overlay'}, {doubleClick: 'Card 2'}, {expect: {text: 'Backlog | Card 2'}}, {click: 'Close', area: 'overlay'}, {scroll: {text: 'Card', direction: 'down', count: 18}}, {expect: {textPattern: 'Card (16|17|18)'}}]},
-  {name: 'mountInteractiveSession no revierte columna seleccionada al sincronizar card previa', steps: [{click: 'Write tests'}, {click: 'Backlog'}, {key: 'o'}, {expect: {text: 'Column: Backlog', absent: 'Column: Doing'}}, {key: 'ESCAPE'}]},
-  {name: 'Board overlay abierto no se renderiza despues de cambiar a otra tab', steps: [{remember: ['boards']}, {click: 'Add card'}, {key: 'CTRL_2'}, {expect: {text: 'Capture note', absent: ['Description', 'Save']}}, {unchanged: ['boards']}]},
-  {name: 'Board Add card button opens themed modal and focuses title input', steps: [{click: 'Add card'}, {type: 'Initial title focus'}, {expect: {texts: ['Initial title focus', 'Description', 'Save', 'Cancel'], styledOverlay: true}}, {click: 'Cancel'}]},
-  {name: 'Board Add card saves title and editor description, refreshes snapshot, and closes modal', steps: [{click: 'Add card'}, {type: 'Ship card'}, {fill: {label: 'Description', text: 'Needs polish'}}, {click: 'Save'}, {expect: {text: 'Ship card', absent: 'Cancel'}}, {data: {domain: 'boards', card: 'Ship card', description: 'Needs polish'}}]},
-  {name: 'Board Add card description Shift+Enter inserts a newline without saving', steps: [{remember: ['boards']}, {click: 'Add card'}, {type: 'Ship card'}, {fill: {label: 'Description', text: 'Line one'}}, {key: 'SHIFT_ENTER'}, {type: 'Line two'}, {expect: {separateRows: ['Line one', 'Line two'], text: 'Cancel'}}, {unchanged: ['boards']}, {click: 'Save'}, {data: {domain: 'boards', card: 'Ship card', description: 'Line one\nLine two'}}]},
-  {name: 'Board Add card description handles multi-line paste as editor text', steps: [{remember: ['boards']}, {click: 'Add card'}, {type: 'Pasted description'}, {fill: {label: 'Description', text: 'Line one\nLine two'}}, {unchanged: ['boards']}, {click: 'Save'}, {data: {domain: 'boards', card: 'Pasted description', description: 'Line one\nLine two'}}]},
-  {name: 'Board Add card title handles multi-line paste as input text without submitting', steps: [{remember: ['boards']}, {click: 'Add card'}, {type: 'Line one\nLine two'}, {expect: {text: 'Cancel'}}, {unchanged: ['boards']}, {click: 'Cancel'}, {unchanged: ['boards']}]},
-  {name: 'Board Add card cancel closes modal without mutation', steps: [{remember: ['boards']}, {click: 'Add card'}, {type: 'Do not save'}, {click: 'Cancel'}, {expect: {absent: 'Do not save'}}, {unchanged: ['boards']}]},
-  {name: 'Board Add card validates empty title and keeps modal open', steps: [{remember: ['boards']}, {click: 'Add card'}, {click: 'Save'}, {expect: {invalid: true, text: 'Cancel'}}, {unchanged: ['boards']}, {click: 'Cancel'}]},
-  {name: 'Board Add card model error keeps modal open and does not refresh as success', steps: [{remember: ['boards']}, {click: 'Add card'}, {type: 'Blocked card'}, {storageFault: {domain: 'boards', kind: 'deny-write'}}, {click: 'Save'}, {expect: {error: true, text: 'Blocked card', overlayTexts: ['Save', 'Cancel']}}, {unchanged: ['boards']}, {storageFault: {domain: 'boards', kind: 'restore'}}, {click: 'Cancel'}]},
-  {name: 'Board Add card modal uses 10 percent margin and fills the overlay surface in 80x24', steps: [{click: 'Add card'}, {expect: {overlayMargin: 0.1, overlayFullSurface: true, withinViewport: true}}, {click: 'Cancel'}]},
-  {name: 'Board Add card modal limpia la superficie interna y no mezcla texto del Board', steps: [{click: 'Add card'}, {expect: {overlayAbsent: ['Write tests', 'Wire UI', 'Backlog'], ordered: ['Add card', 'Description']}}, {click: 'Cancel'}]},
-  {name: 'Board Add card modal stays inside 80x24 with margin', steps: [{click: 'Add card'}, {expect: {overlayMargin: 0.1, withinViewport: true, footerCopyHint: true}}, {click: 'Cancel'}]},
-  {name: 'Board Enter delegates focused card list press and selects without details', steps: [{key: 'ENTER'}, {expect: {selectedText: 'Write tests', absent: 'Backlog | Write tests'}}]},
-  {name: 'Board overlay de card agrupa acciones de card y Edit prellena titulo y descripcion', steps: [...openCard, {expect: {overlayTexts: ['Edit', 'Move', 'Priority', 'Remove']}}, {click: 'Edit', area: 'overlay'}, {expect: {texts: ['Write tests', description], absent: '[object Object]'}}, {click: 'Cancel'}]},
-  {name: 'Board Edit card pins Save and Cancel to the overlay bottom and expands the description editor', steps: [...editCard, {expect: {overlayBottomActions: ['Save', 'Cancel'], editorRowsAtLeast: 8, withinViewport: true}}, {click: 'Cancel'}]},
-  {name: 'Board Edit card description Shift+Enter inserts a newline without saving', steps: [{remember: ['boards']}, ...editCard, {focusLabel: 'Description'}, {key: 'CTRL_END'}, {key: 'SHIFT_ENTER'}, {type: 'Second line'}, {expect: {text: 'Second line', overlayTexts: ['Save', 'Cancel']}}, {unchanged: ['boards']}, {click: 'Save'}, {data: {domain: 'boards', card: 'Write tests', description: `${description}\nSecond line`}}]},
-  {name: 'Board overlay de card envuelve encabezado largo sin ellipsis antes de descripcion', seed: [{title: 'Launch board', current: true, columns: [{title: 'Backlog With A Deliberately Long Column Name', cards: [{title: 'Card title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau', description: 'Description stays below the wrapped heading'}]}]}], steps: [{click: 'Card title'}, {key: 'o'}, {expect: {wrappedComplete: ['Backlog With A Deliberately Long Column Name', 'Card title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau'], ordered: ['sigma tau', 'Description stays below the wrapped heading'], absent: ['…', '...'], withinViewport: true}}, {key: 'ESCAPE'}]},
-  {name: 'Board overlay de card muestra columna y titulo como encabezado sin labels viejos', steps: [...openCard, {expect: {ordered: ['Backlog | Write tests', description], overlayBottomActions: ['Edit', 'Move', 'Priority', 'Remove', 'Close'], overlayAbsent: ['Card details', 'Column:'], overlayBackground: '#111111', detailsBackground: '#1f2937'}}, {key: 'ESCAPE'}]},
-  {name: 'Board column details pins column actions to the overlay bottom', steps: [{click: 'Doing'}, {key: 'o'}, {expect: {overlayBottomActions: ['Rename', 'WIP', 'Default', 'Remove column', 'Close'], withinViewport: true}}, {key: 'ESCAPE'}]},
-  {name: 'Board column details scopes column actions to footer and excludes global actions', steps: [{click: 'Doing'}, {key: 'o'}, {expect: {overlayTexts: ['Rename', 'WIP', 'Default', 'Remove column'], overlayAbsent: ['Add column', 'Reset to default layout', 'Left', 'Right']}}, {key: 'ESCAPE'}]},
-  {name: 'Board column details empty state excludes global column layout actions', steps: [{click: 'Doing'}, {key: 'o'}, {externalBoardChange: {removeAllColumns: true}}, {key: 'CTRL_K'}, {key: 'ESCAPE'}, {expect: {overlayTexts: ['No columns yet', 'Close'], overlayAbsent: ['Add column', 'Reset to default layout', 'Choose a column first']}}, {key: 'ESCAPE'}]},
-  {name: 'Board Remove column explains plural cards must be removed first', steps: [{remember: ['boards']}, {click: 'Backlog'}, {key: 'o'}, {click: 'Remove column'}, {expect: {error: true, absent: 'model'}}, {unchanged: ['boards']}, {key: 'ESCAPE'}]},
-  {name: 'Board Remove column explains singular card must be removed first', seed: [{title: 'Launch board', current: true, columns: [{title: 'Backlog', cards: [{title: 'Write tests'}]}]}], steps: [{remember: ['boards']}, {click: 'Backlog'}, {key: 'o'}, {click: 'Remove column'}, {expect: {error: true}}, {unchanged: ['boards']}, {key: 'ESCAPE'}]},
-  {name: 'Board overlay remove-card-confirm usa copy destructivo consistente', steps: [{remember: ['boards']}, ...openCard, {click: 'Remove', area: 'overlay'}, {expect: {text: 'Delete card', destructiveActionColor: '#8f1d2c', confirmation: true}}, {unchanged: ['boards']}, {key: 'ESCAPE'}]},
-  {name: 'Board Remove dentro del overlay requiere armado y segundo click para eliminar card', steps: [{remember: ['boards']}, ...openCard, {click: 'Remove', area: 'overlay'}, {expect: {text: 'Delete card', destructiveActionColor: '#8f1d2c'}}, {unchanged: ['boards']}, {click: 'Delete card', area: 'overlay'}, {data: {domain: 'boards', absentCard: 'Write tests'}}, {expect: {absent: 'Backlog | Write tests'}}]},
+  {
+    name: "Board doublepress del mismo card vuelve a abrir despues de cerrar overlay sin supresor local",
+    steps: [
+      { doubleClick: "Write tests" },
+      { expect: { text: "Backlog | Write tests" } },
+      { screenshot: "first-open" },
+      { key: "CTRL_C" },
+      { expect: { absent: "Backlog | Write tests" } },
+      { doubleClick: "Write tests" },
+      { expect: { text: "Backlog | Write tests" } },
+      { screenshot: "reopened" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board doublepress sigue activo en mismo y otros cards despues de cerrar overlay y mantiene scroll",
+    seed: [
+      {
+        title: "Launch board",
+        current: true,
+        columns: [
+          { title: "Backlog", cards: Array.from({ length: 18 }, (_, index) => ({ title: `Card ${index + 1}` })) }
+        ]
+      }
+    ],
+    steps: [
+      { doubleClick: "Card 1" },
+      { click: "Close", area: "overlay" },
+      { doubleClick: "Card 1" },
+      { expect: { text: "Backlog | Card 1" } },
+      { click: "Close", area: "overlay" },
+      { doubleClick: "Card 2" },
+      { expect: { text: "Backlog | Card 2" } },
+      { click: "Close", area: "overlay" },
+      { scroll: { text: "Card", direction: "down", count: 18 } },
+      { expect: { textPattern: "Card (16|17|18)" } }
+    ]
+  },
+  {
+    name: "mountInteractiveSession no revierte columna seleccionada al sincronizar card previa",
+    steps: [
+      { click: "Write tests" },
+      { click: "Backlog" },
+      { key: "o" },
+      { expect: { text: "Column: Backlog", absent: "Column: Doing" } },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board overlay abierto no se renderiza despues de cambiar a otra tab",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { key: "CTRL_2" },
+      { expect: { text: "Capture note", absent: ["Description", "Save"] } },
+      { unchanged: ["boards"] }
+    ]
+  },
+  {
+    name: "Board Add card button opens themed modal and focuses title input",
+    steps: [
+      { click: "Add card" },
+      { type: "Initial title focus" },
+      { expect: { texts: ["Initial title focus", "Description", "Save", "Cancel"], styledOverlay: true } },
+      { screenshot: "overlay" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Add card saves title and editor description, refreshes snapshot, and closes modal",
+    steps: [
+      { click: "Add card" },
+      { type: "Ship card" },
+      { fill: { label: "Description", text: "Needs polish" } },
+      { click: "Save" },
+      { expect: { text: "Ship card", absent: "Cancel" } },
+      { data: { domain: "boards", card: "Ship card", description: "Needs polish" } }
+    ]
+  },
+  {
+    name: "Board Add card description Shift+Enter inserts a newline without saving",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { type: "Ship card" },
+      { fill: { label: "Description", text: "Line one" } },
+      { key: "SHIFT_ENTER" },
+      { type: "Line two" },
+      { expect: { separateRows: ["Line one", "Line two"], text: "Cancel" } },
+      { unchanged: ["boards"] },
+      { click: "Save" },
+      { data: { domain: "boards", card: "Ship card", description: "Line one\nLine two" } }
+    ]
+  },
+  {
+    name: "Board Add card description handles multi-line paste as editor text",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { type: "Pasted description" },
+      { fill: { label: "Description", text: "Line one\nLine two" } },
+      { unchanged: ["boards"] },
+      { click: "Save" },
+      { data: { domain: "boards", card: "Pasted description", description: "Line one\nLine two" } }
+    ]
+  },
+  {
+    name: "Board Add card title handles multi-line paste as input text without submitting",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { type: "Line one\nLine two" },
+      { expect: { texts: ["Cancel", "Line one", "Line two"] } },
+      { unchanged: ["boards"] },
+      { screenshot: "pasted-title" },
+      { click: "Cancel" },
+      { unchanged: ["boards"] },
+      { click: "Add card" },
+      { type: "Line one\nLine two" },
+      { unchanged: ["boards"] },
+      { click: "Save" },
+      // Public single-line Input strips control characters, including newline.
+      { data: { domain: "boards", card: "Line oneLine two" } }
+    ]
+  },
+  {
+    name: "Board Add card cancel closes modal without mutation",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { type: "Do not save" },
+      { click: "Cancel" },
+      { expect: { absent: "Do not save" } },
+      { unchanged: ["boards"] }
+    ]
+  },
+  {
+    name: "Board Add card validates empty title and keeps modal open",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { click: "Save" },
+      { expect: { invalid: true, text: "Cancel" } },
+      { unchanged: ["boards"] },
+      { screenshot: "rejection" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Add card model error keeps modal open and does not refresh as success",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Add card" },
+      { type: "Blocked card" },
+      { storageFault: { domain: "boards", kind: "deny-write" } },
+      { click: "Save" },
+      { expect: { error: true, text: "Blocked card", overlayTexts: ["Save", "Cancel"] } },
+      { unchanged: ["boards"] },
+      { screenshot: "rejection" },
+      { storageFault: { domain: "boards", kind: "restore" } },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Add card modal uses 10 percent margin and fills the overlay surface in 80x24",
+    steps: [
+      { click: "Add card" },
+      { expect: { overlayMargin: 0.1, overlayFullSurface: true, withinViewport: true } },
+      { screenshot: "overlay" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Add card modal limpia la superficie interna y no mezcla texto del Board",
+    steps: [
+      { click: "Add card" },
+      { expect: { overlayAbsent: ["Write tests", "Wire UI", "Backlog"], ordered: ["Add card", "Description"] } },
+      { screenshot: "clean-surface" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Add card modal stays inside 80x24 with margin",
+    steps: [
+      { click: "Add card" },
+      { expect: { overlayMargin: 0.1, withinViewport: true, footerCopyHint: true } },
+      { screenshot: "overlay" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Enter delegates focused card list press and selects without details",
+    steps: [
+      { click: "Backlog" },
+      { key: "TAB" },
+      { expect: { absent: "› Write tests" } },
+      { key: "ENTER" },
+      { expect: { selectedText: "Write tests", absent: "Backlog | Write tests" } }
+    ]
+  },
+  {
+    name: "Board overlay de card agrupa acciones de card y Edit prellena titulo y descripcion",
+    steps: [
+      ...openCard,
+      { expect: { overlayTexts: ["Edit", "Move", "Priority", "Remove"] } },
+      { screenshot: "card-actions" },
+      { click: "Edit", area: "overlay" },
+      { expect: { texts: ["Write tests", description], absent: "[object Object]" } },
+      { screenshot: "prefilled-editor" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Edit card pins Save and Cancel to the overlay bottom and expands the description editor",
+    steps: [
+      ...editCard,
+      { expect: { overlayBottomActions: ["Save", "Cancel"], editorRowsAtLeast: 8, withinViewport: true } },
+      { screenshot: "overlay" },
+      { click: "Cancel" }
+    ]
+  },
+  {
+    name: "Board Edit card description Shift+Enter inserts a newline without saving",
+    steps: [
+      { remember: ["boards"] },
+      ...editCard,
+      { focusLabel: "Description" },
+      { key: "CTRL_END" },
+      { key: "SHIFT_ENTER" },
+      { type: "Second line" },
+      { expect: { text: "Second line", overlayTexts: ["Save", "Cancel"] } },
+      { unchanged: ["boards"] },
+      { click: "Save" },
+      { data: { domain: "boards", card: "Write tests", description: `${description}\nSecond line` } }
+    ]
+  },
+  {
+    name: "Board overlay de card envuelve encabezado largo sin ellipsis antes de descripcion",
+    seed: [
+      {
+        title: "Launch board",
+        current: true,
+        columns: [
+          {
+            title: "Backlog With A Deliberately Long Column Name",
+            cards: [
+              {
+                title:
+                  "Card title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau",
+                description: "Description stays below the wrapped heading"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    steps: [
+      { click: "Card title" },
+      { key: "o" },
+      {
+        expect: {
+          wrappedComplete: [
+            "Backlog With A Deliberately Long Column Name",
+            "Card title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
+          ],
+          ordered: ["sigma tau", "Description stays below the wrapped heading"],
+          absent: ["…", "..."],
+          withinViewport: true
+        }
+      },
+      { screenshot: "wrapped-heading" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board overlay de card muestra columna y titulo como encabezado sin labels viejos",
+    steps: [
+      ...openCard,
+      {
+        expect: {
+          ordered: ["Backlog | Write tests", description],
+          overlayBottomActions: ["Edit", "Move", "Priority", "Remove", "Close"],
+          overlayAbsent: ["Card details", "Column:"],
+          styledOverlay: true,
+          controlBackground: { "Backlog | Write tests": "#1f2937" }
+        }
+      },
+      { screenshot: "overlay" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board column details pins column actions to the overlay bottom",
+    steps: [
+      { click: "Doing" },
+      { key: "o" },
+      {
+        expect: { overlayBottomActions: ["Rename", "WIP", "Default", "Remove column", "Close"], withinViewport: true }
+      },
+      { screenshot: "overlay" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board column details scopes column actions to footer and excludes global actions",
+    steps: [
+      { click: "Doing" },
+      { key: "o" },
+      {
+        expect: {
+          overlayTexts: ["Rename", "WIP", "Default", "Remove column"],
+          overlayAbsent: ["Add column", "Reset to default layout", "Left", "Right"]
+        }
+      },
+      { screenshot: "overlay" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board column details empty state excludes global column layout actions",
+    // The original injected column-details without columns. The public route
+    // rejects opening that board. Preserve the empty state, safe dismissal,
+    // absence of unrelated layout actions, and unchanged persisted bytes.
+    seed: [{ title: "Launch board", current: true, columns: [] }],
+    steps: [
+      { expect: { text: "No columns yet" } },
+      { remember: ["boards"] },
+      { click: "Launch board" },
+      {
+        expect: {
+          error: true,
+          overlayTexts: ["OK"],
+          overlayAbsent: ["Add column", "Reset to default layout", "Choose a column first"]
+        }
+      },
+      { key: "ESCAPE" },
+      { expect: { text: "No columns yet" } },
+      { unchanged: ["boards"] }
+    ]
+  },
+  {
+    name: "Board Remove column explains plural cards must be removed first",
+    steps: [
+      { remember: ["boards"] },
+      { click: "Backlog" },
+      { key: "o" },
+      { click: "Remove column" },
+      { expect: { error: true, absent: "model" } },
+      { unchanged: ["boards"] },
+      { screenshot: "rejection" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board Remove column explains singular card must be removed first",
+    seed: [
+      { title: "Launch board", current: true, columns: [{ title: "Backlog", cards: [{ title: "Write tests" }] }] }
+    ],
+    steps: [
+      { remember: ["boards"] },
+      { click: "Backlog" },
+      { key: "o" },
+      { click: "Remove column" },
+      { expect: { error: true } },
+      { unchanged: ["boards"] },
+      { screenshot: "rejection" },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board overlay remove-card-confirm usa copy destructivo consistente",
+    steps: [
+      { remember: ["boards"] },
+      ...openCard,
+      { click: "Remove", area: "overlay" },
+      { expect: { overlayTexts: ["Delete card", "Close"], destructiveActionColor: "#8f1d2c" } },
+      { screenshot: "overlay" },
+      { unchanged: ["boards"] },
+      { key: "ESCAPE" }
+    ]
+  },
+  {
+    name: "Board Remove dentro del overlay requiere armado y segundo click para eliminar card",
+    steps: [
+      { remember: ["boards"] },
+      ...openCard,
+      { click: "Remove", area: "overlay" },
+      { expect: { text: "Delete card", destructiveActionColor: "#8f1d2c" } },
+      { unchanged: ["boards"] },
+      { click: "Delete card", area: "overlay", occurrence: -1 },
+      { expect: { absent: "This cannot be undone." } },
+      { data: { domain: "boards", absentCard: "Write tests" } },
+      { expect: { absent: "Backlog | Write tests" } }
+    ]
+  },
   ...[
-    ['Board CTRL_C limpia el armado stale de Remove al cerrar detalles', {key: 'CTRL_C'}],
-    ['Board Close limpia el armado stale de Remove al cerrar detalles', {click: 'Close', area: 'overlay'}],
-    ['Board Escape cancela el armado de Remove dentro del overlay', {key: 'ESCAPE'}]
-  ].map(([name, close]) => ({name, steps: [{remember: ['boards']}, ...openCard, {click: 'Remove', area: 'overlay'}, close, ...openCard, {expect: {overlayTexts: ['Remove'], overlayAbsent: ['Delete card', 'Confirm delete']}}, {click: 'Remove', area: 'overlay'}, {unchanged: ['boards']}, {key: 'ESCAPE'}]})),
-  {name: 'Board details reuses rename and delete board flows', steps: [{doubleClick: 'Ops board'}, {click: 'Rename', area: 'overlay'}, {expect: {texts: ['Ops board', 'Ops details']}}, {fill: {label: 'Title', text: 'Ops v2'}}, {fill: {label: 'Description', text: 'Ops next'}}, {click: 'Save'}, {data: {domain: 'boards', board: 'Ops v2', description: 'Ops next'}}, {doubleClick: 'Ops v2'}, {click: 'Delete board'}, {expect: {confirmation: true}}, {data: {domain: 'boards', board: 'Ops v2', exists: true}}, {click: 'Delete board', area: 'overlay'}, {data: {domain: 'boards', absentBoard: 'Ops v2'}}]}
+    ["Board CTRL_C limpia el armado stale de Remove al cerrar detalles", { key: "CTRL_C" }],
+    ["Board Close limpia el armado stale de Remove al cerrar detalles", { click: "Close", area: "overlay" }],
+    ["Board Escape cancela el armado de Remove dentro del overlay", { key: "ESCAPE" }]
+  ].map(([name, close]) => ({
+    name,
+    steps: [
+      { remember: ["boards"] },
+      ...openCard,
+      { click: "Remove", area: "overlay" },
+      close,
+      ...openCard,
+      { expect: { overlayTexts: ["Remove"], overlayAbsent: ["Delete card", "Confirm delete"] } },
+      { screenshot: "disarmed" },
+      { click: "Remove", area: "overlay" },
+      { unchanged: ["boards"] },
+      { screenshot: "armed-again" },
+      { key: "ESCAPE" }
+    ]
+  })),
+  {
+    name: "Board details reuses rename and delete board flows",
+    steps: [
+      { doubleClick: "Ops board" },
+      { click: "Rename", area: "overlay" },
+      { expect: { texts: ["Ops board", "Ops details"] } },
+      { fill: { label: "Title", text: "Ops v2" } },
+      { fill: { label: "Description", text: "Ops next" } },
+      { click: "Save" },
+      { data: { domain: "boards", board: "Ops v2", description: "Ops next" } },
+      { doubleClick: "Ops v2" },
+      { click: "Delete board" },
+      { expect: { confirmation: true } },
+      { data: { domain: "boards", board: "Ops v2", exists: true } },
+      { click: "Delete board", area: "overlay", occurrence: -1 },
+      { expect: { absent: "This cannot be undone." } },
+      { data: { domain: "boards", absentBoard: "Ops v2" } }
+    ]
+  }
 ];
 
 for (const entry of cases) {
-  test(entry.name, async context => {
-    const result = await captureIluScenario({testName: context.name, scenario: 'tuiInteraction', command: captureCommand, viewport: {cols: 80, rows: 24}, input: {seed: {boards: 'seed' in entry ? entry.seed : boards}, steps: [{key: 'CTRL_3'}, ...entry.steps, {screenshot: 'result'}], finish: 'normal-exit'}});
+  test(entry.name, async (context) => {
+    const result = await captureIluScenario({
+      testName: context.name,
+      scenario: "tuiInteraction",
+      command: captureCommand,
+      viewport: { cols: 80, rows: 24 },
+      input: {
+        seed: { boards: "seed" in entry ? entry.seed : boards },
+        steps: [{ key: "CTRL_3" }, ...entry.steps, { screenshot: "result" }],
+        finish: "normal-exit"
+      }
+    });
     assert.equal(result.exitCode, 0);
-    assertCaptureArtifacts({result, testName: context.name, checkpoints: ['result'], diagnostic: message => context.diagnostic(message)});
+    assertCaptureArtifacts({
+      result,
+      testName: context.name,
+      checkpoints: ["result"],
+      diagnostic: (message) => context.diagnostic(message)
+    });
   });
 }

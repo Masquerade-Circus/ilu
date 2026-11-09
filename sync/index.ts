@@ -144,6 +144,12 @@ function createBootstrapBackend(options: Record<string, string | null> = {}) {
 
 function getRuntimeOptions(overrides: SyncRuntimeOverrides = {}): SyncRuntimeOptions {
   const config = getSyncConfig();
+  if (
+    (typeof overrides.backend !== 'object' || overrides.backend === null)
+    && (typeof config.remoteUrl !== 'string' || config.remoteUrl.trim().length === 0)
+  ) {
+    throw new Error('Sync requires remoteUrl when sync is enabled');
+  }
   const rootPath = overrides.rootPath ?? adapter.getSourceRoot();
   return {
     ...overrides,

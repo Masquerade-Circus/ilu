@@ -45,7 +45,6 @@ for (const entry of cases) {
         const file = path.join(home, ".ilu", "notes.json");
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const list = {
-          $id: 1,
           index: 1,
           current: true,
           title: "Ideas",

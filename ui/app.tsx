@@ -15,6 +15,7 @@ import { createSnapshotRef } from "./app-snapshot";
 import { createTuiSyncClient } from "../sync/tui-sync-client";
 import notifySyncHook from "../sync/ilu-hooks";
 import syncIndex from "../sync";
+import { reloadLoadedDatabases } from "../utils/load-db";
 import { onDataRecovery as defaultOnDataRecovery } from '../sync/iludb-recovery';
 import { createAppShell } from "./components/AppShell";
 import { FOOTER_STYLE, footerLine, footerSegments } from "./components/Footer";
@@ -199,7 +200,7 @@ function createApp(
     const activeUtilityOverlay = isUtilityTab(state.activeTab)
       ? createActiveUtilityOverlay({ state, actions, layout: { width: currentWidth(), rows: currentRows() }, requestRender })
       : null;
-    const footerControlMode = actions.isTextEntryFocused?.() === true
+    const footerControlMode = state.overlay !== "help" && actions.isTextEntryFocused?.() === true
       ? "copy"
       : state.overlay !== "help" && hasActiveOverlay(state) ? "overlay" : "global";
 
@@ -289,7 +290,13 @@ function shouldPrepareUtilityAfterCommand(command: TerminalCommand, state: AppRu
 function createSessionActions(options: AppOptions, snapshotRef: SnapshotRef, requestRender?: () => void): SessionActions {
   return {
     ...createDefaultModuleActions(options),
-    refreshSnapshot: (domain?: UiSnapshotDomain) => snapshotRef.refresh(domain),
+    refreshSnapshot: (domain?: UiSnapshotDomain) => {
+      const snapshot = snapshotRef.refresh(domain);
+      if (typeof requestRender === "function") {
+        queueMicrotask(requestRender);
+      }
+      return snapshot;
+    },
     requestRender
   };
 }
@@ -530,6 +537,7 @@ async function mountInteractiveSession(options: AppOptions = {}): Promise<Termin
   const preparedSyncRunner = await prepareTuiSyncRunner();
   if (preparedSyncRunner !== null) {
     state.syncStatus = preparedSyncRunner.state;
+    reloadLoadedDatabases();
   }
   const snapshotRef = createSnapshotRef(options);
   const requestRender = () => {

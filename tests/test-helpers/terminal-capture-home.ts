@@ -56,7 +56,9 @@ if (typeof process.env.ILU_CAPTURE_SEED_JSON === "string") {
           index: position + 1,
           wipLimit: null,
           ...column,
-          cards: (column.cards ?? []).map((card, cardIndex) => ({ description: "", ...card, position: cardIndex + 1 }))
+          cards: (column.cards ?? []).map((card, cardIndex) =>
+            typeof card === "object" && card !== null ? { description: "", ...card, position: cardIndex + 1 } : card
+          )
         }));
         collection.add({
           description: "",

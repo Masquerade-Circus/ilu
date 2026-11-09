@@ -40,9 +40,9 @@ const cases = [
     {click: 'Start conversion'}, {expect: {invalid: true}}, {externalCalls: {speech: 0}}
   ]],
   ['TTS utility renders actions in the bottom action area', [{key: 'CTRL_7'}, {expect: {pageBottomActions: ['Start conversion', 'Choose voice'], withinViewport: true}}]],
-  ['TTS voice overlay pins Cancel to the overlay bottom', [{key: 'CTRL_7'}, {click: 'Choose voice'}, {expect: {overlayBottomActions: ['Cancel'], withinViewport: true}}, {key: 'ESCAPE'}]],
-  ['TTS voice overlay keeps Cancel visible with the default voice set', [{key: 'CTRL_7'}, {click: 'Choose voice'}, {expect: {texts: ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'], overlayBottomActions: ['Cancel'], withinViewport: true}}, {key: 'ESCAPE'}]],
-  ['TTS voice overlay render does not refresh or rewrite voice state', [{remember: ['tts-config']}, {key: 'CTRL_7'}, {click: 'Choose voice'}, {resize: {cols: 100, rows: 40}}, {resize: {cols: 80, rows: 24}}, {expect: {text: 'alloy'}}, {unchanged: ['tts-config']}, {externalCalls: {speech: 0}}, {key: 'ESCAPE'}]],
+  ['TTS voice overlay pins Cancel to the overlay bottom', [{key: 'CTRL_7'}, {click: 'Choose voice'}, {expect: {overlayBottomActions: ['Cancel'], withinViewport: true}}, {screenshot: 'overlay'}, {key: 'ESCAPE'}]],
+  ['TTS voice overlay keeps Cancel visible with the default voice set', [{key: 'CTRL_7'}, {click: 'Choose voice'}, {expect: {texts: ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'], overlayBottomActions: ['Cancel'], withinViewport: true}}, {screenshot: 'overlay'}, {key: 'ESCAPE'}]],
+  ['TTS voice overlay render does not refresh or rewrite voice state', [{remember: ['tts-config']}, {key: 'CTRL_7'}, {click: 'Choose voice'}, {resize: {cols: 100, rows: 40}}, {resize: {cols: 80, rows: 24}}, {expect: {text: 'alloy'}}, {unchanged: ['tts-config']}, {externalCalls: {speech: 0}}, {screenshot: 'voice-after-resize'}, {key: 'ESCAPE'}]],
   ['TTS utility can choose default voice and display audio progress/result through injected adapter', [
     {provider: {kind: 'speech', response: {deferred: 'audio', syntheticAudio: true}}}, {key: 'CTRL_7'}, {click: 'Choose voice'}, {click: 'nova', area: 'overlay'}, {data: {domain: 'tts-config', voice: 'nova'}},
     {fill: {label: 'Input file', valueFrom: 'syntheticTextFile'}}, {fill: {label: 'Output file', valueFrom: 'privateAudioFile'}}, {click: 'Start conversion'}, {expect: {pending: true}},
@@ -86,9 +86,9 @@ const cases = [
     {restartAppNormally: true}, {key: 'CTRL_6'}, {fill: {label: 'Text to translate', text: 'New session draft'}}, {key: 'ALT_UP'}, {expect: {inputEquals: {label: 'Text to translate', text: 'New session draft'}}}
   ]],
   ['Translate TUI communicates unavailable copy and pending translation at the controls', [
-    {provider: {kind: 'translation', response: {deferred: 'pending'}}}, {key: 'CTRL_6'}, {expect: {copyAvailable: false}},
+    {provider: {kind: 'translation', response: {deferred: 'pending'}}}, {key: 'CTRL_6'}, {expect: {copyAvailable: false, controlForeground: {'Copy result': 'distinct-from-content'}}},
     {fill: {label: 'Text to translate', text: 'Example'}}, {click: 'Translate', area: 'actions'}, {expect: {pending: true, translateAvailable: false}},
-    {click: 'Translate', area: 'actions'}, {externalCalls: {translation: 1}}, {releaseProvider: {id: 'pending', response: {sentences: [{trans: 'Ejemplo'}]}}}, {expect: {text: 'Ejemplo', copyAvailable: true}}
+    {click: 'Translate', area: 'actions'}, {externalCalls: {translation: 1}}, {expect: {translateAvailable: false, controlForeground: {'Copy result': 'distinct-from-content'}}}, {screenshot: 'pending-controls'}, {releaseProvider: {id: 'pending', response: {sentences: [{trans: 'Ejemplo'}]}}}, {expect: {text: 'Ejemplo', copyAvailable: true}}
   ]],
   ['Translate first-use guidance distinguishes unqueried and no dictionary results', [
     {provider: {kind: 'translation', response: {sentences: [{trans: 'Ejemplo'}], dict: []}}}, {key: 'CTRL_6'},
@@ -99,6 +99,7 @@ const cases = [
     {provider: {kind: 'speech', response: {deferred: 'speech-failure', status: 400}}}, {key: 'CTRL_7'},
     {fill: {label: 'Input file', valueFrom: 'syntheticTextFile'}}, {fill: {label: 'Output file', valueFrom: 'privateAudioFile'}}, {click: 'Start conversion'},
     {expect: {pending: true, speechAvailable: false, voiceChoiceAvailable: false}}, {click: 'Start conversion'}, {click: 'Choose voice'},
+    {expect: {speechAvailable: false, voiceChoiceAvailable: false, absent: ['ash', 'ballad', 'Cancel']}}, {screenshot: 'pending-controls'},
     {externalCalls: {speech: 1}}, {audioFile: {exists: false}}, {releaseProvider: {id: 'speech-failure', error: 'Controlled SDK failure'}},
     {expect: {error: true, speechAvailable: true}}, {provider: {kind: 'speech', response: {error: 'Controlled retry failure'}}},
     {click: 'Start conversion'}, {externalCalls: {speech: 2}}, {audioFile: {exists: false}}

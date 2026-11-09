@@ -3,6 +3,11 @@ import type { TerminalStateStyles, TerminalStyleValue, TerminalVisualState } fro
 import { CONTROL_BUTTON_STYLE, DANGER_BUTTON_STYLE } from "../theme";
 
 function buttonStateStyles(state?: TerminalVisualState): TerminalStateStyles {
+  if (state === "disabled" || state === "loading") {
+    const style = `button.${state}`;
+    return { [state]: style, selected: style, focus: style, hover: style, pressed: style };
+  }
+
   if (state === "error") {
     return {
       error: DANGER_BUTTON_STYLE,
@@ -13,7 +18,11 @@ function buttonStateStyles(state?: TerminalVisualState): TerminalStateStyles {
     };
   }
 
-  return { selected: "button.focus", focus: "button.focus", hover: "button.hover" };
+  return {
+    selected: "button.focus",
+    focus: "button.focus",
+    hover: "button.hover"
+  };
 }
 
 export function createButton(
@@ -24,14 +33,7 @@ export function createButton(
   style: TerminalStyleValue = CONTROL_BUTTON_STYLE
 ): JSX.Element {
   return (
-    <Button
-      id={id}
-      label={label}
-      style={style}
-      styles={buttonStateStyles(state)}
-      state={state}
-      onpress={onpress}
-    />
+    <Button id={id} label={label} style={style} styles={buttonStateStyles(state)} state={state} onpress={onpress} />
   );
 }
 
@@ -42,13 +44,6 @@ export function createButtonStatus(
   style: TerminalStyleValue = CONTROL_BUTTON_STYLE
 ): JSX.Element {
   return (
-    <Button
-      id={id}
-      label={label}
-      focusable={false}
-      style={style}
-      styles={buttonStateStyles(state)}
-      state={state}
-    />
+    <Button id={id} label={label} focusable={false} style={style} styles={buttonStateStyles(state)} state={state} />
   );
 }

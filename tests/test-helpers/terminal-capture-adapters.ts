@@ -81,10 +81,13 @@ export async function runAdapterBehavior(context, input) {
       await click("Add clock", { area: "overlay", occurrence: -1 });
       await expectScreen((text) => /name.*required/i.test(text), "A blank clock name must be rejected");
       assert.equal(fs.readFileSync(file, "utf8"), originalClocks);
+      await app.screenshot({ name: "invalid-name" });
       await fill("Clock name", "Rejected zone");
       await fill("Time zone", "Invalid/Zone");
       await click("Add clock", { area: "overlay", occurrence: -1 });
       await expectScreen((text) => /choose a time zone/i.test(text), "A missing valid zone must be rejected");
+      assert.equal(fs.readFileSync(file, "utf8"), originalClocks);
+      await app.screenshot({ name: "invalid-zone" });
       await click("Cancel");
       await click("1. UTC:");
       await expectScreen((text) => text.includes("Clock details"), "Boundary checks require a real selected clock");
@@ -95,6 +98,7 @@ export async function runAdapterBehavior(context, input) {
           "Boundary movement must be rejected"
         );
         assert.equal(fs.readFileSync(file, "utf8"), originalClocks);
+        await app.screenshot({ name: direction === "Move up" ? "invalid-move-up" : "invalid-move-down" });
       }
       observed.invalidClockSaved = read().some(
         (clock) => clock.name.trim().length === 0 || clock.timezone === "Invalid/Zone"
@@ -131,6 +135,7 @@ export async function runAdapterBehavior(context, input) {
         observed.saveRejected = !read().some((clock) => clock.name === "London");
         observed.clocksUnchanged = fs.readFileSync(file, "utf8") === originalClocks;
         observed.leakedPrivateDetails = /EACCES|EPERM|\.ilu|node:|at create/i.test(failure);
+        await app.screenshot({ name: "write-rejection" });
       } finally {
         fs.chmodSync(directory, mode);
       }
@@ -222,6 +227,8 @@ export async function runAdapterBehavior(context, input) {
       await fill("Note content", "Body");
       await click("Save");
       await expectScreen((text) => /title.*required/i.test(text), "An empty note title must be rejected");
+      assert.deepEqual(today().notes, originalTasks);
+      await app.screenshot({ name: "invalid-title" });
       await click("Cancel");
       await click("Archive");
       const empty = await expectScreen(
@@ -255,11 +262,13 @@ export async function runAdapterBehavior(context, input) {
       await app.press("SHIFT_UP");
       await expectScreen((text) => text.includes("1. Abuse cases"), "The moved note must appear first");
       observed.intermediateNoteTitles = titles();
+      await app.screenshot({ name: "reordered" });
       await app.press("HOME");
       await app.press("DOWN");
       await app.press("SHIFT_DOWN");
       await screen();
       observed.lowerBoundaryUnchanged = JSON.stringify(titles()) === JSON.stringify(observed.intermediateNoteTitles);
+      await app.screenshot({ name: "boundary-unchanged" });
       await app.press("SHIFT_UP");
       await expectScreen((text) => text.includes("1. Threat model"), "The note order must be restored");
       observed.savedNoteTitles = titles();
@@ -316,6 +325,7 @@ export async function runAdapterBehavior(context, input) {
         "The persisted multiline content must reopen"
       );
       observed.restoredEditedContent = today().notes.find((note) => note.title === "Edited").content;
+      await app.screenshot({ name: "restored-multiline-detail" });
       await click("Close");
       break;
     }
@@ -324,6 +334,8 @@ export async function runAdapterBehavior(context, input) {
       await app.type("   ");
       await click("Save");
       await expectScreen((text) => /title.*required/i.test(text), "Blank task input must be rejected");
+      assert.deepEqual(today().tasks, originalTasks);
+      await app.screenshot({ name: "invalid-title" });
       await click("Cancel");
       await click("Later");
       await app.press("o");
@@ -355,11 +367,13 @@ export async function runAdapterBehavior(context, input) {
       await app.press("SHIFT_UP");
       await expectScreen((text) => text.includes("1. Done task"), "The moved task must appear first");
       observed.intermediateTaskTitles = titles();
+      await app.screenshot({ name: "reordered" });
       await app.press("HOME");
       await app.press("DOWN");
       await app.press("SHIFT_DOWN");
       await screen();
       observed.lowerBoundaryUnchanged = JSON.stringify(titles()) === JSON.stringify(observed.intermediateTaskTitles);
+      await app.screenshot({ name: "boundary-unchanged" });
       await app.press("SHIFT_UP");
       await expectScreen((text) => text.includes("1. Open task"), "The task order must be restored visibly");
       observed.savedTaskTitles = titles();
@@ -499,6 +513,7 @@ export async function runAdapterBehavior(context, input) {
         observed[notes ? "originalNotesUnchanged" : "originalTasksUnchanged"] =
           JSON.stringify(today()[notes ? "notes" : "tasks"]) === JSON.stringify(originalTasks);
         observed.leakedPrivateDetails = /EACCES|EPERM|\.ilu|node:|at create/i.test(failure);
+        await app.screenshot({ name: "write-rejection" });
       } finally {
         fs.chmodSync(directory, mode);
       }

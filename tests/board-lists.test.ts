@@ -104,7 +104,6 @@ for (const entry of cases) {
           wipLimit: null
         }));
         const boards = ["Inbox", "Product", "Ops"].map((title, index) => ({
-          $id: index + 1,
           index: index + 1,
           current: index === (entry.action === "details" ? 1 : 0),
           title,
@@ -171,6 +170,15 @@ for (const entry of cases) {
           assert.equal(saved[0].index, 1);
         }
         if (entry.action === "details") {
+          const diagnostic = JSON.parse(fs.readFileSync(result.diagnosticsPath, "utf8"));
+          assert.equal(diagnostic.sender.observable, false);
+          assert.ok(diagnostic.receiver.samples.some((sample) => sample.receivedBytes > 0));
+          assert.equal(diagnostic.beforeClose.observation.application.exitCode, result.exitCode);
+          assert.ok(
+            diagnostic.beforeClose.processes.some(
+              (process) => process.pid === diagnostic.beforeClose.observation.application.hostPid
+            )
+          );
           assert.deepEqual(
             saved.map((board) => ({
               title: board.title,

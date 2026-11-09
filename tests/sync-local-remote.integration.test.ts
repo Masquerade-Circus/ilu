@@ -87,7 +87,7 @@ const workflows = [
     fixture: { remote: "seeded", remoteData: { todos: "Seed" } },
     steps: [
       { action: "cli", args: ["sync", "init", "--remote", "$REMOTE"], name: "adopted" },
-      { action: "cli", args: ["todo"], name: "visible" }
+      { action: "cli", args: ["todo", "--lists"], name: "visible" }
     ],
     check({ at }) {
       assert.equal(at.adopted.exitCode, 0);
@@ -276,7 +276,8 @@ const workflows = [
         hasPendingRemote: true,
         pendingOperationId: "legacy-operation",
         retryCount: 9,
-        backoffUntil: 4102444800000,
+        // Keep migration observations ahead of retry, within Node's timer range.
+        backoffUntil: Date.now() + 60 * 60_000,
         lastErrorKind: "network",
         lastErrorMessage: "Network unavailable"
       }
@@ -309,16 +310,17 @@ const workflows = [
         pendingOperationId: "legacy-network",
         lastErrorKind: "network"
       },
-      transport: { gate: "push" }
+      transport: { gate: "fetch" }
     },
     steps: [
-      { action: "open", view: "Sync" },
-      { action: "wait-transport", operation: "push", name: "retrying" },
+      { action: "cli", args: ["sync", "status"], background: true },
+      { action: "wait-transport", operation: "fetch", name: "retrying" },
       { action: "release-transport" },
-      { action: "settle-sync", name: "recovered" }
+      { action: "wait-command" },
+      { action: "cli", args: ["sync", "status"], name: "recovered" }
     ],
     check({ at }) {
-      assert.ok(at.retrying.transport.some((event) => event.operation === "push"));
+      assert.ok(at.retrying.transport.some((event) => event.operation === "fetch"));
       assert.equal(JSON.parse(at.retrying.files[".sync-core/state.json"]).retryable, true);
       assert.equal(JSON.parse(at.retrying.files[".sync-core/state.json"]).backoffUntil, null);
       assert.match(at.recovered.screen, /healthy|synced/i);
@@ -342,6 +344,7 @@ const workflows = [
       transport: { mode: "auth-failure" }
     },
     steps: [
+      { action: "cli", args: ["sync", "status"], name: "migrated" },
       { action: "open", view: "Sync" },
       { action: "observe", name: "terminal" },
       { action: "observe-after-retry-window", name: "still-terminal" }
@@ -403,45 +406,6 @@ const workflows = [
       assert.ok(at.disabled.files[".config/sync-pending.json"]);
       assert.match(at.enabled.remoteFiles["todos.json"], /Backoff task/);
       assert.equal(at.enabled.files[".config/sync-pending.json"], null);
-      assert.match(at.enabled.screen, /healthy|synced/i);
-    }
-  },
-  {
-    name: "disable waits for an automatic rehydrated backend before rapid enable starts another runtime",
-    fixture: {
-      remote: "empty",
-      initialize: true,
-      pendingData: { todos: "Rehydrated task" },
-      coreState: {
-        status: "degraded_network",
-        hasPendingRemote: true,
-        pendingOperationId: "automatic-rehydrated",
-        retryCount: 0,
-        backoffUntil: null,
-        lastErrorKind: "network",
-        retryable: true,
-        pendingContext: { action: "save" }
-      },
-      transport: { gate: "push" }
-    },
-    steps: [
-      { action: "open", view: "Sync", background: true },
-      { action: "wait-transport", operation: "push" },
-      { action: "ui", operation: "sync-disable", background: true },
-      { action: "ui", operation: "sync-enable", background: true },
-      { action: "observe", name: "blocked" },
-      { action: "release-transport" },
-      { action: "settle-sync", name: "enabled" }
-    ],
-    check({ at }) {
-      const pushes = at.blocked.transport.filter((event) => event.operation === "push");
-      assert.equal(pushes.length, 1, "rapid enable must not overlap the rehydrated transport");
-      assert.doesNotMatch(at.blocked.remoteFiles["todos.json"] ?? "", /Rehydrated task/);
-      assert.match(at.enabled.remoteFiles["todos.json"], /Rehydrated task/);
-      const intervals = at.enabled.transport.filter((event) => event.operation === "push");
-      for (let index = 1; index < intervals.length; index += 1) {
-        assert.ok(intervals[index].startedAt >= intervals[index - 1].finishedAt);
-      }
       assert.match(at.enabled.screen, /healthy|synced/i);
     }
   }

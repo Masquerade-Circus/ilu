@@ -110,6 +110,69 @@ const cases = [
 
 for (const entry of cases) {
   test(entry.name, { concurrency: false }, async (context) => {
+    if (entry.kind === "invalid-batch") {
+      const result = await captureIluScenario({
+        testName: context.name,
+        scenario: "syncWorkflow",
+        command: ["sh"],
+        viewport: { cols: 140, rows: 46 },
+        input: {
+          fixture: {
+            remote: "empty",
+            initialize: true,
+            local: {
+              todos: "Inbox",
+              boards: [
+                {
+                  title: "Product",
+                  current: true,
+                  defaultColumnId: "backlog",
+                  columns: ["Backlog", "Ready", "In Progress", "Done"].map((title, index) => ({
+                    id: title.toLowerCase().replaceAll(" ", "-"),
+                    title,
+                    index: index + 1,
+                    wipLimit: null,
+                    cards:
+                      index === 0
+                        ? [
+                            { title: "A", description: "Details A" },
+                            { title: "B", description: "Details B" }
+                          ]
+                        : []
+                  }))
+                }
+              ]
+            },
+            config: { autoPull: true }
+          },
+          steps: [
+            { action: "cli", args: ["board", "--move"], background: true },
+            { action: "cli-input", waitFor: "Select cards to move", name: "before-selection" },
+            { action: "cli-input", press: "ENTER" },
+            { action: "cli-input", waitFor: "at least one", name: "invalid-selection" },
+            { action: "cli-input", press: "CTRL_C", waitForExit: true, name: "cli-result" },
+            { action: "exit" }
+          ]
+        }
+      });
+      assert.equal(result.exitCode, 0);
+      const before = result.at["before-selection"];
+      for (const name of ["invalid-selection", "cli-result"]) {
+        const after = result.at[name];
+        assert.equal(after.files["boards.json"], before.files["boards.json"]);
+        assert.equal(after.remoteHead, before.remoteHead);
+        assert.equal(after.transport.length, before.transport.length);
+        assert.equal(after.files[".config/sync-pending.json"], null);
+      }
+      assert.equal(result.at["cli-result"].exitCode, 1);
+      assertCaptureArtifacts({
+        result,
+        testName: context.name,
+        checkpoints: ["before-selection", "invalid-selection", "cli-result"],
+        diagnostic: (message) => context.diagnostic(message)
+      });
+      return;
+    }
     await withTempHome(
       async (home) => {
         const bin = path.resolve(import.meta.dirname, "..", "bin/cli.js");
@@ -193,7 +256,7 @@ for (const entry of cases) {
                 { type: "Missing column 999" },
                 { waitFor: "No matching", flags: "i" },
                 { checkpoint: "invalid-default" },
-                { press: "ESCAPE" }
+                { press: "CTRL_C" }
               );
               expectedExit = 1;
               unchanged = true;
@@ -328,7 +391,7 @@ for (const entry of cases) {
               { press: "ENTER" },
               { waitFor: "whole|integer|number|minimum|least", flags: "i" },
               { checkpoint: `invalid-wip-${value}` },
-              { press: "ESCAPE" }
+              { press: "CTRL_C" }
             );
           }
           unchanged = true;
@@ -346,7 +409,7 @@ for (const entry of cases) {
             { type: "Absent selection 999" },
             { waitFor: "No matching", flags: "i" },
             { checkpoint: "absent-selection" },
-            { press: "ESCAPE" }
+            { press: "CTRL_C" }
           );
           expectedExit = 1;
           unchanged = true;
@@ -359,7 +422,7 @@ for (const entry of cases) {
           command = ["env", `HOME=${home}`, "node", bin, "board", "--move"];
           steps.push(
             { waitFor: "Select cards to move" },
-            { checkpoint: "before-selection", observeSync: entry.kind === "invalid-batch" }
+            { checkpoint: "before-selection", ...(entry.kind === "invalid-batch" ? { observeSync: true } : {}) }
           );
           if (entry.kind === "invalid-batch") {
             steps.push(

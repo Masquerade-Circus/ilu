@@ -4,10 +4,12 @@ import { activeDataConflict, beginDataRecovery, DataConflictError } from '../syn
 import * as __cjsImport139 from './local-paths.ts';
 const { dbFilePath } = __cjsImport139;
 IluDb.use(IluDbNodeJsonPlugin);
+const loadedDatabases = new Set<ReturnType<typeof IluDb>>();
 
 function loadDb(dbname: string) {
     let filePath = dbFilePath(dbname);
     let database = IluDb(filePath);
+    loadedDatabases.add(database);
     let originalGetCollection = database.getCollection.bind(database);
 
     database.getCollection = function getCollection<TCollection extends object = IluDb.Document>(name: string) {
@@ -44,5 +46,11 @@ function loadDb(dbname: string) {
     return database;
 }
 
-export { DataConflictError, loadDb };
+function reloadLoadedDatabases() {
+    for (const database of loadedDatabases) {
+        database.reload();
+    }
+}
+
+export { DataConflictError, loadDb, reloadLoadedDatabases };
 export default loadDb;

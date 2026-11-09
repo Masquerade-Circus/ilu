@@ -23,6 +23,7 @@
     "utils/",
     "cli.ts",
     "tsconfig.json",
+    "support/patch-terminal.ts",
     "!**/*.test.ts",
     "!**/tests/"
   ],
@@ -33,6 +34,7 @@
     "node": ">=20.11.0"
   },
   "scripts": {
+    "postinstall": "node --import tsx ./support/patch-terminal.ts",
     "lint": "eslint .",
     "test": "node --import tsx --import ./support/test-home-guard.ts --test tests/*.test.ts tests/test-helpers/*.test.ts translate/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",

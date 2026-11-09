@@ -212,7 +212,6 @@ for (const entry of cases) {
           }))
         }));
         const board = {
-          $id: 1,
           index: 1,
           current: true,
           title: "Product",
@@ -378,7 +377,7 @@ for (const entry of cases) {
                   steps.push(
                     { waitFor: "whole|integer", flags: "i" },
                     { checkpoint: "invalid-wip" },
-                    { press: "ESCAPE" }
+                    { press: "CTRL_C" }
                   );
                 }
               }

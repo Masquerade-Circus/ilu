@@ -57,7 +57,16 @@ export function createCaptureScreenReader({ directory }) {
             } else if (value === 38 && values[index + 1] === 5) {
               foreground = null;
               index += 2;
-            } else if (value === 48 || (value >= 40 && value <= 47) || (value >= 100 && value <= 107)) {
+            } else if (value === 48 && values[index + 1] === 5) {
+              const color = values[index + 2];
+              if (!Number.isInteger(color) || color < 0 || color > 255) {
+                throw new Error("Invalid indexed background in the captured PTY");
+              }
+              background = `ansi:${color}`;
+              index += 2;
+            } else if ((value >= 40 && value <= 47) || (value >= 100 && value <= 107)) {
+              background = `ansi:${value >= 100 ? value - 100 + 8 : value - 40}`;
+            } else if (value === 48) {
               throw new Error("Unsupported captured background palette");
             }
           }
