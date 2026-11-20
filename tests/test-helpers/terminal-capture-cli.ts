@@ -98,9 +98,6 @@ export async function runCliSequence({ app, screen, home, workspaceRoot, expectS
   const initialFiles = readFiles();
   const observations = [];
   const frames = {};
-  await app.type("stty -echo; PS1=''; printf '\\033[2J\\033[H'");
-  await app.press("ENTER");
-  await screen();
   for (const [index, command] of input.commands.entries()) {
     for (const operation of command.before ?? []) {
       if (Object.hasOwn(operation, "files")) {
@@ -134,13 +131,13 @@ export async function runCliSequence({ app, screen, home, workspaceRoot, expectS
       return `${key}=${quote(value)}`;
     });
     const args = ["node", input.cli, ...command.args].map(quote).join(" ");
-    const script = path.join(workspaceRoot, `cli-${index + 1}.sh`);
+    const script = `c${index + 1}`;
     fs.writeFileSync(
-      script,
-      `cd ${quote(home)}\nprintf '\\033[2J\\033[H'\n${environment.join(" ")} ILU_CAPTURE_HTTP_INDEX=${index} ${args}\nprintf '%s' "$?" > ${quote(statusPath)}\n`,
+      path.join(workspaceRoot, script),
+      `stty -echo\ncd ${quote(home)} || exit 1\nprintf '\\033[2J\\033[H'\n${environment.join(" ")} ILU_CAPTURE_HTTP_INDEX=${index} ${args}\nprintf '%s' "$?" > ${quote(`${statusPath}.tmp`)} && mv -- ${quote(`${statusPath}.tmp`)} ${quote(statusPath)}\n`,
       { mode: 0o600, flag: "wx" }
     );
-    await app.type(`. ../../cli-${index + 1}.sh`);
+    await app.type(`sh ${script}`);
     await app.press("ENTER");
     for (const step of command.steps ?? []) {
       assert.equal(Object.keys(step).length, 1, "CLI sequence steps require one operation");

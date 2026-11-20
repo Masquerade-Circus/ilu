@@ -420,7 +420,14 @@ const cases = [
       { data: { domain: "boards", currentTitle: "Launch board" } },
       { screenshot: "outcome" },
       { key: "ESCAPE" },
-      { expect: { text: "Card", absent: "Ops card" } }
+      { expect: { text: "Card", absent: "Ops card" } },
+      { click: "Ops board" },
+      { expect: { text: "Ops card", absent: "Card" } },
+      { data: { domain: "boards", currentTitle: "Ops board" } },
+      { restartAppNormally: true },
+      { key: "CTRL_3" },
+      { expect: { text: "Ops card" } },
+      { data: { domain: "boards", currentTitle: "Ops board" } }
     ],
     fixture: "block-target-after-start",
     journey: ["Block boards storage after startup", "Select Ops board", "Observe failure without internal details"],
@@ -430,6 +437,44 @@ const cases = [
       boardsUnchanged: true,
       leakedPrivateDetails: false
     }
+  },
+  {
+    name: "board deletion preserves selection after a rejected write and permits a complete retry",
+    caseId: "board-deletion-write-retry",
+    journey: ["Reject deletion while storage is blocked", "Restore storage and retry without restarting", "Inspect fallback after restart and select the remaining board"],
+    expected: { rejectedDeletionPreservesData: true, retryPersistsDeletion: true },
+    seedBoards: [
+      { title: "Launch board", current: true, columns: [{ title: "Backlog", cards: [{ title: "Launch card" }] }] },
+      { title: "Ops board", current: false, columns: [{ title: "Queue", cards: [{ title: "Ops card" }] }] },
+      { title: "Archive board", current: false, columns: [{ title: "Archive", cards: [] }] }
+    ],
+    steps: [
+      { key: "CTRL_3" },
+      { doubleClick: "Launch board" },
+      { click: "Delete board", area: "overlay", occurrence: -1 },
+      { remember: ["boards"] },
+      { storageFault: { domain: "boards", kind: "deny-write" } },
+      { screenshot: "condition" },
+      { click: "Delete board", area: "overlay", occurrence: -1 },
+      { expect: { error: true, absentPattern: "EACCES|node_modules|stack trace" } },
+      { storageFault: { domain: "boards", kind: "restore" } },
+      { unchanged: ["boards"] },
+      { data: { domain: "boards", currentTitle: "Launch board" } },
+      { key: "ESCAPE" },
+      { doubleClick: "Launch board" },
+      { click: "Delete board", area: "overlay", occurrence: -1 },
+      { click: "Delete board", area: "overlay", occurrence: -1 },
+      { data: { domain: "boards", absentBoard: "Launch board" } },
+      { data: { domain: "boards", currentTitle: "Ops board" } },
+      { expect: { text: "Ops card", absent: "Launch card" } },
+      { restartAppNormally: true },
+      { key: "CTRL_3" },
+      { data: { domain: "boards", absentBoard: "Launch board" } },
+      { data: { domain: "boards", currentTitle: "Ops board" } },
+      { click: "Archive board" },
+      { data: { domain: "boards", currentTitle: "Archive board" } },
+      { screenshot: "outcome" }
+    ]
   },
   {
     name: "useBoard forwards numeric iludb ids without string coercion",

@@ -1,14 +1,52 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { TEST_TMP_ROOT, assertRepoTempHome, setTestHome, withTempHome } from "../../support/home-sandbox.ts";
 import { captureIluScenario } from "./terminal-capture.ts";
 import { assertCaptureArtifacts } from "./terminal-capture-scenarios.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+
+function startGuardedCli(entrypoint: string) {
+  const script = `
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { assertRepoTempHome } from './support/home-sandbox.ts';
+    const home = assertRepoTempHome(process.env.HOME);
+    const sentinel = path.join(home, 'guard-integration-sentinel');
+    const stale = fs.existsSync(sentinel);
+    fs.writeFileSync(sentinel, process.argv[1]);
+    process.send({ home, stale });
+    for await (const chunk of process.stdin) {
+      throw new Error('Expected EOF, not fixture input');
+    }
+    process.argv.splice(1, 1, './bin/cli.js', '--version');
+    await import('./bin/cli.js');
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--import", "./support/test-home-guard.ts", "--input-type=module", "--eval", script, entrypoint],
+    { cwd: repoRoot, env: { HOME: "", PATH: process.env.PATH ?? "" }, stdio: ["pipe", "pipe", "pipe", "ipc"] }
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+  child.stderr.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+  const closed = once(child, "close").then(([code, signal]) => ({ code, signal, output }));
+  const ready = Promise.race([
+    once(child, "message").then(([message]) => ({
+      kind: "ready" as const,
+      ...(message as { home: string; stale: boolean })
+    })),
+    closed.then((result) => ({ kind: "closed" as const, ...result }))
+  ]);
+  return { finish: () => child.stdin.end(), closed, ready };
+}
 
 // The preload prepares synthetic persistence before invoking the real CLI.
 // It validates HOME before any model import. It never renders a test report.
@@ -121,6 +159,79 @@ test("test-home-guard reemplaza HOME real por un sandbox bajo tmp del repo", asy
       assert.deepEqual(entries, firstEntries, "guarded CLI executions must not accumulate random HOME directories");
     }
     context.diagnostic(`Guard iteration ${iteration}: HOME=${observedHome}`);
+  }
+});
+
+test("test-home-guard protege un HOME activo y deja avanzar otro entrypoint", async () => {
+  const entrypoint = "tests/test-helpers/guard-isolation-owner.fixture";
+  const owner = startGuardedCli(entrypoint);
+  try {
+    const held = await owner.ready;
+    assert.equal(held.kind, "ready", JSON.stringify(held));
+    if (held.kind !== "ready") {
+      return;
+    }
+    const contender = startGuardedCli(entrypoint);
+    const independent = startGuardedCli("tests/test-helpers/guard-isolation-independent.fixture");
+    try {
+      const observed = await Promise.race([
+        Promise.all([contender.ready, independent.ready]),
+        delay(10_000, null, { ref: false })
+      ]);
+      assert.ok(observed, "contention must resolve and a different entrypoint must start while the owner is live");
+      const [collision, other] = observed;
+      assert.equal(collision.kind, "closed", "the contender must not enter the active HOME");
+      if (collision.kind === "closed") {
+        assert.equal(collision.signal, null, collision.output);
+        assert.notEqual(collision.code, 0, collision.output);
+      }
+      assert.equal(other.kind, "ready", JSON.stringify(other));
+      if (other.kind === "ready") {
+        assert.notEqual(other.home, held.home, "independent entrypoints must have distinct HOMEs");
+      }
+      assert.equal(fs.readFileSync(path.join(held.home, "guard-integration-sentinel"), "utf8"), entrypoint);
+      independent.finish();
+      const result = await independent.closed;
+      assert.equal(result.code, 0, result.output);
+    } finally {
+      contender.finish();
+      independent.finish();
+      owner.finish();
+      await Promise.all([contender.closed, independent.closed]);
+    }
+  } finally {
+    owner.finish();
+    await owner.closed;
+  }
+  const result = await owner.closed;
+  assert.equal(result.code, 0, result.output);
+});
+
+test("test-home-guard recupera la misma ruta con un marcador legado abandonado", async () => {
+  const entrypoint = "tests/test-helpers/guard-isolation-recovery.fixture";
+  const first = startGuardedCli(entrypoint);
+  first.finish();
+  const original = await first.ready;
+  const initialResult = await first.closed;
+  assert.equal(initialResult.code, 0, initialResult.output);
+  assert.equal(original.kind, "ready", JSON.stringify(original));
+  if (original.kind !== "ready") {
+    return;
+  }
+  // Reproduce the files left by the previous guard without signaling a process.
+  const legacyMarker = path.join(original.home, ".active");
+  const sentinel = path.join(original.home, "guard-integration-sentinel");
+  fs.writeFileSync(sentinel, "synthetic abandoned data");
+  fs.writeFileSync(legacyMarker, "active", { flag: "wx", mode: 0o600 });
+  try {
+    const next = startGuardedCli(entrypoint);
+    next.finish();
+    const recovered = await next.ready;
+    const result = await next.closed;
+    assert.equal(result.code, 0, `the abandoned HOME must be usable again: ${result.output}`);
+    assert.deepEqual(recovered, { kind: "ready", home: original.home, stale: false });
+  } finally {
+    fs.rmSync(legacyMarker, { force: true });
   }
 });
 

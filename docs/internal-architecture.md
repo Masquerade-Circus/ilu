@@ -79,11 +79,13 @@ Los archivos principales son:
 - `~/.ilu/.config/sync-state.json`
 - `~/.ilu/.config/tts-config.json`
 
-`utils/load-db.ts` configura `iludb` con el plugin JSON de Node y abre los modelos basados en archivo.
+`utils/load-db.ts` crea una instancia de `iludb@3.0.0` con el adaptador `node-json` y carga su archivo mediante `load()`. El acceso permanece síncrono. El cargador integra los conflictos tanto de mutaciones individuales como de commits de transacciones con la recuperación de `ilu`.
 
 `todos/model.ts` y `notes/model.ts` usan `utils/create-list-model.ts`. Ese factory cubre listas activas, colecciones anidadas, etiquetas, reordenamiento básico, marcado de tareas y notificación de sync después de persistir.
 
 `scrumban/model.ts` mantiene boards, columnas y cards. Los boards nuevos se crean con columnas default cuando no reciben columnas. Cada board guarda `defaultColumnId`, columnas con `id`, `title`, `wipLimit`, `cards` e índices normalizados.
+
+Los modelos de listas y boards usan transacciones para cambiar la selección, borrar uno o varios elementos y renumerar. El borrado y la selección del primer elemento restante, si hace falta, forman un mismo commit. Los callbacks usan exclusivamente las colecciones de la transacción. La notificación de sync ocurre después del commit exitoso. Una validación o escritura rechazada conserva el estado confirmado anterior.
 
 `clocks/model.ts` lee y escribe `clocks.json` directamente con `fs`. Después de escribir, notifica sync con el dominio `clocks`.
 

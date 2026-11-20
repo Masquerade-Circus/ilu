@@ -172,15 +172,7 @@ let BoardLists = {
             : await selectBoardIndexes('Select the boards to remove');
 
         let items = indexes.map((position: number) => BoardLists.get(position));
-        items.forEach((item: BoardItem) => Model.remove(item));
-
-        let current = Model.getCurrent();
-        if (!current) {
-            let first = Model.getFirst();
-            if (first) {
-                Model.use(first.$id ?? first.id ?? first.index);
-            }
-        }
+        Model.remove(items);
 
         let message = indexes.length === 1
             ? `The board "${indexes[0]}" has been removed.`

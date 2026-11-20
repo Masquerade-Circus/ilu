@@ -753,9 +753,11 @@ async function runTtsAdapter(context, input) {
   const start = async () => {
     const script = path.join(workspace, `speech-ui-${++launches}.sh`);
     status = path.join(workspace, `speech-ui-${launches}.status`);
+    const pendingStatus = `${status}.tmp`;
+    // The existence check must only see the status after its contents are written.
     fs.writeFileSync(
       script,
-      `printf '\\033[2J\\033[H'\nnode ${quote(path.resolve(import.meta.dirname, "..", "..", "bin", "cli.js"))} ui\nprintf '%s' "$?" > ${quote(status)}\n`,
+      `printf '\\033[2J\\033[H'\nnode ${quote(path.resolve(import.meta.dirname, "..", "..", "bin", "cli.js"))} ui\nprintf '%s' "$?" > ${quote(pendingStatus)} && mv -- ${quote(pendingStatus)} ${quote(status)}\n`,
       { flag: "wx", mode: 0o600 }
     );
     await app.type(`. ${quote(script)}`);

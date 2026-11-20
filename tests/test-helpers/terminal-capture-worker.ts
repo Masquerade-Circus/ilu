@@ -69,7 +69,7 @@ try {
   }
   if (request.scenario === "cliSequence") {
     const prepared = prepareCliSequence({ workspaceRoot: outputDir, input: request.input });
-    cliHome = prepared.home;
+    cliHome = outputDir;
     cliSync = prepared.sync;
     if (cliSync !== null) {
       const { HOME, ...gitEnvironment } = cliSync.environment;
@@ -307,6 +307,22 @@ if (operation) {
   };
   const interactions = {
     ...app,
+    async type(text: string) {
+      if (typeof text !== "string" || text.includes("\0")) {
+        throw new Error("Expected literal text without NUL");
+      }
+      // The backend remaps the same X11 keycode for successive literal characters.
+      // Use fixed physical keys where possible so queued events retain their identity.
+      for (const character of text) {
+        if (/^[A-Z]$/.test(character)) {
+          await app.press(`SHIFT_${character}`);
+        } else if (/^[a-z0-9]$/.test(character) || character === " ") {
+          await app.press(character === " " ? "SPACE" : character);
+        } else {
+          await app.type(character);
+        }
+      }
+    },
     async screenshot({ name }) {
       const file = await app.screenshot({ name });
       screenshots[name] = file;

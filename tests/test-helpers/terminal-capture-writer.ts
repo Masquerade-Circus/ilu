@@ -15,8 +15,9 @@ assert.equal(typeof change.list, "string");
 for (const key of Object.keys(change)) {
   assert.ok(["domain", "list", "remove", "description", "items", "prependItem"].includes(key));
 }
-IluDb.use(JsonPlugin);
-const collection = IluDb(path.join(home, ".ilu", `${change.domain}.json`)).getCollection(change.domain);
+const database = IluDb({ adapter: JsonPlugin });
+database.load(path.join(home, ".ilu", `${change.domain}.json`));
+const collection = database.getCollection(change.domain);
 const list = collection.findOne({ title: change.list });
 assert.equal(typeof list, "object");
 assert.notEqual(list, null);
@@ -46,3 +47,4 @@ if (change.remove === true) {
   }));
   collection.update(updated);
 }
+database.close();

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { ensureTestDirectory, openReusableTestDirectory } from "./reusable-test-directory.ts";
 const REAL_HOME = path.resolve(os.userInfo().homedir);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_TMP_ROOT = path.join(REPO_ROOT, "tmp");
@@ -73,45 +74,23 @@ async function withTempHome<T>(
   }
   const parent = path.join(TEST_TMP_ROOT, "test-fixture-homes", prefix);
   for (const directory of [TEST_TMP_ROOT, path.dirname(parent), parent]) {
-    const existing = fs.lstatSync(directory, { throwIfNoEntry: false });
-    if (typeof existing === "object" && !existing.isDirectory()) {
-      throw new Error("Fixture HOME parents must be directories, not symbolic links");
-    }
-    if (typeof existing !== "object") {
-      fs.mkdirSync(directory, { mode: 0o700 });
-    }
+    ensureTestDirectory(directory);
   }
   const tempHome = path.join(parent, name);
-  const marker = path.join(tempHome, ".ilu-fixture-home");
-  const active = path.join(tempHome, ".active");
-  const existing = fs.lstatSync(tempHome, { throwIfNoEntry: false });
-  if (typeof existing === "object") {
-    if (
-      !existing.isDirectory() ||
-      !fs.lstatSync(marker).isFile() ||
-      fs.readFileSync(marker, "utf8") !== options.testName
-    ) {
-      throw new Error("Refusing to reset a fixture HOME not owned by this test");
-    }
-  } else {
-    fs.mkdirSync(tempHome, { mode: 0o700 });
-    fs.writeFileSync(marker, options.testName, { flag: "wx", mode: 0o600 });
-  }
-  fs.writeFileSync(active, "active", { flag: "wx", mode: 0o600 });
+  const fd = openReusableTestDirectory({ directory: tempHome, markerName: ".ilu-fixture-home", owner: options.testName });
   let restoreHome: (() => void) | null = null;
   try {
-    for (const entry of fs.readdirSync(tempHome)) {
-      if (entry !== ".ilu-fixture-home" && entry !== ".active") {
-        fs.rmSync(path.join(tempHome, entry), { recursive: true, force: true });
-      }
-    }
     restoreHome = setTestHome(tempHome);
     return await run(tempHome);
   } finally {
     if (typeof restoreHome === "function") {
       restoreHome();
     }
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 }
 

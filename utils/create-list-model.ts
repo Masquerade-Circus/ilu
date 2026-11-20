@@ -29,26 +29,29 @@ type ListInput = {
 };
 
 type Collection = {
-    get: (id: CollectionId) => ListItem;
+    get: (id: CollectionId) => ListItem | null;
     find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
-    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
+    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem | null;
     add: (item: Record<string, unknown>) => ListItem;
     update: (item: ListItem) => ListItem;
     remove: (item: ListItem) => void;
     count: () => number;
 };
 
-type Database = {getCollection: (name: string) => Collection};
+type Database = {
+    getCollection: (name: string) => Collection;
+    transaction: <TResult>(mutate: (tx: {getCollection: (name: string) => Collection}) => TResult) => TResult;
+};
 type ListModelCore = {
     collection: Collection;
-    get: (id: CollectionId) => ListItem;
+    get: (id: CollectionId) => ListItem | null;
     find: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem[];
-    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem;
+    findOne: (query?: Record<string, unknown>, options?: Record<string, unknown>) => ListItem | null;
     add: (item: ListInput) => ListItem;
     save: (item: ListItem) => ListItem;
-    remove: (item?: ListItem) => void;
-    getCurrent: () => ListItem;
-    getFirst: () => ListItem;
+    remove: (item?: ListItem | ListItem[]) => void;
+    getCurrent: () => ListItem | null;
+    getFirst: () => ListItem | null;
     getLast: () => ListItem;
     updateIndexes: () => void;
     use: (id: CollectionId) => ListItem;
@@ -201,15 +204,23 @@ function createListModel<ItemKey extends string>({dbName, collectionName, itemKe
             afterPersist('save');
             return saved;
         },
-        remove(item?: ListItem) {
-            if (item === void 0) {
-                Model.collection.find().forEach((item) => Model.collection.remove(item));
-                afterPersist('remove');
-                return;
-            }
-
-            Model.collection.remove(item);
-            Model.updateIndexes();
+        remove(item?: ListItem | ListItem[]) {
+            DB.transaction((tx) => {
+                let collection = tx.getCollection(collectionName);
+                let removed = item === void 0 ? collection.find() : Array.isArray(item) ? item : [item];
+                for (const list of removed) {
+                    collection.remove(list);
+                }
+                let remaining = collection.find({}, {sort: {index: 1}});
+                let needsCurrent = !remaining.some((list) => list.current);
+                remaining.forEach((list, index) => {
+                    list.index = index + 1;
+                    if (needsCurrent && index === 0) {
+                        list.current = true;
+                    }
+                    collection.update(list);
+                });
+            });
             afterPersist('remove');
         },
         getCurrent() {
@@ -223,22 +234,28 @@ function createListModel<ItemKey extends string>({dbName, collectionName, itemKe
             return lists[lists.length - 1] as ListItem;
         },
         updateIndexes() {
-            let items = Model.find();
-            items.forEach((item, index) => {
-                item.index = index + 1;
-                Model.collection.update(item);
+            DB.transaction((tx) => {
+                let collection = tx.getCollection(collectionName);
+                collection.find({}, {sort: {index: 1}}).forEach((item, index) => {
+                    item.index = index + 1;
+                    collection.update(item);
+                });
             });
         },
         use(id: string | number) {
-            let prevCurrent = Model.find({current: true});
-            prevCurrent.forEach((item) => {
-                item.current = false;
-                Model.collection.update(item);
+            let saved = DB.transaction((tx) => {
+                let collection = tx.getCollection(collectionName);
+                let current = collection.get(id);
+                if (current === null) {
+                    throw new Error('The list does not exist');
+                }
+                for (const item of collection.find({current: true})) {
+                    item.current = false;
+                    collection.update(item);
+                }
+                current.current = true;
+                return collection.update(current);
             });
-
-            let current = Model.get(id);
-            current.current = true;
-            let saved = Model.collection.update(current);
             afterPersist('use');
             return saved;
         }

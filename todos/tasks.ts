@@ -7,7 +7,7 @@ import find from 'lodash/find.js';
 import * as __cjsImport116 from '../utils/prompt-index-selection.ts';
 const { selectOne, selectMany } = __cjsImport116;
 
-type TodoList = ReturnType<typeof Model.getCurrent>;
+type TodoList = NonNullable<ReturnType<typeof Model.getCurrent>>;
 type TodoTask = TodoList['tasks'][number];
 type TodoLabel = TodoList['labels'][number];
 type PromptQuestions = Parameters<typeof prompts.prompt>[0];

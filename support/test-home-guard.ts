@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { TEST_TMP_ROOT } from "./home-sandbox.ts";
+import { ensureTestDirectory, openReusableTestDirectory } from "./reusable-test-directory.ts";
 
 const realHome = path.resolve(os.userInfo().homedir);
 const currentHome = process.env.HOME;
@@ -19,37 +19,10 @@ if (typeof currentHome !== "string" || currentHome.trim() === "" || path.resolve
   }
   const parent = path.join(TEST_TMP_ROOT, "test-runner-homes");
   for (const directory of [TEST_TMP_ROOT, parent]) {
-    const existing = fs.lstatSync(directory, { throwIfNoEntry: false });
-    if (typeof existing === "object" && !existing.isDirectory()) {
-      throw new Error("Test HOME parents must be directories, not symbolic links");
-    }
-    if (typeof existing !== "object") {
-      fs.mkdirSync(directory, { mode: 0o700 });
-    }
+    ensureTestDirectory(directory);
   }
   const home = path.join(parent, name);
-  const marker = path.join(home, ".ilu-test-home");
-  const active = path.join(home, ".active");
-  const existing = fs.lstatSync(home, { throwIfNoEntry: false });
-  if (typeof existing === "object") {
-    if (!existing.isDirectory() || !fs.lstatSync(marker).isFile() || fs.readFileSync(marker, "utf8") !== entrypoint) {
-      throw new Error("Refusing to reset a test HOME not owned by this entrypoint");
-    }
-  } else {
-    fs.mkdirSync(home, { mode: 0o700 });
-    fs.writeFileSync(marker, entrypoint, { mode: 0o600, flag: "wx" });
-  }
-  fs.writeFileSync(active, "active", { mode: 0o600, flag: "wx" });
-  try {
-    for (const name of fs.readdirSync(home)) {
-      if (name !== ".ilu-test-home" && name !== ".active") {
-        fs.rmSync(path.join(home, name), { recursive: true, force: true });
-      }
-    }
-    process.env.HOME = home;
-    process.once("exit", () => fs.unlinkSync(active));
-  } catch (error) {
-    fs.unlinkSync(active);
-    throw error;
-  }
+  // The preload owns this HOME for the entire life of the runner process.
+  openReusableTestDirectory({ directory: home, markerName: ".ilu-test-home", owner: entrypoint });
+  process.env.HOME = home;
 }

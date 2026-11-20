@@ -53,9 +53,9 @@ type BoardQuery = Record<string, unknown>;
 type BoardFindOptions = {sort?: Record<string, 1 | -1>};
 
 type BoardCollection = {
-    get(id: BoardId): BoardItem;
+    get(id: BoardId): BoardItem | null;
     find(query?: BoardQuery, options?: BoardFindOptions): BoardItem[];
-    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem;
+    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem | null;
     update(board: BoardItem): BoardItem;
     add(board: BoardItem): BoardItem;
     remove(board: BoardItem): void;
@@ -83,15 +83,15 @@ type BoardModel = {
     collection: BoardCollection;
     columns: BoardColumnActions;
     cards: BoardCardActions;
-    get(id: BoardId): BoardItem;
+    get(id: BoardId): BoardItem | null;
     find(query?: BoardQuery, options?: BoardFindOptions): BoardItem[];
-    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem;
+    findOne(query?: BoardQuery, options?: BoardFindOptions): BoardItem | null;
     save(board: BoardItem): BoardItem;
     add(item: BoardDraft): BoardItem;
-    remove(item?: BoardItem | null): void;
+    remove(item?: BoardItem | BoardItem[] | null): void;
     updateIndexes(): void;
-    getCurrent(): BoardItem;
-    getFirst(): BoardItem;
+    getCurrent(): BoardItem | null;
+    getFirst(): BoardItem | null;
     use(id: BoardId): BoardItem;
     getLast?: unknown;
     addColumn?: unknown;
@@ -291,23 +291,36 @@ let Model = {
 
         return Model.use(board.$id ?? board.id ?? board.index);
     },
-    remove(item?: BoardItem | null) {
-        if (!item) {
-            Model.collection.find().forEach((current: BoardItem) => Model.collection.remove(current));
-            afterPersist('remove');
-            return;
-        }
-
-        Model.collection.remove(item);
-        Model.updateIndexes();
+    remove(item?: BoardItem | BoardItem[] | null) {
+        DB.transaction((tx) => {
+            let collection = tx.getCollection('boards') as BoardCollection;
+            let removed = item === null || item === void 0 ? collection.find() : Array.isArray(item) ? item : [item];
+            for (const board of removed) {
+                collection.remove(board);
+            }
+            let remaining = collection.find({}, {sort: {index: 1}});
+            let needsCurrent = !remaining.some((board) => board.current);
+            remaining.forEach((board, index) => {
+                board.index = index + 1;
+                if (needsCurrent && index === 0) {
+                    board.current = true;
+                }
+                validateDefaultColumn(board);
+                normalizeColumns(board);
+                collection.update(board);
+            });
+        });
         afterPersist('remove');
     },
     updateIndexes() {
-        Model.find().forEach((item: BoardItem, index: number) => {
-            item.index = index + 1;
-            validateDefaultColumn(item);
-            normalizeColumns(item);
-            Model.collection.update(item);
+        DB.transaction((tx) => {
+            let collection = tx.getCollection('boards') as BoardCollection;
+            collection.find({}, {sort: {index: 1}}).forEach((item, index) => {
+                item.index = index + 1;
+                validateDefaultColumn(item);
+                normalizeColumns(item);
+                collection.update(item);
+            });
         });
     },
     getCurrent() {
@@ -317,26 +330,39 @@ let Model = {
         return Model.findOne();
     },
     use(id: BoardId) {
-        Model.find({current: true}).forEach((item: BoardItem) => {
-            item.current = false;
-            validateDefaultColumn(item);
-            normalizeColumns(item);
-            Model.collection.update(item);
+        let saved = DB.transaction((tx) => {
+            let collection = tx.getCollection('boards') as BoardCollection;
+            let current = collection.get(id);
+            if (current === null) {
+                throw new Error('The board does not exist');
+            }
+            for (const item of collection.find({current: true})) {
+                item.current = false;
+                validateDefaultColumn(item);
+                normalizeColumns(item);
+                collection.update(item);
+            }
+            current.current = true;
+            validateDefaultColumn(current);
+            normalizeColumns(current);
+            return collection.update(current);
         });
-
-        let current = Model.get(id);
-        current.current = true;
-        validateDefaultColumn(current);
-        normalizeColumns(current);
-        let saved = Model.collection.update(current);
         afterPersist('use');
         return saved;
     }
 } as BoardModel;
 
+function requireCurrentBoard(): BoardItem {
+    let current = Model.getCurrent();
+    if (current === null) {
+        throw new Error('Choose a board first');
+    }
+    return current;
+}
+
 Model.columns = {
     add(values: BoardColumnInput) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let usedIds = new Set(current.columns.map((column: BoardColumn) => column.id));
         current.columns.push({
             id: ensureUniqueColumnId(sanitizeColumnId(values.id || values.title), usedIds),
@@ -347,7 +373,7 @@ Model.columns = {
         return Model.save(current);
     },
     edit(index: number, values: Partial<BoardColumnInput>) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let column = assertColumn(current, index);
 
         if (typeof values.title === 'string') {
@@ -361,14 +387,14 @@ Model.columns = {
         return Model.save(current);
     },
     setDefault(index: number) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let column = assertColumn(current, index);
 
         current.defaultColumnId = column.id;
         return Model.save(current);
     },
     reorder({fromIndex, toIndex}: {fromIndex: number; toIndex: number}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         assertColumn(current, fromIndex);
         assertColumn(current, toIndex);
         let [column] = current.columns.splice(fromIndex - 1, 1);
@@ -377,7 +403,7 @@ Model.columns = {
         return Model.save(current);
     },
     remove(index: number) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let column = assertColumn(current, index);
 
         if (column.cards.length > 0) {
@@ -392,7 +418,7 @@ Model.columns = {
         return Model.save(current);
     },
     resetSimpleDefault() {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         current.columns = cloneDefaultColumns();
         current.defaultColumnId = DEFAULT_COLUMN_ID;
         return Model.save(current);
@@ -401,7 +427,7 @@ Model.columns = {
 
 Model.cards = {
     add(values: BoardCardInput, {columnIndex}: {columnIndex?: number} = {}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let defaultColumn = getDefaultColumn(current);
         let column = typeof columnIndex === 'number'
             ? assertColumn(current, columnIndex)
@@ -410,7 +436,7 @@ Model.cards = {
         return Model.save(current);
     },
     edit({columnIndex, position, values}: {columnIndex: number; position: number; values: Partial<BoardCardInput>}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let column = assertColumn(current, columnIndex);
         let card = assertCard(column, position);
 
@@ -425,7 +451,7 @@ Model.cards = {
         return Model.save(current);
     },
     remove({columnIndex, positions}: {columnIndex: number; positions: Iterable<number>}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let column = assertColumn(current, columnIndex);
         [...positions].forEach((position: number) => assertCard(column, position));
         [...positions]
@@ -436,7 +462,7 @@ Model.cards = {
         return Model.save(current);
     },
     moveMany({cards, toColumn}: {cards: Array<{fromColumn: number; fromPosition: number}>; toColumn: number}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let targetColumn = assertColumn(current, toColumn);
         let seenSelections = new Set<string>();
         let selections = [...cards]
@@ -501,7 +527,7 @@ Model.cards = {
         return Model.save(current);
     },
     move({fromColumn, fromPosition, toColumn, toPosition}: {fromColumn: number; fromPosition: number; toColumn: number; toPosition?: number}) {
-        let current = Model.getCurrent();
+        let current = requireCurrentBoard();
         let originColumn = assertColumn(current, fromColumn);
         let targetColumn = assertColumn(current, toColumn);
         let card = assertCard(originColumn, fromPosition);

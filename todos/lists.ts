@@ -107,17 +107,7 @@ let Lists = {
 
         let items = indexes.map((index: number) => Lists.get(index));
 
-        items.forEach((item) => {
-            Model.remove(item);
-        });
-
-        let current = Model.getCurrent();
-        if (!current) {
-            let first = Model.getFirst();
-            if (first) {
-                Model.use(first.$id);
-            }
-        }
+        Model.remove(items);
 
         let message = indexes.length === 1
             ? `The list "${indexes[0]}" has been removed.`

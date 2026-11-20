@@ -287,7 +287,7 @@ All local data and configuration lives under:
 | `~/.ilu/.sync-core/state.json`     | Private state owned by the `sync-core` runtime |
 | `~/.ilu/.config/tts-config.json`   | TTS voice and API configuration                |
 
-Todo, Notes, and Board persistence uses the public `iludb@2.0.0` dependency. Its revision checks detect when another process or tool changes a file after `ilu` has loaded it.
+Todo, Notes, and Board persistence uses the public `iludb@3.0.0` dependency with its synchronous Node.js adapter. Its revision checks detect when another process or tool changes a file after `ilu` has loaded it. Rejected writes preserve the last committed in-memory state. Selecting a list or board, deleting selected lists or boards, and renumbering the remaining entries use transactions so related changes are saved together. Deletion also selects the first remaining entry when the current one is removed.
 
 When a revision conflict occurs, `ilu` stops the attempted write and preserves the current file. With sync disabled, it reloads the current data from disk. With sync enabled, it first runs the reconciliation flow and then reloads the data. The CLI or TUI asks you to repeat the original action after recovery succeeds. This recovery does not promise an automatic domain-level merge.
 

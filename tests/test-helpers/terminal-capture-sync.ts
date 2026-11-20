@@ -253,11 +253,8 @@ export async function runSyncWorkflow({ app, screen, output, syncFixture, click,
   let stateFaultActive = false;
   const runtimeDirectory = path.join(storageRoot, ".sync-core");
   const runtimeBackup = path.join(workspaceRoot, "runtime-state-backup");
-  const quote = (value) =>
-    `'${String(value)
-      .replace(/'/g, `'"'"'`)
-      .replace(/\n/g, () => "'$'\\n''")
-      .replace(/\r/g, () => "'$'\\r''")}'`;
+  // The script runs under POSIX sh. Single quotes preserve literal line breaks.
+  const quote = (value) => `'${String(value).replace(/'/g, `'"'"'`)}'`;
   const git = (args, cwd = workspaceRoot) =>
     spawnSync(syncFixture.realGit, args, { cwd, env: environment, encoding: "utf8" });
   const transport = () => {
@@ -285,24 +282,29 @@ export async function runSyncWorkflow({ app, screen, output, syncFixture, click,
       assert.ok(Date.now() < deadline, "The real CLI command did not finish");
       await delay(20);
     }
-    return Number(fs.readFileSync(file, "utf8"));
+    const status = fs.readFileSync(file, "utf8");
+    assert.match(status, /^(?:0|[1-9][0-9]{0,2})$/, `Invalid CLI exit marker: ${path.basename(file)}`);
+    const code = Number(status);
+    assert.ok(code <= 255, `CLI exit code out of range: ${path.basename(file)}`);
+    return code;
   };
   const sendCommand = async (args, interactive = false) => {
     const status = path.join(workspaceRoot, `command-status-${++commandNumber}`);
     const command = ["node", cli, ...args].map(quote).join(" ");
-    const script = `c${commandNumber}.sh`;
+    const script = `c${commandNumber}`;
+    // Launch through stable keys only. The shell script still runs inside the real PTY.
     fs.writeFileSync(
       path.join(workspaceRoot, script),
-      `printf '\\033[2J\\033[H'\n${command}\nprintf '%s' "$?" > ${quote(status)}\n`,
+      `stty -echo\nprintf '\\033[2J\\033[H'\n${command}\nprintf '%s' "$?" > ${quote(`${status}.tmp`)} && mv -- ${quote(`${status}.tmp`)} ${quote(status)}\n`,
       { flag: "wx", mode: 0o600 }
     );
-    await app.type(`. ./${script}`);
+    await app.type(`sh ${script}`);
     await app.press("ENTER");
     activeCommand = status;
     if (interactive === true) {
       activeUI = status;
       lastUI = status;
-      await expectScreen((text) => text.includes("Add task"), "The real Sync workspace must start");
+      await expectScreen((text) => text.includes("Add task"), "The real Sync workspace must start", 30000);
       return null;
     }
     if (interactive === "prompt") {
@@ -358,9 +360,6 @@ export async function runSyncWorkflow({ app, screen, output, syncFixture, click,
     }
     return observation;
   };
-  await app.type("stty -echo; PS1=''; printf '\\033[2J\\033[H'");
-  await app.press("ENTER");
-  await screen();
   const closeUI = async (background = false) => {
     assert.notEqual(activeUI, null, "A real workspace must be open before closing it");
     await app.press("ESCAPE");

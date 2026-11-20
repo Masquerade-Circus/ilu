@@ -11,7 +11,6 @@ import { runSyncWorkflow } from "./terminal-capture-sync.ts";
 import { runAdapterBehavior } from "./terminal-capture-adapters.ts";
 import { runConcurrentClockAdds } from "./terminal-capture-clock-writers.ts";
 
-IluDb.use(JsonPlugin);
 const root = path.resolve(import.meta.dirname, "..", "..");
 export const captureCommand = [
   "node",
@@ -26,8 +25,8 @@ export const captureCommand = [
 // The implementation owner supplies the Node/Bun bridge, lifecycle and live PTY screen reader.
 // screen() must describe the CURRENT real application's terminal, never a headless rerender
 // or a search in accumulated output. These fixtures only interact and assert CLI/TUI behavior.
-async function expectScreen({ screen, predicate, message }) {
-  const deadline = Date.now() + 8000;
+async function expectScreen({ screen, predicate, message, timeoutMs = 8000 }) {
+  const deadline = Date.now() + timeoutMs;
   let current = "";
   do {
     current = await screen();
@@ -47,7 +46,8 @@ async function clickText({
   columnOffset = 0,
   occurrence = 0,
   area = "any",
-  exact = false
+  exact = false,
+  count = 1
 }) {
   assert.ok(["any", "nav", "actions", "overlay", "content"].includes(area), `Unknown click area: ${area}`);
   const current = await expectScreen({
@@ -85,15 +85,21 @@ async function clickText({
   });
   const target = matches.at(occurrence);
   assert.ok(target, `Expected target occurrence ${occurrence}: ${text}`);
-  await app.mouse({ action: "press", ...target });
-  await app.mouse({ action: "release", ...target });
+  for (let click = 0; click < count; click++) {
+    await app.mouse({ action: "press", ...target });
+    await app.mouse({ action: "release", ...target });
+  }
 }
 
 function readLists({ home, domain }) {
   const safeHome = assertRepoTempHome(home, "Captured application HOME");
-  return IluDb(path.join(safeHome, ".ilu", `${domain}.json`))
-    .getCollection(domain)
-    .find();
+  const database = IluDb({ adapter: JsonPlugin });
+  try {
+    database.load(path.join(safeHome, ".ilu", `${domain}.json`));
+    return database.getCollection(domain).find();
+  } finally {
+    database.close();
+  }
 }
 
 function readBoardGeometry({ frame }) {
@@ -283,7 +289,8 @@ export const captureScenarios = {
       {
         ...context,
         click: (text, options = {}) => clickText({ ...context, text, ...options }),
-        expectScreen: (predicate, message) => expectScreen({ screen: context.screen, predicate, message })
+        expectScreen: (predicate, message, timeoutMs = 8000) =>
+          expectScreen({ screen: context.screen, predicate, message, timeoutMs })
       },
       input
     );
@@ -293,7 +300,8 @@ export const captureScenarios = {
     await expectScreen({
       screen,
       predicate: (text) => text.includes("Add task"),
-      message: "Workspace must finish starting"
+       message: "Workspace must finish starting",
+       timeoutMs: 30000
     });
     await app.press("CTRL_6");
     await clickText({ ...context, text: "Text to translate (", rowOffset: 1 });
@@ -490,8 +498,7 @@ export const captureScenarios = {
           await screen();
           break;
         case "doubleClickText":
-          await clickText({ ...context, text: step.doubleClickText, occurrence: step.occurrence ?? 0 });
-          await clickText({ ...context, text: step.doubleClickText, occurrence: step.occurrence ?? 0 });
+          await clickText({ ...context, text: step.doubleClickText, occurrence: step.occurrence ?? 0, count: 2 });
           await screen();
           break;
         case "checkpoint":
@@ -534,7 +541,8 @@ export const captureScenarios = {
       await expectScreen({
         screen,
         predicate: (text) => text.includes("Ctrl+K") && text.includes("Add task"),
-        message: "A fresh real workspace must start"
+         message: "A fresh real workspace must start",
+         timeoutMs: 30000
       });
     };
     const closeWorkspace = async () => {
@@ -555,7 +563,8 @@ export const captureScenarios = {
     await expectScreen({
       screen,
       predicate: (text) => text.includes("Ctrl+K") && text.includes("Add task"),
-      message: "The real workspace must finish starting before interaction or data observations"
+       message: "The real workspace must finish starting before interaction or data observations",
+       timeoutMs: 30000
     });
     const remembered = new Map();
     const positions = new Map();
@@ -1437,8 +1446,8 @@ export const captureScenarios = {
             break;
           }
           case "doubleClick":
-            await clickText({ ...context, text: step.doubleClick });
-            await clickText({ ...context, text: step.doubleClick });
+            // Resolve once so a PTY screen wait cannot split the physical gesture.
+            await clickText({ ...context, text: step.doubleClick, count: 2 });
             await screen();
             break;
           case "exitNormally":

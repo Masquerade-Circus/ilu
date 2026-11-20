@@ -248,7 +248,8 @@ for (const entry of cases) {
               "...!? ".repeat(400)
             ];
           }
-          const directory = path.join(home, "dir with space and 'quote'");
+          // Keep spaces and apostrophes without typing an apostrophe and slash back to back.
+          const directory = path.join(home, "dir with space and 'quote' here");
           fs.mkdirSync(directory);
           const sources = inputs.map((_input, index) =>
             path.join(
@@ -578,7 +579,8 @@ for (const entry of cases) {
           await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
         }
       },
-      { prefix: "ilu-tts-physical-", testName: context.name }
+      // The prefix forms a full path segment. A trailing hyphen would precede a slash.
+      { prefix: "ilu-tts-path-entry", testName: context.name }
     );
     assert.equal(process.env.HOME, originalHome);
   });

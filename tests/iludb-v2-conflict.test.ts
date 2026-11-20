@@ -9,11 +9,11 @@ import { assertCaptureArtifacts } from "./test-helpers/terminal-capture-scenario
 
 const cases = [
   {
-    name: "iludb 2 migrates a legacy snapshot without revision and preserves its domain data",
+    name: "iludb migrates a legacy snapshot without revision and preserves its domain data",
     kind: "legacy",
     domain: "todos"
   },
-  { name: "iludb 2 rejects invalid snapshots without overwriting them", kind: "invalid", domain: "notes" },
+  { name: "iludb rejects invalid snapshots without overwriting them", kind: "invalid", domain: "notes" },
   {
     name: "a stale writer fails closed, reconciles through sync and reloads the external snapshot",
     kind: "stale",
@@ -45,7 +45,24 @@ const cases = [
     kind: "rollback",
     domain: "notes"
   },
-  { name: "sync retry enable and recovery share one backend queue", kind: "queue", domain: "boards" }
+  { name: "sync retry enable and recovery share one backend queue", kind: "queue", domain: "boards" },
+  ...["selection", "deletion"].map((operation) => ({
+    name: `CLI board ${operation} rolls back earlier changes when a later board fails validation`,
+    kind: `invalid-board-${operation}`,
+    domain: "boards"
+  })),
+  ...["todos", "notes", "boards"].map((domain) => ({
+    name: `CLI ${domain} commits selection and bulk deletion with fallback and contiguous numbering`,
+    kind: "transaction-success",
+    domain
+  })),
+  ...["todos", "notes", "boards"].flatMap((domain) =>
+    ["selection", "deletion"].map((operation) => ({
+      name: `CLI ${domain} ${operation} preserves the complete external snapshot on conflict`,
+      kind: `conflict-${operation}`,
+      domain
+    }))
+  )
 ];
 
 // The worker must perform these changes against real sandbox files and local
@@ -53,6 +70,157 @@ const cases = [
 // model/recovery methods. Screenshots always show the actual CLI/TUI window.
 for (const entry of cases) {
   test(entry.name, { concurrency: false }, async (context) => {
+    if (entry.kind === "transaction-success") {
+      await withTempHome(async (home) => {
+        const domain = entry.domain;
+        const collection = loadDb(domain).getCollection(domain);
+        for (const [offset, title] of ["First", "Second", "Third", "Fourth"].entries()) {
+          collection.add({
+            title,
+            description: `${title} details`,
+            index: offset + 1,
+            current: offset === 0,
+            labels: [],
+            ...(domain === "boards"
+              ? { defaultColumnId: "backlog", columns: [{ id: "backlog", title: "Backlog", index: 1, wipLimit: null, cards: [] }] }
+              : { [domain === "todos" ? "tasks" : "notes"]: [] })
+          });
+        }
+        const file = path.join(home, ".ilu", `${domain}.json`);
+        const noun = domain === "boards" ? "board" : "list";
+        const command = domain === "todos" ? "todo" : domain === "notes" ? "note" : "board";
+        const result = await captureIluScenario({
+          testName: context.name,
+          scenario: "cliScript",
+          command: [
+            "env", `HOME=${home}`, "sh", "-c",
+            'node "$1" "$2" "$3" && node "$1" "$2" "$4" && node "$1" "$2" "$4" && node "$1" "$2" "$4"',
+            "ilu-transactions", path.resolve(import.meta.dirname, "..", "bin/cli.js"), command,
+            `--use-${noun}`, `--remove-${noun}`
+          ],
+          viewport: { cols: 120, rows: 40 },
+          input: { steps: [
+            { waitFor: `Select the ${noun} to use` },
+            { press: "DOWN" }, { press: "DOWN" }, { press: "ENTER" },
+            { waitFor: "○ 3 Third (current)" },
+            { checkpoint: "selection", files: [file] },
+            { press: "SPACE" }, { press: "DOWN" }, { press: "DOWN" }, { press: "SPACE" }, { press: "ENTER" },
+            { waitFor: "○ 1 Second.*\\n○ 2 Fourth", flags: "" },
+            { checkpoint: "bulk-deletion", files: [file] },
+            { press: "DOWN" }, { press: "SPACE" }, { press: "ENTER" },
+            { waitFor: "○ 1 Second.*\\n\\s+Done", flags: "" },
+            { checkpoint: "noncurrent-deletion", files: [file] },
+            { press: "SPACE" }, { press: "ENTER" }
+          ] }
+        });
+        // The existing CLI reports an empty collection with exit 1 after the last deletion.
+        assert.equal(result.exitCode, 1);
+        const selected = JSON.parse(result.fileSnapshots.selection[file]).collections[domain].data;
+        const afterBulk = JSON.parse(result.fileSnapshots["bulk-deletion"][file]).collections[domain].data;
+        const afterNoncurrent = JSON.parse(result.fileSnapshots["noncurrent-deletion"][file]).collections[domain].data;
+        assert.deepEqual(selected.filter((list) => list.current).map((list) => list.title), ["Third"]);
+        assert.deepEqual(
+          afterBulk.map(({ title, current, index, description }) => ({ title, current, index, description })),
+          [
+            { title: "Second", current: true, index: 1, description: "Second details" },
+            { title: "Fourth", current: false, index: 2, description: "Fourth details" }
+          ]
+        );
+        assert.deepEqual(
+          afterNoncurrent.map(({ title, current, index }) => ({ title, current, index })),
+          [{ title: "Second", current: true, index: 1 }]
+        );
+        assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).collections[domain].data.length, 0);
+        assertCaptureArtifacts({
+          result,
+          testName: context.name,
+          checkpoints: ["selection", "bulk-deletion", "noncurrent-deletion", "cli-result"],
+          diagnostic: (message) => context.diagnostic(message)
+        });
+      }, { prefix: "ilu-transaction-success-", testName: context.name });
+      return;
+    }
+    if (entry.kind.startsWith("invalid-board-")) {
+      await withTempHome(async (home) => {
+        const collection = loadDb("boards").getCollection("boards");
+        for (const [offset, title] of ["First", "Second", "Invalid"].entries()) {
+          collection.add({
+            title,
+            description: "Preserve all boards",
+            index: offset + 1,
+            current: offset === 0,
+            defaultColumnId: offset === 2 ? "missing" : "backlog",
+            columns: [{ id: "backlog", title: "Backlog", index: 1, wipLimit: null, cards: [] }]
+          });
+        }
+        const file = path.join(home, ".ilu", "boards.json");
+        const before = fs.readFileSync(file, "utf8");
+        const selection = entry.kind.endsWith("selection");
+        const result = await captureIluScenario({
+          testName: context.name,
+          scenario: "cliScript",
+          command: ["env", `HOME=${home}`, "node", path.resolve(import.meta.dirname, "..", "bin/cli.js"), "board", selection ? "--use-board" : "--remove-board"],
+          viewport: { cols: 120, rows: 40 },
+          input: { steps: [
+            { waitFor: selection ? "Select the board to use" : "Select the boards to remove" },
+            ...(selection ? [{ press: "DOWN" }, { press: "DOWN" }] : [{ press: "SPACE" }]),
+            { checkpoint: "before-rejection", files: [file] },
+            { press: "ENTER" }
+          ] }
+        });
+        assert.equal(result.exitCode, 1);
+        const boards = JSON.parse(fs.readFileSync(file, "utf8")).collections.boards.data;
+        assert.deepEqual(boards.map(({title, current, index}) => ({title, current, index})), JSON.parse(before).collections.boards.data.map(({title, current, index}) => ({title, current, index})), "A later domain validation failure must not publish deselection, deletion or renumbering");
+        assertCaptureArtifacts({ result, testName: context.name, checkpoints: ["before-rejection", "cli-result"], diagnostic: (message) => context.diagnostic(message) });
+      }, { prefix: "ilu-transaction-validation-", testName: context.name });
+      return;
+    }
+    if (entry.kind.startsWith("conflict-")) {
+      await withTempHome(async (home) => {
+        const domain = entry.domain;
+        const collection = loadDb(domain).getCollection(domain);
+        for (const [offset, title] of ["First", "Second", "Third"].entries()) {
+          collection.add({
+            title,
+            description: "Preserved details",
+            index: offset + 1,
+            current: offset === 0,
+            labels: [],
+            ...(domain === "boards"
+              ? { defaultColumnId: "backlog", columns: [{ id: "backlog", title: "Backlog", index: 1, wipLimit: null, cards: [] }] }
+              : { [domain === "todos" ? "tasks" : "notes"]: [] })
+          });
+        }
+        const file = path.join(home, ".ilu", `${domain}.json`);
+        const external = JSON.parse(fs.readFileSync(file, "utf8"));
+        external.revision += 1;
+        external.collections[domain].data[2].description = "External edit must survive";
+        const externalBytes = JSON.stringify(external);
+        const selection = entry.kind === "conflict-selection";
+        const noun = domain === "boards" ? "board" : "list";
+        const result = await captureIluScenario({
+          testName: context.name,
+          scenario: "cliScript",
+          command: ["env", `HOME=${home}`, "node", path.resolve(import.meta.dirname, "..", "bin/cli.js"), domain === "todos" ? "todo" : domain === "notes" ? "note" : "board", `--${selection ? "use" : "remove"}-${noun}`],
+          viewport: { cols: 120, rows: 40 },
+          input: {
+            steps: [
+              { waitFor: selection ? `Select the ${noun} to use` : `Select the ${noun}s to remove` },
+              { press: "DOWN" },
+              ...(selection ? [] : [{ press: "SPACE" }]),
+              { checkpoint: "before-external", files: [file] },
+              { writeFile: { path: file, content: externalBytes } },
+              { press: "ENTER" }
+            ]
+          }
+        });
+        assert.equal(result.exitCode, 0);
+        assert.equal(fs.readFileSync(file, "utf8"), externalBytes, "Rejected selection/deletion must preserve all external data, selection and numbering");
+        assert.match(result.currentScreen, /repeat|retry|reload|changed|conflict/i);
+        assertCaptureArtifacts({ result, testName: context.name, checkpoints: ["before-external", "cli-result"], diagnostic: (message) => context.diagnostic(message) });
+      }, { prefix: "ilu-operation-conflict-", testName: context.name });
+      return;
+    }
     if (entry.kind === "queue") {
       const result = await captureIluScenario({
         testName: context.name,

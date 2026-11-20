@@ -9,7 +9,7 @@ import * as __cjsImport18 from '../utils/prompt-index-selection.ts';
 const { selectOne, selectMany } = __cjsImport18;
 import promptInlineNote from './inline-note-prompt.ts';
 
-type NotesList = ReturnType<typeof Model.getCurrent>;
+type NotesList = NonNullable<ReturnType<typeof Model.getCurrent>>;
 type NoteItem = NotesList['notes'][number];
 type NoteLabel = NotesList['labels'][number];
 type PromptQuestions = Parameters<typeof prompts.prompt>[0];
